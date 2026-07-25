@@ -35,6 +35,11 @@ const ORDER_ITEMS_ORDER = { referencedTable: 'order_items', ascending: true } as
 
 const ACTIVE_STATUSES = ['pending', 'preparing', 'ready'];
 
+/** Treat a zone-less timestamp filter as UTC; leave one that already states its zone alone. */
+function withUtcDesignator(ts: string): string {
+  return /(?:Z|[+-]\d{2}:?\d{2})$/.test(ts) ? ts : `${ts}Z`;
+}
+
 /** Shared tax resolution: GST is applied only when enabled in settings. */
 async function resolveTaxRate(): Promise<number> {
   const settings = await getAppSettings();
@@ -116,8 +121,14 @@ router.get('/', async (req: AuthRequest, res, next) => {
     // Date filtering is a real indexed predicate: an inequality can be combined
     // with the equality filters above directly in the query, rather than being
     // done in memory over the whole result set.
+    //
+    // `to` is an INCLUSIVE upper bound on created_at. The original contract took a
+    // zone-less timestamp and pinned it to UTC by appending 'Z' — which corrupts a
+    // value that already carries one ('…Z' + 'Z' is not a timestamp Postgres will
+    // parse). Callers now pass a full ISO instant (businessDayBounds().toISO), so
+    // only add the designator when the string genuinely lacks one.
     if (from) query = query.gte('created_at', String(from));
-    if (to) query = query.lte('created_at', `${String(to)}Z`);
+    if (to) query = query.lte('created_at', withUtcDesignator(String(to)));
 
     const { data, error } = await query;
     if (error) throw error;
