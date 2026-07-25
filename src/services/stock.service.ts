@@ -100,7 +100,7 @@ export async function computeStockRows(branchId: string, date: string = business
         balance,
       };
     })
-    .sort((a, b) => a.productName.localeCompare(b.productName));
+    .sort((a, b) => b.balance - a.balance || a.productName.localeCompare(b.productName));
 }
 
 /** Retail sale removes stock. `qty` is positive; recorded as a negative delta. */

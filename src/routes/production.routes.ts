@@ -131,9 +131,12 @@ router.get('/branch-stock', async (_req, res, next) => {
       (balances[s.product_id] ||= {})[s.branch_id] = Number(s.balance ?? 0);
     }
 
+    // Matrix rows have no single qty column — rank by total stock across all branches.
+    const total = (byBranch: Record<string, number>) => Object.values(byBranch).reduce((s, v) => s + v, 0);
+
     const rows = ((productsRes.data ?? []) as { id: string; name: string }[])
       .map((p) => ({ productId: p.id, productName: p.name, byBranch: balances[p.id] || {} }))
-      .sort((a, b) => a.productName.localeCompare(b.productName));
+      .sort((a, b) => total(b.byBranch) - total(a.byBranch) || a.productName.localeCompare(b.productName));
 
     res.json({ branches, rows });
   } catch (err) {

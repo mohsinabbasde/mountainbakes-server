@@ -155,5 +155,5 @@ export async function getProductionStockRows(date: string = businessDateStr()): 
   // totalStock = what's on hand now + what already left today.
   for (const row of rows.values()) row.totalStock = row.balance + row.approvedQty;
 
-  return [...rows.values()].sort((a, b) => a.productName.localeCompare(b.productName));
+  return [...rows.values()].sort((a, b) => b.balance - a.balance || a.productName.localeCompare(b.productName));
 }
