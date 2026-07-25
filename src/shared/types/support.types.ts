@@ -4,6 +4,8 @@
 // reference's figures are snapshotted onto the ticket at submit time so the
 // admin sees exactly what the raiser saw.
 
+import type { PaymentMethod } from './order.types';
+
 // 'system' is not raised by a human against a lookupable ID — it is opened
 // automatically when an unattended job fails (e.g. the 2 AM closing summary could
 // not be generated or delivered). Such a ticket has no editable reference, so its
@@ -59,6 +61,13 @@ export interface SupportReference {
    * and applied live (product / qty / unit price) via edit_sale_items.
    */
   saleItems?: SupportSaleItem[];
+  /**
+   * For sale references: the order's payment method at snapshot time. The Support
+   * Center can change it alongside the line items — a wrong tender (cash booked as
+   * Easypaisa, say) is the other half of "this sale is recorded wrong", and it moves
+   * the day's payment-method totals without touching stock or the grand total.
+   */
+  paymentMethod?: PaymentMethod;
   /** Internal uuid of the underlying row, used when applying a figure edit. */
   entityId: string;
   /** For expenses: which table the row lives in, so the figure edit hits the right one. */

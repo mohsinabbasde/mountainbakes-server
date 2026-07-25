@@ -10,6 +10,7 @@ import {
   ChangeFiguresSchema,
   EditSaleItemsSchema,
   businessDateStr,
+  type PaymentMethod,
   type SupportReference,
   type SupportReferenceType,
 } from '../shared';
@@ -90,6 +91,10 @@ async function resolveReference(user: AuthRequest['user'], rawRef: string): Prom
         qty: Number(it.qty),
         discount: Number(it.discount ?? 0),
       })),
+      // Also editable in the Support Center. Historical rows may carry a legacy
+      // tender ('card' / 'online') that is no longer offered — it is shown as-is
+      // and simply not one of the choices the admin can pick.
+      paymentMethod: (data.payment_method ?? undefined) as PaymentMethod | undefined,
       // Order totals are recomputed from the line edits by edit_sale_items — the
       // flat editableFields path (expenses) does not apply to sales.
       editableFields: [],
@@ -422,7 +427,8 @@ router.patch('/:id/figures', requireRole('super_admin'), validate(ChangeFiguresS
 // PATCH /api/support/:id/sale-items — admin "Change" for a SALE query. Applies a
 // live edit to the order's line items (product / qty / unit price, add / remove),
 // recomputing order totals and reconciling stock atomically via edit_sale_items,
-// then resolves the ticket. Overdrawing a branch balance is rejected (409).
+// optionally re-tenders the sale (paymentMethod), then resolves the ticket.
+// Overdrawing a branch balance is rejected (409).
 router.patch('/:id/sale-items', requireRole('super_admin'), validate(EditSaleItemsSchema), async (req: AuthRequest, res, next) => {
   try {
     const ticket = await getTicket(req.params.id);
@@ -433,7 +439,11 @@ router.patch('/:id/sale-items', requireRole('super_admin'), validate(EditSaleIte
     const orderId = snapshot?.entityId;
     if (!orderId) { res.status(400).json({ error: 'This ticket has no linked sale to edit' }); return; }
 
-    const { items, note } = req.body as { items: unknown[]; note: string };
+    const { items, paymentMethod, note } = req.body as {
+      items: unknown[];
+      paymentMethod?: PaymentMethod;
+      note: string;
+    };
 
     const { data: result, error } = await supabaseAdmin.rpc('edit_sale_items', {
       p_order_id: orderId,
@@ -451,8 +461,35 @@ router.patch('/:id/sale-items', requireRole('super_admin'), validate(EditSaleIte
       return;
     }
 
+    // Payment method rides alongside the line edit but is deliberately NOT part of
+    // edit_sale_items: it touches no stock, no line total and no grand total, so it
+    // needs none of that function's locking. `.neq` makes the write self-checking —
+    // rows come back only when the tender actually moved, so the resolution note
+    // can't claim a change that did not happen (the snapshot may be stale).
+    //
+    // Ordered after the RPC on purpose: the item edit is the part that can fail
+    // (insufficient stock → 409), and it must fail before anything else is written.
+    // If this update itself errors the ticket stays open and the admin retries —
+    // re-running edit_sale_items with the same lines is a no-op (delta 0 moves no
+    // stock and the recomputed totals are identical).
+    let paymentChanged = false;
+    if (paymentMethod) {
+      const { data: repaid, error: payErr } = await supabaseAdmin
+        .from('orders')
+        .update({ payment_method: paymentMethod })
+        .eq('id', orderId)
+        .neq('payment_method', paymentMethod)
+        .select('id');
+      if (payErr) throw payErr;
+      paymentChanged = (repaid ?? []).length > 0;
+    }
+
     // Record what changed and resolve the ticket in one update.
-    const resolutionNote = [note, `Sale items updated (new total ${money(outcome.grandTotal)})`].filter(Boolean).join(' — ');
+    const resolutionNote = [
+      note,
+      `Sale items updated (new total ${money(outcome.grandTotal)})`,
+      paymentChanged ? `Payment method → ${paymentMethod}` : '',
+    ].filter(Boolean).join(' — ');
     const { data, error: updErr } = await supabaseAdmin
       .from('support_tickets')
       .update({

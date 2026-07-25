@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { PAYMENT_METHOD_VALUES } from './order.schemas';
 
 export const SUPPORT_REFERENCE_TYPES = ['sale', 'expense', 'stock'] as const;
 
@@ -53,6 +54,12 @@ export type SaleItemEditInput = z.infer<typeof SaleItemEditSchema>;
 
 export const EditSaleItemsSchema = z.object({
   items: z.array(SaleItemEditSchema).min(1, 'A sale must have at least one item'),
+  /**
+   * Optional new tender for the sale. Omitted means "leave it alone"; the route
+   * only writes it when it actually differs from what the order carries, so a
+   * resubmit of an unchanged value is a no-op rather than a phantom correction.
+   */
+  paymentMethod: z.enum(PAYMENT_METHOD_VALUES).optional(),
   note: z.string().trim().max(2000).optional().default(''),
 });
 export type EditSaleItemsInput = z.infer<typeof EditSaleItemsSchema>;
