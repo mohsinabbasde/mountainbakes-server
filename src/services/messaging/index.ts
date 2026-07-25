@@ -1,4 +1,4 @@
-import type { MessageProvider } from './provider';
+import type { MessageProvider, SendResult } from './provider';
 import { LogProvider } from './log.provider';
 import { TwilioProvider } from './twilio.provider';
 
@@ -21,6 +21,40 @@ export function getRetryPolicy(): RetryPolicy {
     maxAttempts: Number.isFinite(maxAttempts) && maxAttempts > 0 ? Math.floor(maxAttempts) : 3,
     baseDelayMs: Number.isFinite(baseDelayMs) && baseDelayMs >= 0 ? Math.floor(baseDelayMs) : 2000,
   };
+}
+
+/** The outcome of `sendWithRetry`: a SendResult plus how many tries it took. */
+export interface RetriedSendResult extends SendResult {
+  /** Attempts actually made, including the first. `attempts - 1` is the retry count. */
+  attempts: number;
+}
+
+/**
+ * Run a send under the given retry policy. Never throws — a provider that throws
+ * is folded into { ok:false } exactly like one that returns it, so a caller in a
+ * delivery loop (nightly closing fan-out, order confirmation) can log the failure
+ * and carry on rather than aborting the run.
+ *
+ * Backoff is linear: attempt N waits baseDelayMs * N.
+ */
+export async function sendWithRetry(
+  op: () => Promise<SendResult>,
+  maxAttempts: number,
+  baseDelayMs: number,
+): Promise<RetriedSendResult> {
+  let last: SendResult = { ok: false, error: 'not attempted' };
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      last = await op();
+    } catch (err) {
+      last = { ok: false, error: err instanceof Error ? err.message : String(err) };
+    }
+    if (last.ok) return { ...last, attempts: attempt };
+    if (attempt < maxAttempts && baseDelayMs > 0) {
+      await new Promise((r) => setTimeout(r, baseDelayMs * attempt));
+    }
+  }
+  return { ...last, attempts: maxAttempts };
 }
 
 let cached: MessageProvider | null = null;

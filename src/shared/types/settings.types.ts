@@ -19,6 +19,11 @@ export interface AppSettings {
   autoStockClosing: boolean;
   /** Master switch for the 2 AM WhatsApp/SMS closing summaries. */
   closingNotificationsEnabled: boolean;
+  /**
+   * Master switch for the per-order confirmation SMS to the customer. Off by
+   * default — turning it on starts billing real messages to real numbers.
+   */
+  orderConfirmationsEnabled: boolean;
   updatedAt: string;
   updatedBy: string;
 }
@@ -48,4 +53,5 @@ export interface UpdateSettingsPayload {
   autoCloseBusiness?: boolean;
   autoStockClosing?: boolean;
   closingNotificationsEnabled?: boolean;
+  orderConfirmationsEnabled?: boolean;
 }

@@ -7,7 +7,7 @@ import {
 } from '../shared';
 import { getAppSettings } from './settings.service';
 import { notify } from './push.service';
-import { getMessageProvider, getRetryPolicy, type OutboundChannel } from './messaging';
+import { getMessageProvider, getRetryPolicy, sendWithRetry, type OutboundChannel } from './messaging';
 import {
   generateClosingReports,
   formatBranchMessage,
@@ -228,27 +228,6 @@ export async function dispatchClosingSummaries(opts: DispatchOptions): Promise<C
 
   console.log(`[closing-notify] ${businessDate}: ${deliverables.length} reports, ${messagesSent} sent, ${messagesFailed} failed (provider=${provider.name}).`);
   return { businessDate, reportsGenerated: deliverables.length, messagesSent, messagesFailed };
-}
-
-/** Retry a send per the configured policy; never throws. */
-async function sendWithRetry(
-  op: () => Promise<{ ok: boolean; messageId?: string; error?: string }>,
-  maxAttempts: number,
-  baseDelayMs: number,
-): Promise<{ ok: boolean; messageId?: string; error?: string; attempts: number }> {
-  let last: { ok: boolean; messageId?: string; error?: string } = { ok: false, error: 'not attempted' };
-  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-    try {
-      last = await op();
-    } catch (err) {
-      last = { ok: false, error: err instanceof Error ? err.message : String(err) };
-    }
-    if (last.ok) return { ...last, attempts: attempt };
-    if (attempt < maxAttempts && baseDelayMs > 0) {
-      await new Promise((r) => setTimeout(r, baseDelayMs * attempt));
-    }
-  }
-  return { ...last, attempts: maxAttempts };
 }
 
 /**

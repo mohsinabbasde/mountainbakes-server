@@ -6,6 +6,7 @@ import { validate } from '../middleware/validate';
 import { CreateOrderSchema, CreatePosSaleSchema, UpdateOrderStatusSchema, LOW_STOCK_THRESHOLD, businessDateStr } from '../shared';
 import { generateOrderNumber } from '../utils/orderNumber';
 import { notify } from '../services/push.service';
+import { sendOrderConfirmation } from '../services/order-notifications.service';
 import { commitSaleTransaction, logBlockedSale, InsufficientStockError, type SaleBalance, type SaleItem } from '../services/stock.service';
 import { assertBusinessDayOpen } from '../middleware/assertBusinessDayOpen';
 import { getAppSettings } from '../services/settings.service';
@@ -265,6 +266,22 @@ router.post('/', requireRole('super_admin', 'branch_manager'), validate(CreateOr
       relatedId: order.id,
     });
 
+    // Confirmation SMS to the customer. Deliberately NOT awaited: the send goes
+    // out over the network and retries with linear backoff, so awaiting it would
+    // hold the response open for seconds at the counter for something the person
+    // creating the order is not waiting on. The order is already committed;
+    // sendOrderConfirmation never throws and logs every outcome itself, so the
+    // catch here is belt-and-braces against an unhandled rejection.
+    void sendOrderConfirmation({
+      orderId: order.id,
+      orderNumber,
+      customerName: customer.name,
+      customerPhone: customer.phone,
+      branchName: branch.name,
+      grandTotal,
+      kind: 'order',
+    }).catch((e) => console.error('[order-notify] confirmation rejected:', e));
+
     res.status(201).json({ id: order.id, orderNumber, grandTotal });
   } catch (err) {
     next(err);
@@ -386,6 +403,20 @@ router.post('/pos', requireRole('super_admin', 'branch_manager'), validate(Creat
         ),
       ).catch((e) => console.error('[stock] failed to send low-stock notifications', e));
     }
+
+    // Receipt SMS for a walk-in who gave a number. Most POS customers do not, and
+    // sendOrderConfirmation skips silently when the field is empty — so this is a
+    // no-op for the common case rather than something the counter has to think
+    // about. Fire-and-forget for the same reason as the order path above.
+    void sendOrderConfirmation({
+      orderId,
+      orderNumber,
+      customerName: name,
+      customerPhone,
+      branchName: branch.name,
+      grandTotal,
+      kind: 'sale',
+    }).catch((e) => console.error('[order-notify] confirmation rejected:', e));
 
     // Return the server's own snapshot, not just the totals. The printed receipt is
     // built from this — if the client rebuilt it from its cached product list, a

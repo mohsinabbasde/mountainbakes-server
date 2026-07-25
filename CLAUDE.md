@@ -81,6 +81,16 @@ Storage for files, Supabase Realtime for live updates. There is no other backend
   writes a row to the `notifications` table); web push delivery is a deliberate no-op
   pending VAPID Web Push over the `push_subscriptions` table — see
   `services/push.service.ts`.
+- **Outbound SMS/WhatsApp is provider-agnostic.** `services/messaging/` exposes one
+  `MessageProvider` interface with a Twilio adapter and a `log` adapter; `getMessageProvider()`
+  picks Twilio when `TWILIO_*` env is complete and otherwise falls back to `log` (messages
+  written to the console, never to a phone) — deliberately, so a missing credential can
+  never take down the closing job or 500 an order. Two callers today:
+  `closing-notifications.service.ts` (2 AM staff summaries) and
+  `order-notifications.service.ts` (per-order customer confirmation SMS). Both log every
+  attempt to `notification_logs` and are gated by their own settings toggle
+  (`closingNotificationsEnabled` / `orderConfirmationsEnabled`, both default **false**).
+  Order confirmations are SMS-only and sent-once per order — see `.env.example` for why.
 - **Realtime = Supabase Realtime.** The frontend subscribes to Postgres changes
   (notifications, price/production updates) through `@/lib/supabase/client`;
   there is no separate realtime service.
