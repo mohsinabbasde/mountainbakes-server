@@ -5,6 +5,7 @@
 // admin sees exactly what the raiser saw.
 
 import type { PaymentMethod } from './order.types';
+import type { StockFigures } from './stock.types';
 
 // 'system' is not raised by a human against a lookupable ID — it is opened
 // automatically when an unattended job fails (e.g. the 2 AM closing summary could
@@ -54,7 +55,14 @@ export interface SupportReference {
   /** Human summary line, e.g. "Sale MB-000125 — Ali Raza · Rs.1,250". */
   title: string;
   fields: SupportDetailField[];
-  /** Directly editable fields (live mutation applies to expenses only). */
+  /**
+   * Directly editable fields, applied live by PATCH /api/support/:id/figures.
+   * Expenses expose `amount` / `description`. A branch-scoped stock reference
+   * exposes `newQty` / `sold` / `returned` / `balance` — ABSOLUTE targets, from
+   * which the server sizes a compensating movement per figure. (`opening` is
+   * deliberately absent: it is the previous day's closing.) Empty means "nothing
+   * here can be written directly", and the correction is only recorded.
+   */
   editableFields: SupportEditableField[];
   /**
    * For sale references: the current line items, editable in the Support Center
@@ -72,6 +80,21 @@ export interface SupportReference {
   entityId: string;
   /** For expenses: which table the row lives in, so the figure edit hits the right one. */
   entityTable?: string;
+  /**
+   * For stock references: whose ledger the figures describe. A stock correction has
+   * to land on exactly one branch, and this is it — the raiser's branch, or the
+   * branch an admin scoped the lookup to. Null when the reference is an
+   * all-branches total, which is not correctable.
+   */
+  branchId?: string | null;
+  /** For stock references: the business date the figures were computed for. */
+  businessDate?: string;
+  /**
+   * For branch-scoped stock references: the branch's live derived figures, so the
+   * Support Center can show the whole row and recompute the implied balance as the
+   * admin edits. Absent on an all-branches (uncorrectable) stock reference.
+   */
+  stockFigures?: StockFigures;
 }
 
 export interface SupportTicket {
