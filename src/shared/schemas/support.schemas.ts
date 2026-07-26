@@ -26,8 +26,12 @@ export type ResolveSupportTicketInput = z.infer<typeof ResolveSupportTicketSchem
 
 /**
  * Support Center → admin "Change figures". `edits` maps an editable field key to
- * its new value. Applied as a live mutation for expenses; for sale/stock the
- * requested figures are recorded on the ticket for manual follow-up.
+ * its new value. Applied as a live mutation for expenses (amount / description) and
+ * for a branch's stock figures (`newQty` / `sold` / `returned` / `balance`), which
+ * are ABSOLUTE targets: the server sizes a compensating movement per figure against
+ * the live ledger. Sales are corrected through the richer /sale-items editor, which
+ * moves order totals, customer spend and tender along with stock. Anything with no
+ * editable field is recorded on the ticket for manual follow-up.
  */
 export const ChangeFiguresSchema = z.object({
   edits: z.record(z.string(), z.union([z.string(), z.number()])),

@@ -11,10 +11,18 @@ import {
   EditSaleItemsSchema,
   businessDateStr,
   type PaymentMethod,
+  type StockFigures,
   type SupportReference,
   type SupportReferenceType,
 } from '../shared';
 import { notify } from '../services/push.service';
+import {
+  applyStockCorrection,
+  getProductStockFigures,
+  NegativeBalanceError,
+  type StockCorrectionResult,
+  type StockCorrectionTargets,
+} from '../services/stock.service';
 import { rowToApi } from '../utils/case';
 
 export const router = Router();
@@ -33,6 +41,22 @@ class LookupError extends Error {
 
 const money = (v: unknown) => `Rs.${Number(v ?? 0).toLocaleString('en-PK')}`;
 
+/** The stock figures an admin may correct, labelled as the Stock page shows them. */
+const STOCK_FIGURE_LABELS = {
+  newQty: 'New Stock',
+  sold: 'Sold',
+  returned: 'Returned',
+  balance: 'Balance',
+} as const;
+
+/** "Sold 10 → 12, Balance 40 → 38" — only the figures that actually moved. */
+function describeStockChange(result: StockCorrectionResult): string {
+  return (Object.keys(STOCK_FIGURE_LABELS) as (keyof typeof STOCK_FIGURE_LABELS)[])
+    .filter((k) => result.before[k] !== result.after[k])
+    .map((k) => `${STOCK_FIGURE_LABELS[k]} ${result.before[k]} → ${result.after[k]}`)
+    .join(', ');
+}
+
 function refType(refId: string): SupportReferenceType {
   const id = refId.toUpperCase();
   if (id.startsWith('MB-')) return 'sale';
@@ -41,7 +65,17 @@ function refType(refId: string): SupportReferenceType {
   throw new LookupError('Unknown ID. Use a sale (MB-…), expense (EXP-…), or stock (STK-…) ID.', 400);
 }
 
-async function resolveReference(user: AuthRequest['user'], rawRef: string): Promise<SupportReference> {
+/**
+ * `scopeBranch` lets a super_admin resolve a STOCK reference against a specific
+ * branch — the Support Center passes the ticket's branch so the admin sees (and
+ * corrects) that branch's live figures rather than an all-branches total. Ignored
+ * for branch managers, who are always pinned to their own branch.
+ */
+async function resolveReference(
+  user: AuthRequest['user'],
+  rawRef: string,
+  scopeBranch?: string | null,
+): Promise<SupportReference> {
   const referenceId = rawRef.trim().toUpperCase();
   const type = refType(referenceId);
   const role = user!.role;
@@ -181,21 +215,43 @@ async function resolveReference(user: AuthRequest['user'], rawRef: string): Prom
     { label: 'SKU', value: product.sku ?? '—' },
     { label: 'Price', value: money(product.price) },
   ];
+  const editableFields: SupportReference['editableFields'] = [];
+  let stockFigures: StockFigures | undefined;
 
-  // Attach the caller-relevant balance. Branch managers see their branch's
-  // balance; admins see the total across branches.
-  if (role === 'branch_manager' && branchId) {
-    const { data: bal } = await supabaseAdmin
-      .from('stock')
-      .select('balance')
-      .eq('product_id', product.id)
-      .eq('branch_id', branchId)
-      .maybeSingle();
-    fields.push({ label: 'Branch Balance', value: String(bal?.balance ?? 0) });
+  // Whose stock is this about? A branch manager's own branch, or — when the admin
+  // re-resolves a ticket to correct it — the branch the ticket was raised from.
+  // A correction needs exactly one branch's ledger to land on.
+  const scopeBranchId = role === 'branch_manager' ? branchId : (scopeBranch ?? null);
+
+  if (scopeBranchId) {
+    // The whole derived row, not just the balance: the admin corrects whichever
+    // figure is wrong (units never delivered, a mis-keyed sale, an unrecorded
+    // return), and each one is a different compensating movement. Same definitions
+    // as the branch's Stock page, so both sides read the same numbers.
+    const f = await getProductStockFigures(scopeBranchId, product.id, businessDateStr());
+    fields.push(
+      { label: 'Opening Stock', value: String(f.opening) },
+      { label: 'New Stock', value: String(f.newQty) },
+      { label: 'Sold', value: String(f.sold) },
+      { label: 'Returned', value: String(f.returned) },
+      { label: 'Adjustment', value: f.adjustment > 0 ? `+${f.adjustment}` : String(f.adjustment) },
+      { label: 'Balance', value: String(f.balance) },
+    );
+    // Opening is deliberately absent: it is the previous day's closing, so
+    // correcting it would mean rewriting a day that has already been closed.
+    editableFields.push(
+      { key: 'newQty', label: 'New Stock', kind: 'number', value: f.newQty },
+      { key: 'sold', label: 'Sold', kind: 'number', value: f.sold },
+      { key: 'returned', label: 'Returned', kind: 'number', value: f.returned },
+      { key: 'balance', label: 'Balance', kind: 'number', value: f.balance },
+    );
+    stockFigures = f;
   } else if (role === 'super_admin') {
     const { data: rows } = await supabaseAdmin.from('stock').select('balance').eq('product_id', product.id);
     const total = (rows ?? []).reduce((s, r) => s + Number(r.balance ?? 0), 0);
     fields.push({ label: 'Total Balance (all branches)', value: String(total) });
+    // Not editable: an all-branches total has no single ledger to correct. The
+    // admin corrects stock from the branch's own ticket, which carries a branch.
   }
 
   return {
@@ -204,17 +260,23 @@ async function resolveReference(user: AuthRequest['user'], rawRef: string): Prom
     entityId: product.id,
     title: `Stock ${referenceId} — ${product.name}`,
     fields,
-    // Stock balances are a derived ledger; corrections are recorded, not written directly.
-    editableFields: [],
+    editableFields,
+    branchId: scopeBranchId,
+    businessDate: businessDateStr(),
+    stockFigures,
   };
 }
 
-// GET /api/support/lookup?ref=EXP-000012 — used by the Help Desk to auto-show detail
+// GET /api/support/lookup?ref=EXP-000012 — used by the Help Desk to auto-show detail.
+// &branchId= scopes a stock lookup to one branch (admin only; see resolveReference)
+// and is how the Support Center re-reads a ticket's LIVE figures before correcting
+// them — the snapshot on the ticket is from when the query was raised.
 router.get('/lookup', async (req: AuthRequest, res, next) => {
   try {
     const ref = String(req.query['ref'] || '').trim();
     if (!ref) { res.status(400).json({ error: 'Reference ID is required' }); return; }
-    const reference = await resolveReference(req.user, ref);
+    const scopeBranch = req.user!.role === 'super_admin' ? (req.query['branchId'] as string | undefined) : undefined;
+    const reference = await resolveReference(req.user, ref, scopeBranch ?? null);
     res.json({ reference });
   } catch (err) {
     if (err instanceof LookupError) { res.status(err.status).json({ error: err.message }); return; }
@@ -357,9 +419,15 @@ router.patch('/:id/resolve', requireRole('super_admin'), validate(ResolveSupport
   }
 });
 
-// PATCH /api/support/:id/figures — admin "Change" button. Applies a live edit to
-// expenses; for sale/stock the requested figures are recorded and the ticket is
-// resolved. Either way the ticket is marked resolved.
+// PATCH /api/support/:id/figures — admin "Change" button. Applies a live edit to an
+// expense's amount/description, or a correction to a branch's stock figures (New /
+// Sold / Returned / Balance, as absolute targets). Anything with no correctable
+// figure is recorded on the ticket for manual follow-up. Either way the ticket is
+// marked resolved.
+//
+// A figure the caller omits is LEFT ALONE — that is what makes it safe for the
+// Support Center to send only what the admin touched, so a sale rung up while the
+// dialog was open is not reverted by a stale target.
 router.patch('/:id/figures', requireRole('super_admin'), validate(ChangeFiguresSchema), async (req: AuthRequest, res, next) => {
   try {
     const ticket = await getTicket(req.params.id);
@@ -370,8 +438,70 @@ router.patch('/:id/figures', requireRole('super_admin'), validate(ChangeFiguresS
     const allowed = new Set((snapshot?.editableFields ?? []).map((f) => f.key));
 
     let applied = false;
-    if (snapshot?.entityTable && allowed.size > 0) {
-      // Live mutation — only expense columns are ever in `allowed`.
+    // Set when the stock path ran, so the note and the response report the REAL
+    // before/after rather than echoing back what the admin typed.
+    let stockResult: (StockCorrectionResult & { productName: string }) | null = null;
+
+    // Gated on the reference TYPE, not on `allowed`: tickets raised before stock
+    // became correctable carry an empty editableFields, and those queries still
+    // need answering.
+    if (snapshot?.type === 'stock') {
+      // The branch comes from the TICKET. The figures describe one branch's
+      // ledger — the raiser's — and that is the only one this correction may move.
+      const branchId = ticket.branch_id as string | null;
+      if (!branchId) {
+        res.status(400).json({ error: 'This query has no branch, so there is no branch stock to correct.' });
+        return;
+      }
+
+      // Absolute targets, not deltas: the admin enters the figures as they should
+      // read. Only the four correctable keys are honoured — `opening` is the
+      // previous day's closing and is not correctable from here.
+      const targets: StockCorrectionTargets = {};
+      for (const key of ['newQty', 'sold', 'returned', 'balance'] as const) {
+        const raw = edits[key];
+        if (raw === undefined || raw === '') continue;
+        const value = Number(raw);
+        if (!Number.isFinite(value) || value < 0) {
+          res.status(400).json({ error: `${STOCK_FIGURE_LABELS[key]} must be a number of 0 or more.` });
+          return;
+        }
+        targets[key] = value;
+      }
+      if (Object.keys(targets).length === 0) {
+        res.status(400).json({ error: 'Enter at least one stock figure to correct.' });
+        return;
+      }
+
+      // Re-read the name rather than trusting the snapshot's — stock_history keeps
+      // a name snapshot, and it should read as the name at correction time.
+      const { data: product, error: prodErr } = await supabaseAdmin
+        .from('products')
+        .select('name')
+        .eq('id', snapshot.entityId)
+        .maybeSingle();
+      if (prodErr) throw prodErr;
+      if (!product) { res.status(404).json({ error: 'The linked product no longer exists' }); return; }
+
+      try {
+        const result = await applyStockCorrection({
+          branchId,
+          productId: snapshot.entityId,
+          productName: product.name as string,
+          targets,
+          ticketId: ticket.id as string,
+        });
+        stockResult = { ...result, productName: product.name as string };
+        applied = result.applied;
+      } catch (err) {
+        if (err instanceof NegativeBalanceError) {
+          res.status(409).json({ error: `${err.message} A branch balance cannot go below zero.` });
+          return;
+        }
+        throw err;
+      }
+    } else if (snapshot?.entityTable && allowed.size > 0) {
+      // Live mutation — only expense columns are ever in `allowed` here.
       const patch: Record<string, unknown> = {};
       for (const [k, v] of Object.entries(edits)) {
         if (!allowed.has(k)) continue;
@@ -384,12 +514,18 @@ router.patch('/:id/figures', requireRole('super_admin'), validate(ChangeFiguresS
       }
     }
 
-    // Compose an audit-friendly resolution note describing what changed.
+    // Compose an audit-friendly resolution note describing what changed. The stock
+    // path words its own: `applied` is false there when the figures already matched,
+    // which is a no-op rather than a pending manual follow-up.
     const changeLines = Object.entries(edits)
       .filter(([k]) => allowed.size === 0 || allowed.has(k))
       .map(([k, v]) => `${k} → ${v}`);
-    const prefix = applied ? 'Figures updated' : 'Correction recorded (manual follow-up)';
-    const resolutionNote = [note, `${prefix}: ${changeLines.join(', ')}`].filter(Boolean).join(' — ');
+    const summary = stockResult
+      ? stockResult.applied
+        ? `Branch stock corrected for ${stockResult.productName}: ${describeStockChange(stockResult)}`
+        : `Branch stock for ${stockResult.productName} already matched — nothing to correct`
+      : `${applied ? 'Figures updated' : 'Correction recorded (manual follow-up)'}: ${changeLines.join(', ')}`;
+    const resolutionNote = [note, summary].filter(Boolean).join(' — ');
 
     const { data, error } = await supabaseAdmin
       .from('support_tickets')
@@ -418,7 +554,7 @@ router.patch('/:id/figures', requireRole('super_admin'), validate(ChangeFiguresS
       }
     } catch { /* best-effort */ }
 
-    res.json({ ticket: rowToApi(data), applied });
+    res.json({ ticket: rowToApi(data), applied, stock: stockResult });
   } catch (err) {
     next(err);
   }

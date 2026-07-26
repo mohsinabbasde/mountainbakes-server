@@ -1,5 +1,5 @@
 import { supabaseAdmin } from '../config/supabase';
-import { businessDateStr, type StockMovementType, type StockRow } from '../shared';
+import { businessDateStr, type StockFigures, type StockMovementType, type StockRow } from '../shared';
 
 /**
  * Derived stock tracking (no cron). We keep a running balance per
@@ -45,11 +45,93 @@ export async function applyStockMovement(input: MovementInput): Promise<number> 
   return Number(data ?? 0);
 }
 
+/** The absolute figures an admin correction may target. Omitted = leave alone. */
+export interface StockCorrectionTargets {
+  newQty?: number;
+  sold?: number;
+  returned?: number;
+  balance?: number;
+}
+
+export interface StockCorrectionResult {
+  applied: boolean;
+  before: StockFigures;
+  after: StockFigures;
+  movements: { type: StockMovementType; delta: number }[];
+}
+
+/** Thrown when a correction would drive the branch balance below zero. */
+export class NegativeBalanceError extends Error {
+  status = 409;
+  constructor(public balance: number) {
+    super(`That correction would leave a balance of ${balance}.`);
+    this.name = 'NegativeBalanceError';
+  }
+}
+
+const figures = (raw: Record<string, unknown>): StockFigures => ({
+  opening: Number(raw['opening'] ?? 0),
+  newQty: Number(raw['newQty'] ?? 0),
+  sold: Number(raw['sold'] ?? 0),
+  returned: Number(raw['returned'] ?? 0),
+  adjustment: Number(raw['adjustment'] ?? 0),
+  balance: Number(raw['balance'] ?? 0),
+});
+
 /**
- * Reconstruct the per-product Opening/New/Sold/Returned/Balance rows for a branch
- * on a given business date. Opening = current balance − the day's net movements,
- * matching the derived-stock model. Shared by the Stock page and the daily-closing
- * snapshot so they can never diverge.
+ * Apply an admin stock correction (Help Desk → Support Center) for one product in
+ * one branch. The caller supplies ABSOLUTE targets for New / Sold / Returned /
+ * Balance; `apply_stock_correction` (migration 33) sizes each compensating movement
+ * against the LIVE figures under a row lock — never against the ticket's snapshot,
+ * which was taken when the query was raised and may be hours stale. Opening is not
+ * correctable (it is the previous day's closing — see the migration header).
+ *
+ * Targets that already match write nothing, so a resubmit is a true no-op.
+ */
+export async function applyStockCorrection(params: {
+  branchId: string;
+  productId: string;
+  productName: string;
+  targets: StockCorrectionTargets;
+  ticketId: string;
+  businessDate?: string;
+}): Promise<StockCorrectionResult> {
+  const { data, error } = await supabaseAdmin.rpc('apply_stock_correction', {
+    p_branch_id: params.branchId,
+    p_product_id: params.productId,
+    p_product_name: params.productName,
+    p_targets: params.targets,
+    p_ticket_id: params.ticketId,
+    p_business_date: params.businessDate ?? businessDateStr(),
+  });
+  if (error) throw error;
+
+  const result = data as {
+    status: 'ok' | 'negative_balance';
+    balance?: number;
+    applied?: boolean;
+    before?: Record<string, unknown>;
+    after?: Record<string, unknown>;
+    movements?: { type: StockMovementType; delta: number | string }[];
+  };
+
+  if (result.status === 'negative_balance') {
+    throw new NegativeBalanceError(Number(result.balance ?? 0));
+  }
+
+  return {
+    applied: Boolean(result.applied),
+    before: figures(result.before ?? {}),
+    after: figures(result.after ?? {}),
+    movements: (result.movements ?? []).map((m) => ({ type: m.type, delta: Number(m.delta) })),
+  };
+}
+
+/**
+ * Reconstruct the per-product Opening/New/Sold/Returned/Adjustment/Balance rows for
+ * a branch on a given business date. Opening = current balance − the day's net
+ * movements, matching the derived-stock model. Shared by the Stock page and the
+ * daily-closing snapshot so they can never diverge.
  */
 export async function computeStockRows(branchId: string, date: string = businessDateStr()): Promise<StockRow[]> {
   // The date filter is a real indexed predicate now
@@ -77,6 +159,7 @@ export async function computeStockRows(branchId: string, date: string = business
   const newQty = new Map<string, number>();
   const sold = new Map<string, number>();
   const returned = new Map<string, number>();
+  const adjustment = new Map<string, number>();
   for (const h of (history.data ?? []) as { product_id: string; type: string; delta: number | string }[]) {
     const delta = Number(h.delta ?? 0);
     net.set(h.product_id, (net.get(h.product_id) ?? 0) + delta);
@@ -84,6 +167,10 @@ export async function computeStockRows(branchId: string, date: string = business
     // Sold and returned are stored as negative deltas; report them positive.
     if (h.type === 'sale') sold.set(h.product_id, (sold.get(h.product_id) ?? 0) - delta);
     if (h.type === 'return') returned.set(h.product_id, (returned.get(h.product_id) ?? 0) - delta);
+    // Corrections (admin stock fix, sale edit) stay SIGNED — the sign is the
+    // information. Reported so the row still reconciles:
+    // opening + new − sold − returned + adjustment = balance.
+    if (h.type === 'adjustment') adjustment.set(h.product_id, (adjustment.get(h.product_id) ?? 0) + delta);
   }
 
   return ((products.data ?? []) as { id: string; name: string; stock_code: string }[])
@@ -97,10 +184,48 @@ export async function computeStockRows(branchId: string, date: string = business
         newQty: newQty.get(p.id) ?? 0,
         sold: sold.get(p.id) ?? 0,
         returned: returned.get(p.id) ?? 0,
+        adjustment: adjustment.get(p.id) ?? 0,
         balance,
       };
     })
     .sort((a, b) => b.balance - a.balance || a.productName.localeCompare(b.productName));
+}
+
+/**
+ * The derived figures for ONE product in one branch on one business date — the
+ * single-product form of `computeStockRows`, for callers (the Support Center's stock
+ * reference) that need one product rather than the whole catalogue. Same
+ * definitions, so the admin sees exactly what the branch's Stock page shows.
+ */
+export async function getProductStockFigures(
+  branchId: string,
+  productId: string,
+  date: string = businessDateStr(),
+): Promise<StockFigures> {
+  const [stock, history] = await Promise.all([
+    supabaseAdmin.from('stock').select('balance').eq('branch_id', branchId).eq('product_id', productId).maybeSingle(),
+    supabaseAdmin
+      .from('stock_history')
+      .select('type, delta')
+      .eq('branch_id', branchId)
+      .eq('product_id', productId)
+      .eq('business_date', date),
+  ]);
+  if (stock.error) throw stock.error;
+  if (history.error) throw history.error;
+
+  const balance = Number(stock.data?.balance ?? 0);
+  let newQty = 0, sold = 0, returned = 0, adjustment = 0, net = 0;
+  for (const h of (history.data ?? []) as { type: string; delta: number | string }[]) {
+    const delta = Number(h.delta ?? 0);
+    net += delta;
+    if (h.type === 'production') newQty += delta;
+    if (h.type === 'sale') sold -= delta;
+    if (h.type === 'return') returned -= delta;
+    if (h.type === 'adjustment') adjustment += delta;
+  }
+
+  return { opening: balance - net, newQty, sold, returned, adjustment, balance };
 }
 
 /** Retail sale removes stock. `qty` is positive; recorded as a negative delta. */
