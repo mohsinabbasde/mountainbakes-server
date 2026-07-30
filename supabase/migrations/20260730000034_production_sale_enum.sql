@@ -1,0 +1,12 @@
+-- 34: production-pool 'sale' movement type.
+--
+-- Production users sell directly from the central pool (the Sales page on the
+-- Production dashboard). The order is attributed to a chosen branch, but the
+-- units leave the *pool* — branch `stock` is not touched — so the movement needs
+-- its own type, distinct from 'transfer_out' (which means "approved onto a branch
+-- demand" and is what the Production Stock table counts as `approvedQty`).
+--
+-- This is deliberately a migration of its own: Postgres cannot use a new enum
+-- value in the same transaction that adds it, so commit_production_sale — which
+-- writes `type = 'sale'` — has to land in a later file (migration 35).
+alter type production_stock_movement_type add value if not exists 'sale';

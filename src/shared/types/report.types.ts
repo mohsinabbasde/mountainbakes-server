@@ -44,6 +44,8 @@ export interface ReportSummary {
   to: string;
   totalOrders: number;
   totalRevenue: number;
+  /** Value of staff (unpaid) sales in range. Excluded from totalRevenue and profit. */
+  staffTotal: number;
   totalCancelled: number;
   totalPending: number;
   averageOrderValue: number;

@@ -6,9 +6,10 @@ export type ClosureTrigger = 'scheduler' | 'manual';
 
 /** Sales rollup for a closed business day. */
 export interface SalesSummary {
-  totalSales: number; // Σ grandTotal
+  totalSales: number; // Σ grandTotal of PAID orders — excludes staff (unpaid)
+  staffSales: number; // Σ grandTotal of staff (unpaid) orders, tracked but not revenue
   totalOrders: number;
-  byPaymentMethod: Record<PaymentMethod, number>; // cash / easypaisa / foodpanda / bank_account
+  byPaymentMethod: Record<PaymentMethod, number>; // cash / easypaisa / foodpanda / bank_account / staff
   totalDiscounts: number; // Σ discountTotal
   governmentTax: number; // Σ taxAmount
   netSales: number; // totalSales − totalDiscounts − governmentTax

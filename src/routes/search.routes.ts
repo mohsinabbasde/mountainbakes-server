@@ -29,7 +29,7 @@ router.get('/', async (req: AuthRequest, res, next) => {
     }
     ordersQuery = ordersQuery.order('created_at', { ascending: false }).limit(200);
 
-    const [ordersRes, productsRes, customersRes] = await Promise.all([
+    const [ordersRes, productsRes, customersRes, packingRes] = await Promise.all([
       ordersQuery,
       supabaseAdmin.from('products').select('id, name, sku, price').eq('is_active', true).limit(200),
       // Production users have no access to customer data.
@@ -38,15 +38,24 @@ router.get('/', async (req: AuthRequest, res, next) => {
         : isBranchManager && branchId
           ? supabaseAdmin.from('customers').select('id, name, phone').eq('branch_id', branchId).limit(200)
           : supabaseAdmin.from('customers').select('id, name, phone').limit(200),
+      // Active only: an inactive material cannot be requested, so surfacing it in
+      // search would just be a dead end.
+      supabaseAdmin
+        .from('packing_materials')
+        .select('id, material_code, material_name, category')
+        .eq('is_active', true)
+        .limit(200),
     ]);
 
     if (ordersRes.error) throw ordersRes.error;
     if (productsRes.error) throw productsRes.error;
     if (customersRes && customersRes.error) throw customersRes.error;
+    if (packingRes.error) throw packingRes.error;
 
     type OrderRow = { id: string; order_number: string; customer_name: string | null; status: string };
     type ProductRow = { id: string; name: string; sku: string | null; price: number };
     type CustomerRow = { id: string; name: string; phone: string | null };
+    type PackingRow = { id: string; material_code: string; material_name: string; category: string | null };
 
     const matchOrders = ((ordersRes.data ?? []) as OrderRow[])
       .filter((o) => o.order_number?.toLowerCase().includes(q) || o.customer_name?.toLowerCase().includes(q))
@@ -65,9 +74,20 @@ router.get('/', async (req: AuthRequest, res, next) => {
           .map((c) => ({ id: c.id, label: `${c.name} — ${c.phone ?? ''}`, type: 'customer', href: `/customers/${c.id}` }))
       : [];
 
+    const matchPacking = ((packingRes.data ?? []) as PackingRow[])
+      .filter((m) => m.material_name?.toLowerCase().includes(q) || m.material_code?.toLowerCase().includes(q))
+      .slice(0, 5)
+      .map((m) => ({
+        id: m.id,
+        label: `${m.material_name} (${m.material_code})`,
+        type: 'packingMaterial',
+        href: '/products',
+      }));
+
     const results = [
       { type: 'Orders', items: matchOrders },
       { type: 'Products', items: matchProducts },
+      { type: 'Packing Materials', items: matchPacking },
       { type: 'Customers', items: matchCustomers },
     ].filter((g) => g.items.length > 0);
 

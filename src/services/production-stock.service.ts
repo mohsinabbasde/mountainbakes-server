@@ -4,6 +4,12 @@ import {
   type ProductionStockMovementType,
   type ProductionStockRow,
 } from '../shared';
+import {
+  InsufficientStockError,
+  type SaleBalance,
+  type SaleItem,
+  type StockShortfall,
+} from './stock.service';
 
 /**
  * Central Production Stock pool (no cron). Mirrors the derived-stock approach in
@@ -95,6 +101,62 @@ export function returnIntoPool(
 }
 
 /**
+ * Atomically validate the pool, write the order + its line items, decrement
+ * `production_stock` and append `production_stock_history` — all inside ONE
+ * transaction (migration 35's commit_production_sale).
+ *
+ * The production-counter sibling of `commitSaleTransaction`
+ * (stock.service.ts): identical parameters and return shape, but the units come
+ * out of the central pool instead of a branch's `stock`. `branchId` is
+ * attribution only — it lands on the order row (orders.branch_id is NOT NULL, and
+ * it is what puts the sale in that branch's revenue reports) and moves no branch
+ * balance.
+ *
+ * Unlike `applyProductionStockMovement`, this one BLOCKS rather than letting the
+ * pool go negative — see the migration header for why a sale is different from a
+ * prepare/transfer/return. Throws `InsufficientStockError` with nothing
+ * persisted, so the route can reuse the same 409 path as the branch POS sale.
+ */
+export async function commitProductionSaleTransaction(params: {
+  order: Record<string, unknown>;
+  items: SaleItem[];
+  branchId: string;
+}): Promise<{ orderId: string; balances: Map<string, SaleBalance> }> {
+  const { data, error } = await supabaseAdmin.rpc('commit_production_sale', {
+    p_order: params.order,
+    p_items: params.items,
+    p_branch_id: params.branchId,
+    p_business_date: businessDateStr(),
+  });
+  if (error) throw error;
+
+  const result = data as
+    | { status: 'ok'; orderId: string; balances: Record<string, { productName: string; before: number; after: number }> }
+    | { status: 'insufficient'; shortfalls: StockShortfall[] };
+
+  if (result.status === 'insufficient') {
+    throw new InsufficientStockError(
+      result.shortfalls.map((s) => ({
+        productId: s.productId,
+        productName: s.productName,
+        requested: Number(s.requested),
+        available: Number(s.available),
+      })),
+    );
+  }
+
+  const balances = new Map<string, SaleBalance>();
+  for (const [productId, b] of Object.entries(result.balances ?? {})) {
+    balances.set(productId, {
+      productName: b.productName,
+      before: Number(b.before),
+      after: Number(b.after),
+    });
+  }
+  return { orderId: result.orderId, balances };
+}
+
+/**
  * Build the Production Stock table for a Karachi day: current pool balance per
  * product plus today's prepared / transferred-out / returned totals.
  * `totalStock` is the gross available for the day (balance + what was moved out).
@@ -122,6 +184,7 @@ export async function getProductionStockRows(date: string = businessDateStr()): 
       approvedQty: 0,
       balance: Number(d.balance ?? 0),
       returned: 0,
+      soldToday: 0,
     });
   }
 
@@ -143,6 +206,7 @@ export async function getProductionStockRows(date: string = businessDateStr()): 
         approvedQty: 0,
         balance: 0,
         returned: 0,
+        soldToday: 0,
       };
       rows.set(h.product_id, row);
     }
@@ -150,10 +214,13 @@ export async function getProductionStockRows(date: string = businessDateStr()): 
     if (h.type === 'prepare') row.preparedToday += delta;
     else if (h.type === 'transfer_out') row.approvedQty += delta;
     else if (h.type === 'return_in') row.returned += delta;
+    else if (h.type === 'sale') row.soldToday += delta;
   }
 
-  // totalStock = what's on hand now + what already left today.
-  for (const row of rows.values()) row.totalStock = row.balance + row.approvedQty;
+  // totalStock = what's on hand now + everything that already left today. Counter
+  // sales leave the pool just like an approved transfer does, so they belong in
+  // this sum — without them the gross view would shrink every time one is rung up.
+  for (const row of rows.values()) row.totalStock = row.balance + row.approvedQty + row.soldToday;
 
   return [...rows.values()].sort((a, b) => b.balance - a.balance || a.productName.localeCompare(b.productName));
 }

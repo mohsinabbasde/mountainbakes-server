@@ -34,10 +34,16 @@ const ORDER_SELECT = `
   items:production_order_items(
     product_id, product_name, qty, remarks,
     previous_balance_qty, total_required_qty, approved_qty, remaining_balance_qty, line_no
+  ),
+  packingItems:production_order_packing_items(
+    packing_material_id, material_name, qty, approved_qty, line_no
   )
 `;
 
 const ITEMS_ORDER = { referencedTable: 'production_order_items', ascending: true } as const;
+
+/** Packing lines need their own ordering clause — see the ORDER_SELECT note above. */
+const PACKING_ITEMS_ORDER = { referencedTable: 'production_order_packing_items', ascending: true } as const;
 
 router.use(authenticate);
 
@@ -56,7 +62,10 @@ router.post('/', requireRole('branch_manager'), validate(CreateProductionOrderSc
     const branchId = req.user!.branchId;
     if (!branchId) { res.status(400).json({ error: 'No branch assigned to this account' }); return; }
 
-    const { items } = req.body as { items: { productId: string; qty: number; remarks: string }[] };
+    const { items, packingItems = [] } = req.body as {
+      items: { productId: string; qty: number; remarks: string }[];
+      packingItems?: { packingMaterialId: string; qty: number }[];
+    };
 
     // Resolve product names server-side — branch users never send names or
     // prices, those are Admin-controlled. One query rather than N point reads.
@@ -73,6 +82,36 @@ router.post('/', requireRole('branch_manager'), validate(CreateProductionOrderSc
       if (!name) throw Object.assign(new Error(`Product ${i.productId} not found`), { status: 400 });
       return { productId: i.productId, productName: name, qty: i.qty, remarks: i.remarks || '' };
     });
+
+    // Same treatment for packing materials, with one extra condition: the query
+    // filters on is_active, so an inactive material fails the name lookup below and
+    // is rejected. The client's list can be stale (a material disabled while the
+    // form was open), so "only active materials can be selected" has to be decided
+    // here, not in the dropdown.
+    let resolvedPacking: { packingMaterialId: string; materialName: string; qty: number }[] = [];
+    if (packingItems.length > 0) {
+      const materialIds = [...new Set(packingItems.map((i) => i.packingMaterialId))];
+      const { data: materials, error: matErr } = await supabaseAdmin
+        .from('packing_materials')
+        .select('id, material_name')
+        .eq('is_active', true)
+        .in('id', materialIds);
+      if (matErr) throw matErr;
+
+      const materialNameById = new Map(
+        (materials ?? []).map((m) => [m.id as string, m.material_name as string]),
+      );
+      resolvedPacking = packingItems.map((i) => {
+        const name = materialNameById.get(i.packingMaterialId);
+        if (!name) {
+          throw Object.assign(
+            new Error('One of the selected packing materials is no longer available. Please refresh and try again.'),
+            { status: 400 },
+          );
+        }
+        return { packingMaterialId: i.packingMaterialId, materialName: name, qty: i.qty };
+      });
+    }
 
     const now = new Date();
     await assertBusinessDayOpen(businessDateStr(now), req.user!.role);
@@ -106,6 +145,21 @@ router.post('/', requireRole('branch_manager'), validate(CreateProductionOrderSc
     );
     if (itemsErr) throw itemsErr;
 
+    // Packing lines ride on the same order. approved_qty stays null until review,
+    // exactly like the product lines' review-only columns.
+    if (resolvedPacking.length > 0) {
+      const { error: packErr } = await supabaseAdmin.from('production_order_packing_items').insert(
+        resolvedPacking.map((it, idx) => ({
+          production_order_id: order.id,
+          packing_material_id: it.packingMaterialId,
+          material_name: it.materialName,
+          qty: it.qty,
+          line_no: idx + 1,
+        })),
+      );
+      if (packErr) throw packErr;
+    }
+
     // NOTE: branchId is deliberately null here. Production users are a central
     // role with no branch claim (only branch_manager carries a branchId), and the
     // notifications RLS narrows a role broadcast that carries a branch_id to that
@@ -115,7 +169,11 @@ router.post('/', requireRole('branch_manager'), validate(CreateProductionOrderSc
     await notify({
       type: 'production_demand',
       title: 'New Production Demand Received',
-      message: `${req.user!.branchName || 'A branch'} submitted ${resolvedItems.length} item${resolvedItems.length === 1 ? '' : 's'}`,
+      message:
+        `${req.user!.branchName || 'A branch'} submitted ${resolvedItems.length} item${resolvedItems.length === 1 ? '' : 's'}` +
+        (resolvedPacking.length > 0
+          ? ` and ${resolvedPacking.length} packing material${resolvedPacking.length === 1 ? '' : 's'}`
+          : ''),
       targetRole: 'production_user',
       branchId: null,
       relatedId: order.id,
@@ -137,7 +195,8 @@ router.get('/', async (req: AuthRequest, res, next) => {
       .select(ORDER_SELECT)
       .gte('business_date', businessDaysAgoStr(6)) // inclusive last 7 business days
       .order('submitted_at', { ascending: false })
-      .order('line_no', ITEMS_ORDER);
+      .order('line_no', ITEMS_ORDER)
+      .order('line_no', PACKING_ITEMS_ORDER);
 
     if (req.user!.role === 'branch_manager' && req.user!.branchId) {
       query = query.eq('branch_id', req.user!.branchId);
@@ -197,12 +256,21 @@ interface ReviewedItem {
   remainingBalanceQty: number;
 }
 
+/** No balance fields: packing materials carry nothing forward (migration 39). */
+interface ReviewedPackingItem {
+  packingMaterialId: string;
+  materialName: string;
+  qty: number;
+  approvedQty: number;
+}
+
 // PUT /api/production-orders/:id/review — production/admin approves or rejects
 router.put('/:id/review', requireRole('super_admin', 'production_user'), validate(ReviewProductionOrderSchema), async (req: AuthRequest, res, next) => {
   try {
-    const { status, approvedItems, reason } = req.body as {
+    const { status, approvedItems, approvedPackingItems, reason } = req.body as {
       status: 'approved' | 'rejected';
       approvedItems?: { productId: string; approvedQty: number }[];
+      approvedPackingItems?: { packingMaterialId: string; approvedQty: number }[];
       reason?: string;
     };
     const id = req.params['id']!;
@@ -217,11 +285,18 @@ router.put('/:id/review', requireRole('super_admin', 'production_user'), validat
       p_reason: reason ?? null,
       p_reviewed_by: req.user!.uid,
       p_reviewed_by_name: req.user!.email,
+      p_packing_overrides: approvedPackingItems ?? [],
     });
     if (error) throw error;
 
     const result = data as
-      | { status: 'ok'; branchId: string; branchName: string | null; items: ReviewedItem[] }
+      | {
+          status: 'ok';
+          branchId: string;
+          branchName: string | null;
+          items: ReviewedItem[];
+          packingItems: ReviewedPackingItem[];
+        }
       | { status: 'not_found' }
       | { status: 'already_reviewed' };
 
@@ -236,6 +311,10 @@ router.put('/:id/review', requireRole('super_admin', 'production_user'), validat
 
     // On approval, move approved units OUT of the production pool and INTO branch
     // stock (both idempotent by order id, kept as separate retry-safe units).
+    //
+    // Packing materials are deliberately absent from this: they are not stock-tracked
+    // yet (migration 38), so approving them records the quantity and nothing more.
+    // When packing stock does land, it hangs off packing_material_id here.
     if (status === 'approved') {
       const moves = result.items
         .map((it) => ({ productId: it.productId, productName: it.productName, qty: Number(it.approvedQty) }))
@@ -256,11 +335,18 @@ router.put('/:id/review', requireRole('super_admin', 'production_user'), validat
     }
 
     // Notify the branch with a per-product Total Required / Approved / Pending summary.
+    const productSummary = result.items
+      .map((it) => `${it.productName}: Required ${it.totalRequiredQty}, Approved ${it.approvedQty}, Pending ${it.remainingBalanceQty}`)
+      .join(' · ');
+    // Packing lines have no Required/Pending — there is no carry-forward — so they
+    // report just what was asked for and what was approved.
+    const packingSummary = (result.packingItems ?? [])
+      .map((it) => `${it.materialName}: Requested ${it.qty}, Approved ${it.approvedQty}`)
+      .join(' · ');
+
     const message =
       status === 'approved'
-        ? result.items
-            .map((it) => `${it.productName}: Required ${it.totalRequiredQty}, Approved ${it.approvedQty}, Pending ${it.remainingBalanceQty}`)
-            .join(' · ')
+        ? [productSummary, packingSummary && `Packing — ${packingSummary}`].filter(Boolean).join(' | ')
         : 'Your production order was rejected';
 
     await notify({

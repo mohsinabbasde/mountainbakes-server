@@ -1,3 +1,5 @@
+import type { BranchProductionOrderPackingItem } from './packing-material.types';
+
 // Named "Branch…" to avoid colliding with production.types.ts `ProductionOrder`
 // (the production-queue view of a customer order). This is the branch's daily
 // production *request* (collection `production_orders`).
@@ -31,6 +33,12 @@ export interface BranchProductionOrder {
   date: string; // 'YYYY-MM-DD' (Karachi)
   time: string; // 'HH:mm' (Karachi)
   items: BranchProductionOrderItem[];
+  /**
+   * Optional packing materials requested with this demand. Empty on most orders and
+   * on every order created before the packing-material module — always read it as
+   * `?? []` rather than assuming presence.
+   */
+  packingItems?: BranchProductionOrderPackingItem[];
   status: BranchProductionOrderStatus;
   /** True when any approved quantity differed from the requested quantity. Powers the "Changed Orders" metric. */
   wasChanged?: boolean;

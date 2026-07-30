@@ -67,7 +67,7 @@ export async function buildBranchReport(
   }
 
   // ── Sales + payment split (cancelled orders never count) ──
-  const payments = { cash: 0, easypaisa: 0, foodpanda: 0, bank: 0, other: 0, total: 0 };
+  const payments = { cash: 0, easypaisa: 0, foodpanda: 0, bank: 0, staff: 0, other: 0, total: 0 };
   const sales = { total: 0, transactions: 0, average: 0, discount: 0, tax: 0, net: 0 };
 
   for (const o of (orders.data ?? []) as {
@@ -76,6 +76,14 @@ export async function buildBranchReport(
     if (o.status === 'cancelled') continue;
     const total = num(o.grand_total);
     sales.transactions += 1;
+
+    // A staff sale is exempt from payment, so it is broken out but never added to
+    // the sales total — this figure is what the day took, and staff hand over nothing.
+    if (o.payment_method === 'staff') {
+      payments.staff += total;
+      continue;
+    }
+
     sales.total += total;
     sales.discount += num(o.discount_total);
     sales.tax += num(o.tax_amount);
@@ -89,6 +97,7 @@ export async function buildBranchReport(
       default: payments.other += total; break;
     }
   }
+  // payments.total stays the money actually collected — staff is deliberately absent.
   payments.total = payments.cash + payments.easypaisa + payments.foodpanda + payments.bank + payments.other;
   sales.net = sales.total - sales.discount - sales.tax;
   sales.average = sales.transactions > 0 ? sales.total / sales.transactions : 0;

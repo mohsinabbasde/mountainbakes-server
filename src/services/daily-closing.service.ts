@@ -168,20 +168,28 @@ async function buildArchive(businessDate: string, autoStockClosing: boolean): Pr
   }
 
   // ── Sales (non-cancelled) ──
-  const emptyPm: Record<PaymentMethod, number> = { cash: 0, easypaisa: 0, foodpanda: 0, bank_account: 0 };
+  const emptyPm: Record<PaymentMethod, number> = { cash: 0, easypaisa: 0, foodpanda: 0, bank_account: 0, staff: 0 };
   const sales: SalesSummary = {
-    totalSales: 0, totalOrders: 0, byPaymentMethod: { ...emptyPm }, totalDiscounts: 0, governmentTax: 0, netSales: 0,
+    totalSales: 0, staffSales: 0, totalOrders: 0, byPaymentMethod: { ...emptyPm }, totalDiscounts: 0, governmentTax: 0, netSales: 0,
   };
   for (const o of (orders.data ?? []) as {
     status: string; grand_total: number; discount_total: number; tax_amount: number; payment_method: PaymentMethod;
   }[]) {
     if (o.status === 'cancelled') continue;
-    sales.totalOrders += 1;
-    sales.totalSales += Number(o.grand_total || 0);
-    sales.totalDiscounts += Number(o.discount_total || 0);
-    sales.governmentTax += Number(o.tax_amount || 0);
     const pm = (o.payment_method || 'cash') as PaymentMethod;
-    sales.byPaymentMethod[pm] = (sales.byPaymentMethod[pm] || 0) + Number(o.grand_total || 0);
+    const amount = Number(o.grand_total || 0);
+    sales.totalOrders += 1;
+    // The closing figure is what the day actually took, so a staff sale is
+    // counted and broken out but kept out of totalSales — otherwise the summary
+    // sent to staff at 2 AM would report money nobody can hand over.
+    if (pm === 'staff') {
+      sales.staffSales += amount;
+    } else {
+      sales.totalSales += amount;
+      sales.totalDiscounts += Number(o.discount_total || 0);
+      sales.governmentTax += Number(o.tax_amount || 0);
+    }
+    sales.byPaymentMethod[pm] = (sales.byPaymentMethod[pm] || 0) + amount;
   }
   sales.netSales = sales.totalSales - sales.totalDiscounts - sales.governmentTax;
 

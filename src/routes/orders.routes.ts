@@ -3,11 +3,13 @@ import { supabaseAdmin } from '../config/supabase';
 import { authenticate, type AuthRequest } from '../middleware/auth';
 import { requireRole } from '../middleware/requireRole';
 import { validate } from '../middleware/validate';
-import { CreateOrderSchema, CreatePosSaleSchema, UpdateOrderStatusSchema, LOW_STOCK_THRESHOLD, businessDateStr } from '../shared';
+import { CreateOrderSchema, CreatePosSaleSchema, CreateProductionSaleSchema, UpdateOrderStatusSchema, LOW_STOCK_THRESHOLD, businessDateStr } from '../shared';
+import { getCached, setCached } from '../utils/cache';
 import { generateOrderNumber } from '../utils/orderNumber';
 import { notify } from '../services/push.service';
 import { sendOrderConfirmation } from '../services/order-notifications.service';
 import { commitSaleTransaction, logBlockedSale, InsufficientStockError, type SaleBalance, type SaleItem } from '../services/stock.service';
+import { commitProductionSaleTransaction } from '../services/production-stock.service';
 import { assertBusinessDayOpen } from '../middleware/assertBusinessDayOpen';
 import { getAppSettings } from '../services/settings.service';
 import { rowToApi } from '../utils/case';
@@ -84,7 +86,74 @@ async function buildOrderItems(
   });
 }
 
+/** Slug of the sentinel branch that production-counter sales are booked to (migration 37). */
+const PRODUCTION_BRANCH_SLUG = 'production-counter';
+
+/**
+ * The Production sentinel branch's id, resolved by slug and cached.
+ *
+ * Production sales have no branch of their own, but orders.branch_id is NOT NULL,
+ * so they all point here. Resolving by slug rather than hardcoding a uuid keeps
+ * this working against any database the migration has been applied to; the id is
+ * never sent to the client, so nothing outside this module can book a sale here.
+ */
+async function getProductionBranchId(): Promise<string> {
+  const cacheKey = `branches:${PRODUCTION_BRANCH_SLUG}`;
+  const hit = getCached<string>(cacheKey);
+  if (hit) return hit;
+
+  const { data, error } = await supabaseAdmin
+    .from('branches')
+    .select('id')
+    .eq('slug', PRODUCTION_BRANCH_SLUG)
+    .maybeSingle();
+  if (error) throw error;
+  if (!data) {
+    throw Object.assign(
+      new Error(`Production branch ('${PRODUCTION_BRANCH_SLUG}') is missing — apply migration 37.`),
+      { status: 500 },
+    );
+  }
+
+  const id = (data as { id: string }).id;
+  setCached(cacheKey, id);
+  return id;
+}
+
 router.use(authenticate);
+
+// GET /api/orders/production-sales — the Production dashboard's own sale list.
+//
+// MUST stay above `GET /:id`, or that route matches 'production-sales' as an id.
+// It exists because the generic list is no use here: it caps production users to
+// ACTIVE_STATUSES (a delivered counter sale would 403), and there is no branch for
+// the caller to filter on — the scoping is the sentinel branch, which the client
+// never sees.
+router.get('/production-sales', requireRole('super_admin', 'production_user'), async (req: AuthRequest, res, next) => {
+  try {
+    const { from, to } = req.query;
+    const branchId = await getProductionBranchId();
+
+    let query = supabaseAdmin
+      .from('orders')
+      .select(ORDER_SELECT)
+      .eq('branch_id', branchId)
+      .eq('status', 'delivered')
+      .order('created_at', { ascending: false })
+      .order('line_no', ORDER_ITEMS_ORDER);
+
+    if (from) query = query.gte('created_at', String(from));
+    if (to) query = query.lte('created_at', withUtcDesignator(String(to)));
+
+    const { data, error } = await query;
+    if (error) throw error;
+
+    const orders = rowToApi<Record<string, unknown>[]>(data ?? []);
+    res.json({ orders, total: orders.length });
+  } catch (err) {
+    next(err);
+  }
+});
 
 router.get('/', async (req: AuthRequest, res, next) => {
   try {
@@ -422,6 +491,132 @@ router.post('/pos', requireRole('super_admin', 'branch_manager'), validate(Creat
     // built from this — if the client rebuilt it from its cached product list, a
     // price change between opening the form and saving would put a unitPrice on the
     // customer's receipt that disagrees with the order actually stored.
+    res.status(201).json({
+      id: orderId,
+      orderNumber,
+      grandTotal,
+      items: orderItems,
+      subtotal,
+      discountTotal,
+      taxAmount,
+      createdAt: new Date().toISOString(),
+      ...(cashFields ?? {}),
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// POST /api/orders/production-sale — the counter sale on the Production dashboard.
+//
+// Same response shape and same 409 on a shortfall as /pos, with three deliberate
+// differences:
+//
+//  1. The units come out of the central production pool, not a branch's `stock`.
+//  2. There is no branch to choose. Any branchId in the body is ignored; the order
+//     is pinned to the Production sentinel branch, because orders.branch_id is NOT
+//     NULL and is load-bearing for RLS and reporting.
+//  3. paymentMethod may be 'staff', which takes no money. It is exempt from
+//     payment (no cash tendered, no change) and excluded from revenue everywhere;
+//     the schema requires a comment so the sale stays auditable.
+router.post('/production-sale', requireRole('super_admin', 'production_user'), validate(CreateProductionSaleSchema), async (req: AuthRequest, res, next) => {
+  try {
+    const { customerName, customerPhone, items, paymentMethod, receivedCash, notes } = req.body;
+    const isStaffSale = paymentMethod === 'staff';
+    const branchId = await getProductionBranchId();
+
+    await assertBusinessDayOpen(businessDateStr(), req.user!.role);
+
+    const [branchRes, taxRate] = await Promise.all([
+      supabaseAdmin.from('branches').select('name').eq('id', branchId).maybeSingle(),
+      resolveTaxRate(),
+    ]);
+    if (branchRes.error) throw branchRes.error;
+    if (!branchRes.data) { res.status(400).json({ error: 'Branch not found' }); return; }
+    const branch = branchRes.data as { name: string };
+
+    const orderItems = await buildOrderItems(items);
+    const subtotal = orderItems.reduce((sum, i) => sum + i.lineTotal, 0);
+    const discountTotal = orderItems.reduce((sum, i) => sum + (i.discount ?? 0), 0);
+    const taxAmount = Math.round(subtotal * taxRate * 100) / 100;
+    const grandTotal = subtotal + taxAmount;
+
+    // A staff sale collects nothing, so there is no tender to check and no change
+    // to give — the isStaffSale guard keeps a stray receivedCash in the body from
+    // putting a cash figure on an unpaid order.
+    let cashFields: { receivedCash: number; cashReturned: number } | null = null;
+    if (!isStaffSale && paymentMethod === 'cash' && receivedCash != null) {
+      if (receivedCash < grandTotal) {
+        res.status(400).json({ error: 'Received cash is less than the Grand Total.' });
+        return;
+      }
+      cashFields = { receivedCash, cashReturned: Math.round((receivedCash - grandTotal) * 100) / 100 };
+    }
+
+    const orderNumber = await generateOrderNumber();
+    const name = (customerName || '').trim() || 'Walking Customer';
+
+    let orderId: string;
+    try {
+      ({ orderId } = await commitProductionSaleTransaction({
+        branchId,
+        items: orderItems,
+        order: {
+          orderNumber,
+          branchName: branch.name,
+          customerId: null,
+          customerName: name,
+          customerPhone: (customerPhone || '').trim(),
+          customerAddress: '',
+          subtotal,
+          discountTotal,
+          deliveryCharges: 0,
+          taxRate,
+          taxAmount,
+          grandTotal,
+          paymentMethod,
+          status: 'delivered', // completed at the counter; bypasses the production queue
+          notes: notes || '',
+          createdBy: req.user!.uid,
+          createdByName: req.user!.email,
+          ...(cashFields ?? {}),
+        },
+      }));
+    } catch (err) {
+      if (err instanceof InsufficientStockError) {
+        // Best-effort audit log; never let it mask the 409 from the caller.
+        await logBlockedSale({
+          branchId,
+          branchName: branch.name,
+          userId: req.user!.uid,
+          userName: req.user!.email || req.user!.uid,
+          shortfalls: err.shortfalls,
+        }).catch((e) => console.error('[stock] failed to write audit log', e));
+
+        res.status(409).json({
+          error: 'Stock has changed. Please review your order.',
+          details: err.shortfalls,
+        });
+        return;
+      }
+      throw err;
+    }
+
+    // No low-stock notification here: LOW_STOCK_THRESHOLD and the "create a
+    // Production Order" call to action it prompts are both branch-stock concepts,
+    // and this sale moved no branch balance. The pool has its own visibility on
+    // the Production Stock page.
+
+    void sendOrderConfirmation({
+      orderId,
+      orderNumber,
+      customerName: name,
+      customerPhone,
+      branchName: branch.name,
+      grandTotal,
+      kind: 'sale',
+    }).catch((e) => console.error('[order-notify] confirmation rejected:', e));
+
     res.status(201).json({
       id: orderId,
       orderNumber,

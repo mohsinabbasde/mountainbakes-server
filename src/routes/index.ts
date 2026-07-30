@@ -4,6 +4,7 @@ import { router as authRouter } from './auth.routes';
 import { router as usersRouter } from './users.routes';
 import { router as branchesRouter } from './branches.routes';
 import { router as productsRouter } from './products.routes';
+import { router as packingMaterialsRouter } from './packing-materials.routes';
 import { router as priceRouter } from './price-management.routes';
 import { router as customersRouter } from './customers.routes';
 import { router as ordersRouter } from './orders.routes';
@@ -30,6 +31,9 @@ export function setupRoutes(app: Express) {
   // Register the specific price prefix before the products router so it wins the match.
   app.use('/api/products/price', priceRouter);
   app.use('/api/products', productsRouter);
+  // Its own prefix, not a sub-path of products: packing materials are service
+  // items with no price, deliberately kept out of the product tables entirely.
+  app.use('/api/packing-materials', packingMaterialsRouter);
   app.use('/api/customers', customersRouter);
   app.use('/api/orders', ordersRouter);
   app.use('/api/production', productionRouter);

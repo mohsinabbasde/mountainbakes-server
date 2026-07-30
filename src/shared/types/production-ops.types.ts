@@ -9,6 +9,7 @@ export type ProductionStockMovementType =
   | 'prepare' // Production prepared units → pool +
   | 'transfer_out' // demand approved, moved to a branch → pool −
   | 'return_in' // accepted return added back → pool +
+  | 'sale' // sold at the production counter → pool − (branch stock untouched)
   | 'adjustment';
 
 /** Running balance for the central production pool. Keyed by `productId`. */
@@ -41,6 +42,7 @@ export interface ProductionStockRow {
   approvedQty: number; // Σ transferred out today
   balance: number; // current pool balance
   returned: number; // Σ returns added back today
+  soldToday: number; // Σ sold at the production counter today
 }
 
 // ── Product Returns ──────────────────────────────────────────────────────────
