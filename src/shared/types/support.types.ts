@@ -1,17 +1,22 @@
 // Support tickets — the Help Desk (branches / production) → Support Center (admin)
 // query queue. A ticket is always raised against ONE reference ID (a sale
-// MB-######, an expense EXP-######, or a product's stock STK-######); the
-// reference's figures are snapshotted onto the ticket at submit time so the
-// admin sees exactly what the raiser saw.
+// MB-######, a demand DMD-######, an expense EXP-######, or a product's stock
+// STK-######); the reference's figures are snapshotted onto the ticket at submit
+// time so the admin sees exactly what the raiser saw.
 
 import type { PaymentMethod } from './order.types';
 import type { StockFigures } from './stock.types';
 
+// 'demand' is a branch's production request (production_orders.demand_number). It
+// is a workflow document rather than a ledger — correcting one means re-reviewing
+// it on the Production Orders page, which moves the pool atomically — so a demand
+// reference is always `readOnly` (below).
+//
 // 'system' is not raised by a human against a lookupable ID — it is opened
 // automatically when an unattended job fails (e.g. the 2 AM closing summary could
 // not be generated or delivered). Such a ticket has no editable reference, so its
 // referenceSnapshot is null and the failure detail lives in `message`.
-export type SupportReferenceType = 'sale' | 'expense' | 'stock' | 'system';
+export type SupportReferenceType = 'sale' | 'demand' | 'expense' | 'stock' | 'system';
 export type SupportTicketStatus = 'open' | 'resolved' | 'rejected';
 
 /** One key/value line of the auto-shown reference detail. */
@@ -64,6 +69,32 @@ export interface SupportReference {
    * here can be written directly", and the correction is only recorded.
    */
   editableFields: SupportEditableField[];
+  /**
+   * True when the reference is INFORMATIONAL ONLY: nothing here may be written
+   * back, so the Support Center offers no "Change figures" editor and both
+   * PATCH /figures and PATCH /sale-items refuse it outright.
+   *
+   * Set for the three Production shapes, each for the same underlying reason —
+   * the correction machinery is branch-ledger machinery and Production has no
+   * branch ledger:
+   *   · demands            — a workflow document; re-review it, don't patch it.
+   *   · production stock   — the pool is branch-agnostic, and applyStockCorrection
+   *                          sizes its compensating movement against ONE branch.
+   *   · counter sales      — their units left `production_stock`, but
+   *                          edit_sale_items reconciles branch `stock`. Applying
+   *                          one would invent branch inventory (the sentinel
+   *                          branch has no stock rows) and leave the pool wrong.
+   *
+   * Enforced on the SERVER, not just in the UI: a production account may legally
+   * carry a branchId, which would otherwise send a pool correction into an
+   * unrelated shop's ledger. The caller's role cannot catch that — only this flag,
+   * which is derived from the record itself, can.
+   *
+   * Opt-in and absent-means-false ON PURPOSE: every snapshot written before this
+   * field existed keeps its current behaviour, including legacy stock tickets that
+   * carry an empty editableFields and are still corrected through StockFiguresDialog.
+   */
+  readOnly?: boolean;
   /**
    * For sale references: the current line items, editable in the Support Center
    * and applied live (product / qty / unit price) via edit_sale_items.

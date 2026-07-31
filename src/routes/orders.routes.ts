@@ -4,7 +4,7 @@ import { authenticate, type AuthRequest } from '../middleware/auth';
 import { requireRole } from '../middleware/requireRole';
 import { validate } from '../middleware/validate';
 import { CreateOrderSchema, CreatePosSaleSchema, CreateProductionSaleSchema, UpdateOrderStatusSchema, LOW_STOCK_THRESHOLD, businessDateStr } from '../shared';
-import { getCached, setCached } from '../utils/cache';
+import { getProductionBranchId } from '../utils/productionBranch';
 import { generateOrderNumber } from '../utils/orderNumber';
 import { notify } from '../services/push.service';
 import { sendOrderConfirmation } from '../services/order-notifications.service';
@@ -84,40 +84,6 @@ async function buildOrderItems(
       lineTotal: unitPrice * item.qty - item.discount,
     };
   });
-}
-
-/** Slug of the sentinel branch that production-counter sales are booked to (migration 37). */
-const PRODUCTION_BRANCH_SLUG = 'production-counter';
-
-/**
- * The Production sentinel branch's id, resolved by slug and cached.
- *
- * Production sales have no branch of their own, but orders.branch_id is NOT NULL,
- * so they all point here. Resolving by slug rather than hardcoding a uuid keeps
- * this working against any database the migration has been applied to; the id is
- * never sent to the client, so nothing outside this module can book a sale here.
- */
-async function getProductionBranchId(): Promise<string> {
-  const cacheKey = `branches:${PRODUCTION_BRANCH_SLUG}`;
-  const hit = getCached<string>(cacheKey);
-  if (hit) return hit;
-
-  const { data, error } = await supabaseAdmin
-    .from('branches')
-    .select('id')
-    .eq('slug', PRODUCTION_BRANCH_SLUG)
-    .maybeSingle();
-  if (error) throw error;
-  if (!data) {
-    throw Object.assign(
-      new Error(`Production branch ('${PRODUCTION_BRANCH_SLUG}') is missing — apply migration 37.`),
-      { status: 500 },
-    );
-  }
-
-  const id = (data as { id: string }).id;
-  setCached(cacheKey, id);
-  return id;
 }
 
 router.use(authenticate);
