@@ -24,6 +24,12 @@ export interface AppSettings {
    * default — turning it on starts billing real messages to real numbers.
    */
   orderConfirmationsEnabled: boolean;
+  /**
+   * Master switch for scheduled Special Event reminders (WhatsApp/SMS legs). Off
+   * by default for the same reason as the two above. The cron dispatcher respects
+   * it; a manual "send due reminders now" from the admin screen does not.
+   */
+  eventNotificationsEnabled: boolean;
   updatedAt: string;
   updatedBy: string;
 }
@@ -54,4 +60,5 @@ export interface UpdateSettingsPayload {
   autoStockClosing?: boolean;
   closingNotificationsEnabled?: boolean;
   orderConfirmationsEnabled?: boolean;
+  eventNotificationsEnabled?: boolean;
 }

@@ -2,7 +2,8 @@
  * Must stay in lockstep with the Postgres `notification_type` enum — that enum is
  * the authority, and `notifications.type` is `not null` against it, so a value
  * missing there fails the insert with a raw 22P02. The enum is declared in
- * migration 01 and extended by 14 (`password_reset`) and 25 (the two `support_*`).
+ * migration 01 and extended by 14 (`password_reset`), 25 (the two `support_*`)
+ * and 42 (the six `event_*`).
  *
  * Note `notify()` takes `type: string`, not this union (services/push.service.ts) —
  * nothing mechanically enforces the match, so add values in BOTH places.
@@ -22,7 +23,14 @@ export type NotificationType =
   | 'production_return' // a product return was recorded/accepted
   // Help Desk → Support Center queries (migration 25)
   | 'support_query' // a branch/production user raised a query → Admin
-  | 'support_resolved'; // Admin resolved/rejected or corrected the figures → raiser
+  | 'support_resolved' // Admin resolved/rejected or corrected the figures → raiser
+  // Special Events (migration 42)
+  | 'event_created' // a new event was published → branches + Production
+  | 'event_reminder' // a scheduled countdown reminder fired → branch or Production
+  | 'event_demand_due' // the branch demand deadline is tomorrow → branch
+  | 'event_demand_submitted' // a branch submitted its advance demand → Production
+  | 'event_demand_reviewed' // Production/Admin approved or rejected a demand → branch
+  | 'event_production_updated'; // a preparation stage moved → Admin
 
 export interface Notification {
   id: string;

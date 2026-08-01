@@ -19,6 +19,7 @@ export const UpdateSettingsSchema = z.object({
   autoStockClosing: z.boolean().optional(),
   closingNotificationsEnabled: z.boolean().optional(),
   orderConfirmationsEnabled: z.boolean().optional(),
+  eventNotificationsEnabled: z.boolean().optional(),
 });
 
 export type UpdateSettingsInput = z.infer<typeof UpdateSettingsSchema>;

@@ -19,6 +19,7 @@ export * from './types/business-day.types';
 export * from './types/price.types';
 export * from './types/support.types';
 export * from './types/closing-notifications.types';
+export * from './types/special-event.types';
 
 // Zod schemas + inferred input types
 export * from './schemas/user.schemas';
@@ -34,7 +35,9 @@ export * from './schemas/settings.schemas';
 export * from './schemas/price.schemas';
 export * from './schemas/support.schemas';
 export * from './schemas/closing-notifications.schemas';
+export * from './schemas/special-event.schemas';
 
 // Utils
 export * from './utils/timezone';
 export * from './utils/stock';
+export * from './utils/hijri';

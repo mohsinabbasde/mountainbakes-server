@@ -22,6 +22,7 @@ const FULL_DEFAULTS: AppSettings = {
   ...DEFAULT_BUSINESS_HOURS,
   closingNotificationsEnabled: false,
   orderConfirmationsEnabled: false,
+  eventNotificationsEnabled: false,
   updatedAt: '',
   updatedBy: '',
 };
@@ -45,6 +46,7 @@ const COLUMN_TO_FIELD: Record<string, keyof AppSettings> = {
   auto_stock_closing: 'autoStockClosing',
   closing_notifications_enabled: 'closingNotificationsEnabled',
   order_confirmations_enabled: 'orderConfirmationsEnabled',
+  event_notifications_enabled: 'eventNotificationsEnabled',
   updated_at: 'updatedAt',
   updated_by: 'updatedBy',
 };
