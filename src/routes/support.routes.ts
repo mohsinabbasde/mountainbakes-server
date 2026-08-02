@@ -10,6 +10,7 @@ import {
   ChangeFiguresSchema,
   EditSaleItemsSchema,
   businessDateStr,
+  karachiTimeStr,
   type PaymentMethod,
   type StockFigures,
   type SupportReference,
@@ -95,9 +96,18 @@ async function resolveReference(
     // at most one `branches` read per TTL.
     const productionBranchId = await getProductionBranchId();
 
+    // The whole money row, not just the grand total: the Support Center shows the
+    // admin exactly what the branch sees on its own Sale view (rate, discount and
+    // line amount per item; subtotal / discount / tax / grand total below), and
+    // tax_rate + delivery_charges are what let it preview the recomputed total the
+    // same way edit_sale_items will.
     let q = supabaseAdmin
       .from('orders')
-      .select('id, order_number, customer_name, branch_name, branch_id, grand_total, payment_method, status, business_date')
+      .select(`
+        id, order_number, customer_name, customer_phone, branch_name, branch_id,
+        subtotal, discount_total, delivery_charges, tax_rate, tax_amount, grand_total,
+        payment_method, status, business_date, created_at, created_by_name, notes
+      `)
       .eq('order_number', referenceId)
       .limit(1);
     if (role === 'branch_manager') {
@@ -119,7 +129,8 @@ async function resolveReference(
     const isProductionSale = data.branch_id === productionBranchId;
 
     // Line items are editable in the Support Center: the admin can change a
-    // line's product, qty, or unit price, and it applies live via edit_sale_items.
+    // line's product, qty, unit price or discount, and it applies live via
+    // edit_sale_items.
     const { data: items, error: itemsErr } = await supabaseAdmin
       .from('order_items')
       .select('product_id, product_name, category_id, category_name, unit_price, qty, discount')
@@ -127,28 +138,57 @@ async function resolveReference(
       .order('line_no', { ascending: true });
     if (itemsErr) throw itemsErr;
 
+    const saleItems = (items ?? []).map((it) => ({
+      productId: it.product_id,
+      productName: it.product_name,
+      categoryId: it.category_id,
+      categoryName: it.category_name,
+      unitPrice: Number(it.unit_price),
+      qty: Number(it.qty),
+      discount: Number(it.discount ?? 0),
+    }));
+
+    const totals = {
+      subtotal: Number(data.subtotal ?? 0),
+      discountTotal: Number(data.discount_total ?? 0),
+      deliveryCharges: Number(data.delivery_charges ?? 0),
+      taxRate: Number(data.tax_rate ?? 0),
+      taxAmount: Number(data.tax_amount ?? 0),
+      grandTotal: Number(data.grand_total ?? 0),
+    };
+
     return {
       type,
       referenceId,
       entityId: data.id,
       title: `Sale ${referenceId} — ${data.customer_name ?? 'Walk-in'} · ${money(data.grand_total)}`,
+      // The same rows the branch's Sale view prints, in the same order, so an
+      // admin reading the ticket and the branch manager reading the sale are
+      // looking at one document. Delivery and Comment appear only when the sale
+      // has them — a blank row reads as a figure of zero rather than as absent.
       fields: [
         { label: 'Customer', value: data.customer_name ?? 'Walk-in' },
+        { label: 'Mobile', value: data.customer_phone ?? '—' },
         { label: 'Branch', value: data.branch_name ?? '—' },
-        { label: 'Grand Total', value: money(data.grand_total) },
+        { label: 'Date', value: String(data.business_date ?? '—') },
+        { label: 'Time', value: data.created_at ? karachiTimeStr(new Date(data.created_at)) : '—' },
+        { label: 'Items', value: `${saleItems.length} line${saleItems.length === 1 ? '' : 's'}` },
+        { label: 'Total Qty', value: String(saleItems.reduce((s, it) => s + it.qty, 0)) },
+        // Gross, as the branch's view prints it — orders.subtotal is already net
+        // of the line discounts, so the discount is added back to show what the
+        // items came to before it.
+        { label: 'Subtotal', value: money(totals.subtotal + totals.discountTotal) },
+        { label: 'Discount', value: `-${money(totals.discountTotal)}` },
+        ...(totals.deliveryCharges > 0 ? [{ label: 'Delivery', value: money(totals.deliveryCharges) }] : []),
+        { label: 'Government Tax', value: money(totals.taxAmount) },
+        { label: 'Grand Total', value: money(totals.grandTotal) },
         { label: 'Payment', value: String(data.payment_method ?? '—') },
         { label: 'Status', value: String(data.status ?? '—') },
-        { label: 'Date', value: String(data.business_date ?? '—') },
+        { label: 'Sold By', value: data.created_by_name ?? '—' },
+        ...(data.notes?.trim() ? [{ label: 'Comment', value: data.notes.trim() }] : []),
       ],
-      saleItems: (items ?? []).map((it) => ({
-        productId: it.product_id,
-        productName: it.product_name,
-        categoryId: it.category_id,
-        categoryName: it.category_name,
-        unitPrice: Number(it.unit_price),
-        qty: Number(it.qty),
-        discount: Number(it.discount ?? 0),
-      })),
+      saleTotals: totals,
+      saleItems,
       // Also editable in the Support Center. Historical rows may carry a legacy
       // tender ('card' / 'online') that is no longer offered — it is shown as-is
       // and simply not one of the choices the admin can pick.

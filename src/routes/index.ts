@@ -3,6 +3,7 @@ import { router as authRouter } from './auth.routes';
 
 import { router as usersRouter } from './users.routes';
 import { router as branchesRouter } from './branches.routes';
+import { router as branchLocationsRouter } from './branch-locations.routes';
 import { router as productsRouter } from './products.routes';
 import { router as packingMaterialsRouter } from './packing-materials.routes';
 import { router as priceRouter } from './price-management.routes';
@@ -29,6 +30,10 @@ export function setupRoutes(app: Express) {
 
   app.use('/api/users', usersRouter);
   app.use('/api/branches', branchesRouter);
+  // Its own prefix rather than a sub-path of /api/branches: the admin module lists
+  // and edits geofences as a resource in their own right, and a location is
+  // deliberately not part of a branch record (see migration 48).
+  app.use('/api/branch-locations', branchLocationsRouter);
   // Register the specific price prefix before the products router so it wins the match.
   app.use('/api/products/price', priceRouter);
   app.use('/api/products', productsRouter);

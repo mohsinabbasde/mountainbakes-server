@@ -11,6 +11,7 @@ import { sendOrderConfirmation } from '../services/order-notifications.service';
 import { commitSaleTransaction, logBlockedSale, InsufficientStockError, type SaleBalance, type SaleItem } from '../services/stock.service';
 import { commitProductionSaleTransaction } from '../services/production-stock.service';
 import { assertBusinessDayOpen } from '../middleware/assertBusinessDayOpen';
+import { requireInsideGeofence } from '../middleware/requireInsideGeofence';
 import { getAppSettings } from '../services/settings.service';
 import { rowToApi } from '../utils/case';
 
@@ -198,7 +199,9 @@ router.get('/:id', async (req: AuthRequest, res, next) => {
   }
 });
 
-router.post('/', requireRole('super_admin', 'branch_manager'), validate(CreateOrderSchema), async (req: AuthRequest, res, next) => {
+// Geofence AFTER validate: the branch the order is for is read out of the body, so
+// the body has to be known-good first. Super admins are exempt inside the middleware.
+router.post('/', requireRole('super_admin', 'branch_manager'), validate(CreateOrderSchema), requireInsideGeofence('order.create'), async (req: AuthRequest, res, next) => {
   try {
     const { branchId, customerId, items, paymentMethod, deliveryCharges, notes } = req.body;
 
@@ -324,7 +327,7 @@ router.post('/', requireRole('super_admin', 'branch_manager'), validate(CreateOr
 });
 
 // POST /api/orders/pos — retail POS sale (completed immediately, decrements stock)
-router.post('/pos', requireRole('super_admin', 'branch_manager'), validate(CreatePosSaleSchema), async (req: AuthRequest, res, next) => {
+router.post('/pos', requireRole('super_admin', 'branch_manager'), validate(CreatePosSaleSchema), requireInsideGeofence('sale.create'), async (req: AuthRequest, res, next) => {
   try {
     const { branchId, customerName, customerPhone, items, paymentMethod, receivedCash, notes } = req.body;
 

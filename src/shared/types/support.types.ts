@@ -35,9 +35,10 @@ export interface SupportEditableField {
 
 /**
  * One editable line of a sale (order_items row). Carried on a sale reference so
- * the Support Center can change the product, qty, or unit price of each line and
- * apply it live via edit_sale_items. `discount` is carried through unchanged (not
- * exposed in the editor); `unitPrice` is the "amount" the admin edits per unit.
+ * the Support Center can change the product, qty, unit price or discount of each
+ * line and apply it live via edit_sale_items — the same four values the branch's
+ * Sale view prints per line. `unitPrice` is the per-unit rate; `discount` is the
+ * whole-line discount, exactly as order_items stores it.
  */
 export interface SupportSaleItem {
   productId: string | null;
@@ -47,6 +48,25 @@ export interface SupportSaleItem {
   unitPrice: number;
   qty: number;
   discount: number;
+}
+
+/**
+ * For sale references: the order's money row and the two rates that produce it.
+ * Carried so the Support Center shows the same totals the branch sees on the
+ * sale, and can preview what an edit will recompute — `taxRate` and
+ * `deliveryCharges` are the components edit_sale_items keeps, so the previewed
+ * grand total is derived exactly as the server will derive it.
+ *
+ * `subtotal` is NET of line discounts (Σ line_total), matching orders.subtotal —
+ * the branch's view prints the gross by adding `discountTotal` back.
+ */
+export interface SupportSaleTotals {
+  subtotal: number;
+  discountTotal: number;
+  deliveryCharges: number;
+  taxRate: number;
+  taxAmount: number;
+  grandTotal: number;
 }
 
 /**
@@ -97,9 +117,15 @@ export interface SupportReference {
   readOnly?: boolean;
   /**
    * For sale references: the current line items, editable in the Support Center
-   * and applied live (product / qty / unit price) via edit_sale_items.
+   * and applied live (product / qty / unit price / discount) via edit_sale_items.
    */
   saleItems?: SupportSaleItem[];
+  /**
+   * For sale references: the order's totals, so the Support Center can show the
+   * same money row the branch sees and preview the recomputed grand total as the
+   * admin edits the lines.
+   */
+  saleTotals?: SupportSaleTotals;
   /**
    * For sale references: the order's payment method at snapshot time. The Support
    * Center can change it alongside the line items — a wrong tender (cash booked as

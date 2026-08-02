@@ -9,6 +9,7 @@ import { notify } from '../services/push.service';
 import { returnIntoPool } from '../services/production-stock.service';
 import { commitBranchReturn, computeStockRows, InsufficientStockError } from '../services/stock.service';
 import { assertBusinessDayOpen } from '../middleware/assertBusinessDayOpen';
+import { requireInsideGeofence } from '../middleware/requireInsideGeofence';
 import { rowToApi } from '../utils/case';
 
 export const router = Router();
@@ -80,7 +81,7 @@ router.get('/', async (req: AuthRequest, res, next) => {
 // branch negative, and the 409 names what did commit. Those stay committed:
 // they are real stock movements, and silently reversing them would be worse.
 // True all-or-nothing needs a commit_branch_return_batch(p_items jsonb) function.
-router.post('/return', requireRole('super_admin', 'branch_manager'), validate(CreateBranchReturnSchema), async (req: AuthRequest, res, next) => {
+router.post('/return', requireRole('super_admin', 'branch_manager'), validate(CreateBranchReturnSchema), requireInsideGeofence('stock.return'), async (req: AuthRequest, res, next) => {
   try {
     const branchId = req.user!.role === 'branch_manager'
       ? req.user!.branchId
