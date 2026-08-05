@@ -33,9 +33,35 @@ export interface ProductionStockHistoryRow {
   createdAt: string; // ISO UTC
 }
 
+/**
+ * The derived pool figures for one product on one business date — the numeric core
+ * of a `ProductionStockRow`, without the product identity. The pool's counterpart
+ * of `StockFigures`, carried on a production stock support reference so the Support
+ * Center can render and correct them without re-deriving them from display labels.
+ *
+ * `adjustment` is SIGNED (the direction is the information) and `totalStock` is
+ * derived — balance + approved + sold — so neither is directly correctable.
+ */
+export interface ProductionStockFigures {
+  preparedToday: number;
+  approvedQty: number;
+  returned: number;
+  soldToday: number;
+  adjustment: number;
+  balance: number;
+  totalStock: number;
+}
+
 /** Computed per-product row for the Production Stock page. */
 export interface ProductionStockRow {
   productId: string;
+  /**
+   * The product's human-readable STK-###### — the same code the branch Stock page
+   * shows, because it identifies the PRODUCT, not a branch's row. It is what the
+   * Help Desk is given to raise a stock query, so the pool page has to show it or
+   * a production user has nothing to quote.
+   */
+  stockCode: string;
   productName: string;
   preparedToday: number; // Σ prepare deltas today
   totalStock: number; // current balance + what left today (a "gross in" view)

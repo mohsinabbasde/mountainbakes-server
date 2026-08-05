@@ -24,7 +24,13 @@ import {
   type StockCorrectionResult,
   type StockCorrectionTargets,
 } from '../services/stock.service';
-import { getProductionStockRows } from '../services/production-stock.service';
+import {
+  applyProductionStockCorrection,
+  CorrectionUnavailableError,
+  getProductionStockFigures,
+  type ProductionStockCorrectionTargets,
+  type ProductionStockCorrectionResult,
+} from '../services/production-stock.service';
 import { getProductionBranchId } from '../utils/productionBranch';
 import { rowToApi } from '../utils/case';
 
@@ -52,11 +58,32 @@ const STOCK_FIGURE_LABELS = {
   balance: 'Balance',
 } as const;
 
-/** "Sold 10 → 12, Balance 40 → 38" — only the figures that actually moved. */
+/** The pool figures an admin may correct, labelled as the Production Stock page shows them. */
+const PRODUCTION_FIGURE_LABELS = {
+  preparedToday: 'Prepared Today',
+  approvedQty: 'Approved Qty',
+  soldToday: 'Sold',
+  returned: 'Returned',
+  balance: 'Balance',
+} as const;
+
+/**
+ * "Sold 10 → 12, Balance 40 → 38" — only the figures that actually moved, and only
+ * the CORRECTABLE ones: `opening` / `totalStock` are derived and never move on
+ * their own, and `adjustment` is the remainder already visible in Balance.
+ */
 function describeStockChange(result: StockCorrectionResult): string {
   return (Object.keys(STOCK_FIGURE_LABELS) as (keyof typeof STOCK_FIGURE_LABELS)[])
     .filter((k) => result.before[k] !== result.after[k])
     .map((k) => `${STOCK_FIGURE_LABELS[k]} ${result.before[k]} → ${result.after[k]}`)
+    .join(', ');
+}
+
+/** The pool's counterpart of `describeStockChange`. */
+function describeProductionChange(result: ProductionStockCorrectionResult): string {
+  return (Object.keys(PRODUCTION_FIGURE_LABELS) as (keyof typeof PRODUCTION_FIGURE_LABELS)[])
+    .filter((k) => result.before[k] !== result.after[k])
+    .map((k) => `${PRODUCTION_FIGURE_LABELS[k]} ${result.before[k]} → ${result.after[k]}`)
     .join(', ');
 }
 
@@ -77,11 +104,19 @@ function refType(refId: string): SupportReferenceType {
  * branch — the Support Center passes the ticket's branch so the admin sees (and
  * corrects) that branch's live figures rather than an all-branches total. Ignored
  * for branch managers, who are always pinned to their own branch.
+ *
+ * `poolScope` is its production counterpart: it resolves a STOCK reference against
+ * the central pool. A production user always gets the pool from their role, but an
+ * admin re-reading that same ticket would otherwise land on an all-branches total,
+ * which describes something else entirely — so the Support Center asks for the pool
+ * explicitly when the ticket came from Production. The two are mutually exclusive;
+ * the pool wins, because a pool ticket has no branch ledger to fall back to.
  */
 async function resolveReference(
   user: AuthRequest['user'],
   rawRef: string,
   scopeBranch?: string | null,
+  poolScope = false,
 ): Promise<SupportReference> {
   const referenceId = rawRef.trim().toUpperCase();
   const type = refType(referenceId);
@@ -365,20 +400,24 @@ async function resolveReference(
   // the chain makes it structurally impossible for a branch-shaped `stockFigures`
   // or `branchId` to end up on a pool reference.
   //
-  // READ-ONLY: applyStockCorrection sizes its compensating movement against ONE
-  // branch ledger, and the pool has none.
-  if (role === 'production_user') {
-    // Reused rather than queried directly so the Help Desk and the Production
-    // Stock page derive these six figures from one definition — the alternative is
-    // re-folding the movement types here and eventually disagreeing with the page.
-    const poolRow = (await getProductionStockRows(today)).find((r) => r.productId === product.id);
+  // CORRECTABLE since migration 50: the pool has its own correction function, so
+  // these figures are absolute targets exactly as a branch's are. What it does NOT
+  // have is a branch, which is why `isProductionPool` rides along — it is what
+  // routes the write to the pool rather than to some shop's ledger.
+  if (role === 'production_user' || poolScope) {
+    // Reused rather than queried directly so the Help Desk, the Production Stock
+    // page and this correction derive their figures from one definition — the
+    // alternative is re-folding the movement types here and eventually disagreeing
+    // with the page.
+    const f = await getProductionStockFigures(product.id, today);
     fields.push(
-      { label: 'Prepared Today', value: String(poolRow?.preparedToday ?? 0) },
-      { label: 'Total Stock', value: String(poolRow?.totalStock ?? 0) },
-      { label: 'Approved Qty', value: String(poolRow?.approvedQty ?? 0) },
-      { label: 'Sold', value: String(poolRow?.soldToday ?? 0) },
-      { label: 'Returned', value: String(poolRow?.returned ?? 0) },
-      { label: 'Balance', value: String(poolRow?.balance ?? 0) },
+      { label: 'Prepared Today', value: String(f.preparedToday) },
+      { label: 'Total Stock', value: String(f.totalStock) },
+      { label: 'Approved Qty', value: String(f.approvedQty) },
+      { label: 'Sold', value: String(f.soldToday) },
+      { label: 'Returned', value: String(f.returned) },
+      { label: 'Adjustment', value: f.adjustment > 0 ? `+${f.adjustment}` : String(f.adjustment) },
+      { label: 'Balance', value: String(f.balance) },
     );
     return {
       type,
@@ -386,12 +425,21 @@ async function resolveReference(
       entityId: product.id,
       title: `Production Stock ${referenceId} — ${product.name}`,
       fields,
-      editableFields: [],
-      readOnly: true,
-      // No branch ledger for a correction to land on. `stockFigures` is omitted
-      // entirely — it is the BRANCH row shape and does not describe the pool.
+      // Total Stock is absent on purpose: it is derived (balance + approved + sold)
+      // and has no movement of its own to book a correction against.
+      editableFields: [
+        { key: 'preparedToday', label: 'Prepared Today', kind: 'number', value: f.preparedToday },
+        { key: 'approvedQty', label: 'Approved Qty', kind: 'number', value: f.approvedQty },
+        { key: 'soldToday', label: 'Sold', kind: 'number', value: f.soldToday },
+        { key: 'returned', label: 'Returned', kind: 'number', value: f.returned },
+        { key: 'balance', label: 'Balance', kind: 'number', value: f.balance },
+      ],
+      isProductionPool: true,
+      // Still null, and still not a branch reference: `stockFigures` stays omitted
+      // because it is the BRANCH row shape and would mislabel these numbers.
       branchId: null,
       businessDate: today,
+      productionFigures: f,
     };
   }
 
@@ -445,15 +493,18 @@ async function resolveReference(
 }
 
 // GET /api/support/lookup?ref=EXP-000012 — used by the Help Desk to auto-show detail.
-// &branchId= scopes a stock lookup to one branch (admin only; see resolveReference)
-// and is how the Support Center re-reads a ticket's LIVE figures before correcting
-// them — the snapshot on the ticket is from when the query was raised.
+// &branchId= scopes a stock lookup to one branch, &pool=1 scopes it to the central
+// production pool (both admin only; see resolveReference). Together they are how the
+// Support Center re-reads a ticket's LIVE figures before correcting them — the
+// snapshot on the ticket is from when the query was raised.
 router.get('/lookup', async (req: AuthRequest, res, next) => {
   try {
     const ref = String(req.query['ref'] || '').trim();
     if (!ref) { res.status(400).json({ error: 'Reference ID is required' }); return; }
-    const scopeBranch = req.user!.role === 'super_admin' ? (req.query['branchId'] as string | undefined) : undefined;
-    const reference = await resolveReference(req.user, ref, scopeBranch ?? null);
+    const isAdmin = req.user!.role === 'super_admin';
+    const scopeBranch = isAdmin ? (req.query['branchId'] as string | undefined) : undefined;
+    const poolScope = isAdmin && String(req.query['pool'] ?? '') === '1';
+    const reference = await resolveReference(req.user, ref, scopeBranch ?? null, poolScope);
     res.json({ reference });
   } catch (err) {
     if (err instanceof LookupError) { res.status(err.status).json({ error: err.message }); return; }
@@ -612,14 +663,26 @@ router.patch('/:id/figures', requireRole('super_admin'), validate(ChangeFiguresS
 
     const snapshot = (ticket.reference_snapshot ?? null) as SupportReference | null;
 
-    // Read-only references have nothing to write back. Enforced HERE and not only
-    // in the UI, because the stock branch below keys on `type === 'stock'` and a
-    // production pool ticket is exactly that. A production account may legally
-    // carry a branchId (the user schema makes it merely nullable), which
-    // POST /api/support stamps onto the ticket — so without this guard a pool
-    // query would drive applyStockCorrection against a real, unrelated shop's
-    // ledger. The caller's role cannot catch that; only the snapshot's flag can.
-    if (snapshot?.readOnly) {
+    // Is this stock query about the central POOL rather than a branch ledger?
+    //
+    // Two ways to tell, and both are needed. New snapshots carry the flag. Tickets
+    // raised BEFORE the pool became correctable (migration 50) carry `readOnly: true`
+    // and no flag at all — for those the raiser's role is equally decisive, because
+    // a production user's stock lookup has only ever resolved to the pool.
+    //
+    // This is also the guard that keeps a pool correction off a shop's ledger: a
+    // production account may legally carry a branchId (the user schema makes it
+    // merely nullable) which POST /api/support stamps onto the ticket, so the branch
+    // path below must never be reachable for a pool ticket.
+    const isPoolStock =
+      snapshot?.type === 'stock' &&
+      (snapshot.isProductionPool === true || ticket.raised_by_role === 'production_user');
+
+    // Read-only references have nothing to write back — demands and Production
+    // counter sales. A legacy pool ticket is exempt: its snapshot says read-only
+    // only because the pool had no correction function when it was raised, and it
+    // is re-read live before anything is written.
+    if (snapshot?.readOnly && !isPoolStock) {
       res.status(400).json({
         error: 'This reference is informational only and cannot be corrected here. Reply to the query and resolve it instead.',
       });
@@ -630,14 +693,68 @@ router.patch('/:id/figures', requireRole('super_admin'), validate(ChangeFiguresS
     const allowed = new Set((snapshot?.editableFields ?? []).map((f) => f.key));
 
     let applied = false;
-    // Set when the stock path ran, so the note and the response report the REAL
+    // Set when a stock path ran, so the note and the response report the REAL
     // before/after rather than echoing back what the admin typed.
     let stockResult: (StockCorrectionResult & { productName: string }) | null = null;
+    let poolResult: (ProductionStockCorrectionResult & { productName: string }) | null = null;
 
-    // Gated on the reference TYPE, not on `allowed`: tickets raised before stock
-    // became correctable carry an empty editableFields, and those queries still
-    // need answering.
-    if (snapshot?.type === 'stock') {
+    // The pool first — a pool ticket is `type === 'stock'` too, and the branch path
+    // below would otherwise claim it.
+    if (isPoolStock) {
+      // Absolute targets, as on the branch. `totalStock` is not among them: it is
+      // derived (balance + approved + sold) with no movement of its own.
+      const targets: ProductionStockCorrectionTargets = {};
+      for (const key of ['preparedToday', 'approvedQty', 'soldToday', 'returned', 'balance'] as const) {
+        const raw = edits[key];
+        if (raw === undefined || raw === '') continue;
+        const value = Number(raw);
+        if (!Number.isFinite(value)) {
+          res.status(400).json({ error: `${PRODUCTION_FIGURE_LABELS[key]} must be a number.` });
+          return;
+        }
+        // The four movement figures are counts and cannot be negative. Balance can:
+        // the pool is allowed to run negative (migration 15) and does, so refusing
+        // one would make an already-negative product impossible to correct.
+        if (key !== 'balance' && value < 0) {
+          res.status(400).json({ error: `${PRODUCTION_FIGURE_LABELS[key]} must be a number of 0 or more.` });
+          return;
+        }
+        targets[key] = value;
+      }
+      if (Object.keys(targets).length === 0) {
+        res.status(400).json({ error: 'Enter at least one stock figure to correct.' });
+        return;
+      }
+
+      // Re-read the name rather than trusting the snapshot's — the history keeps a
+      // name snapshot, and it should read as the name at correction time.
+      const { data: product, error: prodErr } = await supabaseAdmin
+        .from('products')
+        .select('name')
+        .eq('id', snapshot!.entityId)
+        .maybeSingle();
+      if (prodErr) throw prodErr;
+      if (!product) { res.status(404).json({ error: 'The linked product no longer exists' }); return; }
+
+      try {
+        const result = await applyProductionStockCorrection({
+          productId: snapshot!.entityId,
+          productName: product.name as string,
+          targets,
+          ticketId: ticket.id as string,
+        });
+        poolResult = { ...result, productName: product.name as string };
+        applied = result.applied;
+      } catch (err) {
+        // The one failure that is a deploy step rather than a bug — say so, and
+        // leave the ticket open so it can simply be retried afterwards.
+        if (err instanceof CorrectionUnavailableError) {
+          res.status(503).json({ error: err.message });
+          return;
+        }
+        throw err;
+      }
+    } else if (snapshot?.type === 'stock') {
       // The branch comes from the TICKET. The figures describe one branch's
       // ledger — the raiser's — and that is the only one this correction may move.
       const branchId = ticket.branch_id as string | null;
@@ -716,7 +833,11 @@ router.patch('/:id/figures', requireRole('super_admin'), validate(ChangeFiguresS
       ? stockResult.applied
         ? `Branch stock corrected for ${stockResult.productName}: ${describeStockChange(stockResult)}`
         : `Branch stock for ${stockResult.productName} already matched — nothing to correct`
-      : `${applied ? 'Figures updated' : 'Correction recorded (manual follow-up)'}: ${changeLines.join(', ')}`;
+      : poolResult
+        ? poolResult.applied
+          ? `Production stock corrected for ${poolResult.productName}: ${describeProductionChange(poolResult)}`
+          : `Production stock for ${poolResult.productName} already matched — nothing to correct`
+        : `${applied ? 'Figures updated' : 'Correction recorded (manual follow-up)'}: ${changeLines.join(', ')}`;
     const resolutionNote = [note, summary].filter(Boolean).join(' — ');
 
     const { data, error } = await supabaseAdmin
@@ -746,7 +867,9 @@ router.patch('/:id/figures', requireRole('super_admin'), validate(ChangeFiguresS
       }
     } catch { /* best-effort */ }
 
-    res.json({ ticket: rowToApi(data), applied, stock: stockResult });
+    // `stock` stays the BRANCH result so existing clients are untouched; a pool
+    // correction reports under its own key with its own (different) figure shape.
+    res.json({ ticket: rowToApi(data), applied, stock: stockResult, productionStock: poolResult });
   } catch (err) {
     next(err);
   }

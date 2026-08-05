@@ -1,6 +1,7 @@
 import { supabaseAdmin } from '../config/supabase';
 import {
   businessDateStr,
+  type ProductionStockFigures,
   type ProductionStockMovementType,
   type ProductionStockRow,
 } from '../shared';
@@ -163,21 +164,58 @@ export async function commitProductionSaleTransaction(params: {
  */
 export async function getProductionStockRows(date: string = businessDateStr()): Promise<ProductionStockRow[]> {
   // The date filter is an indexed predicate rather than a full-collection scan.
-  const [stock, history] = await Promise.all([
+  //
+  // `products` is read for the stock_code — the STK-###### the Help Desk needs to
+  // raise a query against an item. Unfiltered on purpose: a product deactivated
+  // today can still hold pool balance, and its row must not lose its ID.
+  const [products, stock, history] = await Promise.all([
+    supabaseAdmin.from('products').select('id, name, stock_code, is_active'),
     supabaseAdmin.from('production_stock').select('product_id, product_name, balance'),
     supabaseAdmin
       .from('production_stock_history')
       .select('product_id, product_name, type, delta')
       .eq('business_date', date),
   ]);
+  if (products.error) throw products.error;
   if (stock.error) throw stock.error;
   if (history.error) throw history.error;
 
-  // Base rows from current balances.
+  const catalogue = (products.data ?? []) as
+    { id: string; name: string; stock_code: string; is_active: boolean }[];
+  const codeById = new Map(catalogue.map((p) => [p.id, p.stock_code]));
+
   const rows = new Map<string, ProductionStockRow>();
+
+  // Seed from the ACTIVE catalogue, as the branch Stock page does, so every item
+  // production sells is listed with its ID from the start. Without this a product
+  // that has never been prepared has no row at all — nothing to read a code off,
+  // and so nothing that can be queried.
+  for (const p of catalogue) {
+    if (!p.is_active) continue;
+    rows.set(p.id, {
+      productId: p.id,
+      stockCode: p.stock_code,
+      productName: p.name,
+      preparedToday: 0,
+      totalStock: 0,
+      approvedQty: 0,
+      balance: 0,
+      returned: 0,
+      soldToday: 0,
+    });
+  }
+
+  // Overlay the current pool balances. An inactive product still holding balance
+  // gets its row here rather than being dropped.
   for (const d of (stock.data ?? []) as { product_id: string; product_name: string; balance: number | string }[]) {
+    const existing = rows.get(d.product_id);
+    if (existing) {
+      existing.balance = Number(d.balance ?? 0);
+      continue;
+    }
     rows.set(d.product_id, {
       productId: d.product_id,
+      stockCode: codeById.get(d.product_id) ?? '—',
       productName: d.product_name,
       preparedToday: 0,
       totalStock: 0,
@@ -200,6 +238,7 @@ export async function getProductionStockRows(date: string = businessDateStr()): 
       // A product with movement today but no balance row yet (net zero) — still show it.
       row = {
         productId: h.product_id,
+        stockCode: codeById.get(h.product_id) ?? '—',
         productName: h.product_name,
         preparedToday: 0,
         totalStock: 0,
@@ -210,11 +249,20 @@ export async function getProductionStockRows(date: string = businessDateStr()): 
       };
       rows.set(h.product_id, row);
     }
-    const delta = Math.abs(Number(h.delta ?? 0));
+    // SIGNED, not Math.abs. The pool stores prepare/return_in positive and
+    // transfer_out/sale negative, so negating the two outbound types reports them
+    // positive — identical to the branch fold in computeStockRows, and identical
+    // to abs() for every movement the pool wrote before corrections existed.
+    //
+    // It matters now: an admin lowering "Prepared Today" appends a NEGATIVE
+    // 'prepare' movement, and abs() would have counted that as more prepared.
+    const delta = Number(h.delta ?? 0);
     if (h.type === 'prepare') row.preparedToday += delta;
-    else if (h.type === 'transfer_out') row.approvedQty += delta;
+    else if (h.type === 'transfer_out') row.approvedQty -= delta;
     else if (h.type === 'return_in') row.returned += delta;
-    else if (h.type === 'sale') row.soldToday += delta;
+    else if (h.type === 'sale') row.soldToday -= delta;
+    // 'adjustment' deliberately folds into none of them: it is the remainder the
+    // four figures do not explain, and it is already in `balance`.
   }
 
   // totalStock = what's on hand now + everything that already left today. Counter
@@ -223,4 +271,138 @@ export async function getProductionStockRows(date: string = businessDateStr()): 
   for (const row of rows.values()) row.totalStock = row.balance + row.approvedQty + row.soldToday;
 
   return [...rows.values()].sort((a, b) => b.balance - a.balance || a.productName.localeCompare(b.productName));
+}
+
+/**
+ * The derived pool figures for ONE product on one business date — the
+ * single-product form of `getProductionStockRows`, for callers (the Support
+ * Center's stock reference) that need one product rather than the whole
+ * catalogue. Same definitions, so the admin sees exactly what the Production
+ * Stock page shows.
+ *
+ * `adjustment` is not on the page (it is the remainder, already inside balance)
+ * but is carried here so the correction dialog can show what earlier corrections
+ * already booked today.
+ */
+export async function getProductionStockFigures(
+  productId: string,
+  date: string = businessDateStr(),
+): Promise<ProductionStockFigures> {
+  const [stock, history] = await Promise.all([
+    supabaseAdmin.from('production_stock').select('balance').eq('product_id', productId).maybeSingle(),
+    supabaseAdmin
+      .from('production_stock_history')
+      .select('type, delta')
+      .eq('product_id', productId)
+      .eq('business_date', date),
+  ]);
+  if (stock.error) throw stock.error;
+  if (history.error) throw history.error;
+
+  const figures: ProductionStockFigures = {
+    preparedToday: 0,
+    approvedQty: 0,
+    returned: 0,
+    soldToday: 0,
+    adjustment: 0,
+    balance: Number(stock.data?.balance ?? 0),
+    totalStock: 0,
+  };
+
+  // Same signed convention as getProductionStockRows above.
+  for (const h of (history.data ?? []) as { type: ProductionStockMovementType; delta: number | string }[]) {
+    const delta = Number(h.delta ?? 0);
+    if (h.type === 'prepare') figures.preparedToday += delta;
+    else if (h.type === 'transfer_out') figures.approvedQty -= delta;
+    else if (h.type === 'return_in') figures.returned += delta;
+    else if (h.type === 'sale') figures.soldToday -= delta;
+    else if (h.type === 'adjustment') figures.adjustment += delta;
+  }
+  figures.totalStock = figures.balance + figures.approvedQty + figures.soldToday;
+  return figures;
+}
+
+/** What the admin may set on the pool. An omitted key is LEFT ALONE. */
+export type ProductionStockCorrectionTargets = Partial<
+  Pick<ProductionStockFigures, 'preparedToday' | 'approvedQty' | 'returned' | 'soldToday' | 'balance'>
+>;
+
+export interface ProductionStockCorrectionResult {
+  applied: boolean;
+  before: ProductionStockFigures;
+  after: ProductionStockFigures;
+  movements: { type: ProductionStockMovementType; delta: number }[];
+}
+
+/**
+ * Thrown when migration 50 has not been applied to the database yet. Migrations are
+ * pushed by hand here (the dyno does not run them at boot), so the alternative is a
+ * bare 500 from PostgREST that reads as a bug rather than as a pending deploy step.
+ */
+export class CorrectionUnavailableError extends Error {
+  constructor() {
+    super(
+      'Production stock corrections are not installed on the database yet. Apply migrations 49 and 50, then try again.',
+    );
+    this.name = 'CorrectionUnavailableError';
+  }
+}
+
+/**
+ * Apply an admin correction to the central pool (migration 50) — the pool's
+ * sibling of `applyStockCorrection`. Targets are ABSOLUTE: the server sizes one
+ * compensating movement per figure against the live ledger, inside one
+ * transaction, and the append-only history keeps every original row.
+ *
+ * Unlike the branch version this cannot fail on a negative result: the pool is
+ * allowed to go negative (migration 15), and a product already negative has to
+ * stay correctable. The resulting balance comes back in `after` so the caller can
+ * say so.
+ */
+export async function applyProductionStockCorrection(params: {
+  productId: string;
+  productName: string;
+  targets: ProductionStockCorrectionTargets;
+  ticketId: string;
+  businessDate?: string;
+}): Promise<ProductionStockCorrectionResult> {
+  const { data, error } = await supabaseAdmin.rpc('apply_production_stock_correction', {
+    p_product_id: params.productId,
+    p_product_name: params.productName,
+    p_targets: params.targets,
+    p_ticket_id: params.ticketId,
+    p_business_date: params.businessDate ?? businessDateStr(),
+  });
+  if (error) {
+    // PGRST202 is PostgREST's "no function matches this name and signature".
+    if (error.code === 'PGRST202' || /apply_production_stock_correction/.test(error.message ?? '')) {
+      throw new CorrectionUnavailableError();
+    }
+    throw error;
+  }
+
+  const result = (data ?? {}) as {
+    applied?: boolean;
+    before?: Record<string, unknown>;
+    after?: Record<string, unknown>;
+    movements?: { type: ProductionStockMovementType; delta: number | string }[];
+  };
+
+  // numeric(14,3) arrives as a string from PostgREST — coerce every figure.
+  const figures = (raw: Record<string, unknown> = {}): ProductionStockFigures => ({
+    preparedToday: Number(raw['preparedToday'] ?? 0),
+    approvedQty: Number(raw['approvedQty'] ?? 0),
+    returned: Number(raw['returned'] ?? 0),
+    soldToday: Number(raw['soldToday'] ?? 0),
+    adjustment: Number(raw['adjustment'] ?? 0),
+    balance: Number(raw['balance'] ?? 0),
+    totalStock: Number(raw['totalStock'] ?? 0),
+  });
+
+  return {
+    applied: Boolean(result.applied),
+    before: figures(result.before),
+    after: figures(result.after),
+    movements: (result.movements ?? []).map((m) => ({ type: m.type, delta: Number(m.delta) })),
+  };
 }

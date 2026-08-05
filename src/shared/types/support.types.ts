@@ -6,6 +6,7 @@
 
 import type { PaymentMethod } from './order.types';
 import type { StockFigures } from './stock.types';
+import type { ProductionStockFigures } from './production-ops.types';
 
 // 'demand' is a branch's production request (production_orders.demand_number). It
 // is a workflow document rather than a ledger — correcting one means re-reviewing
@@ -94,27 +95,33 @@ export interface SupportReference {
    * back, so the Support Center offers no "Change figures" editor and both
    * PATCH /figures and PATCH /sale-items refuse it outright.
    *
-   * Set for the three Production shapes, each for the same underlying reason —
-   * the correction machinery is branch-ledger machinery and Production has no
-   * branch ledger:
+   * Set for the two remaining Production shapes, each for the same underlying
+   * reason — the correction machinery is branch-ledger machinery and Production has
+   * no branch ledger:
    *   · demands            — a workflow document; re-review it, don't patch it.
-   *   · production stock   — the pool is branch-agnostic, and applyStockCorrection
-   *                          sizes its compensating movement against ONE branch.
    *   · counter sales      — their units left `production_stock`, but
    *                          edit_sale_items reconciles branch `stock`. Applying
    *                          one would invent branch inventory (the sentinel
    *                          branch has no stock rows) and leave the pool wrong.
-   *
-   * Enforced on the SERVER, not just in the UI: a production account may legally
-   * carry a branchId, which would otherwise send a pool correction into an
-   * unrelated shop's ledger. The caller's role cannot catch that — only this flag,
-   * which is derived from the record itself, can.
    *
    * Opt-in and absent-means-false ON PURPOSE: every snapshot written before this
    * field existed keeps its current behaviour, including legacy stock tickets that
    * carry an empty editableFields and are still corrected through StockFiguresDialog.
    */
   readOnly?: boolean;
+  /**
+   * True when a STOCK reference describes the central production pool rather than
+   * a branch ledger. It is what routes the correction to
+   * apply_production_stock_correction instead of apply_stock_correction — a
+   * distinction the caller's ROLE cannot safely make, because a production account
+   * may legally carry a branchId, which would otherwise send a pool correction into
+   * an unrelated shop's ledger.
+   *
+   * Pool tickets raised BEFORE this field existed carry `readOnly: true` and no
+   * flag; the Support Center recognises those by the ticket's raiser role, which is
+   * equally decisive (a production user's stock lookup always resolves to the pool).
+   */
+  isProductionPool?: boolean;
   /**
    * For sale references: the current line items, editable in the Support Center
    * and applied live (product / qty / unit price / discount) via edit_sale_items.
@@ -152,6 +159,13 @@ export interface SupportReference {
    * admin edits. Absent on an all-branches (uncorrectable) stock reference.
    */
   stockFigures?: StockFigures;
+  /**
+   * For production-pool stock references: the pool's live derived figures. The
+   * pool's counterpart of `stockFigures` — a different SHAPE, not a different
+   * source, which is why it is a separate field: rendering pool numbers through the
+   * branch row would mislabel Approved Qty as New Stock.
+   */
+  productionFigures?: ProductionStockFigures;
 }
 
 export interface SupportTicket {

@@ -1,0 +1,17 @@
+-- 49: production-pool 'adjustment' movement type.
+--
+-- The Support Center can correct a BRANCH's stock figures (migration 33), but a
+-- query raised from the Production dashboard is about the central pool, which has
+-- no branch ledger for that function to land on — so those tickets were answered
+-- rather than corrected. Migration 50 adds the pool's own correction function,
+-- and it needs an 'adjustment' movement for the same reason the branch ledger
+-- does: when the admin sets a Balance that the other corrected figures do not
+-- account for, the remainder has to be booked as something.
+--
+-- The TypeScript `ProductionStockMovementType` has always listed 'adjustment'
+-- (production-ops.types.ts) — this is the database catching up with it.
+--
+-- A migration of its own, exactly like migration 34: Postgres cannot use a new
+-- enum value in the same transaction that adds it, so the function that writes
+-- `type = 'adjustment'` lands in the next file.
+alter type production_stock_movement_type add value if not exists 'adjustment';

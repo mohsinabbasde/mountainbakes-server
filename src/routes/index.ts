@@ -24,6 +24,11 @@ import { router as closingNotificationsRouter } from './closing-notifications.ro
 import { router as specialEventsRouter } from './special-events.routes';
 import { router as settingsRouter } from './settings.routes';
 import { router as businessDayRouter } from './business-day.routes';
+import { router as financeRouter } from './finance.routes';
+import { router as financeIncomeRouter, entriesRouter as financeEntriesRouter } from './finance-income.routes';
+import { router as financePayrollRouter } from './finance-payroll.routes';
+import { router as financePartnersRouter } from './finance-partners.routes';
+import { router as financeReportsRouter } from './finance-reports.routes';
 
 export function setupRoutes(app: Express) {
   app.use('/api/auth', authRouter);
@@ -57,4 +62,17 @@ export function setupRoutes(app: Express) {
   app.use('/api/special-events', specialEventsRouter);
   app.use('/api/settings', settingsRouter);
   app.use('/api/business-day', businessDayRouter);
+
+  // ── Finance Ledger ──
+  // PREFIX ORDER MATTERS here exactly as it does for /api/products/price above:
+  // Express matches mounts in registration order, and `/api/finance` would
+  // swallow every one of the four specific prefixes below if it came first. The
+  // symptom would be a 404 from the general router rather than an obvious
+  // routing error, so keep the general mount LAST.
+  app.use('/api/finance/income/entries', financeEntriesRouter);
+  app.use('/api/finance/income', financeIncomeRouter);
+  app.use('/api/finance/payroll', financePayrollRouter);
+  app.use('/api/finance/partner-expenses', financePartnersRouter);
+  app.use('/api/finance/reports', financeReportsRouter);
+  app.use('/api/finance', financeRouter);
 }

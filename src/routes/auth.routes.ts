@@ -1,12 +1,80 @@
 import { Router } from 'express';
+import rateLimit from 'express-rate-limit';
 import { z } from 'zod';
 import { supabaseAdmin } from '../config/supabase';
 import { authenticate, type AuthRequest } from '../middleware/auth';
 import { requireRole } from '../middleware/requireRole';
-import { ForgotPasswordSchema, StrongPasswordSchema } from '../shared';
+import {
+  canAccessFinance,
+  FinanceLoginLookupSchema,
+  ForgotPasswordSchema,
+  StrongPasswordSchema,
+} from '../shared';
 import { logAudit } from '../services/audit.service';
 
 export const router = Router();
+
+// ─── Finance User ID → email (PUBLIC — the user is signing in) ────────────────
+//
+// The Finance login asks for a "Finance User ID", which the brief is explicit
+// about: accounts staff are issued an ID, not an email address. Supabase Auth
+// only understands email/password, so the ID has to be resolved before the
+// browser can sign in — and resolving it needs the `users` table, which no
+// browser may read. Hence a public endpoint on this API rather than a client
+// lookup.
+//
+// It is an account-enumeration surface, and it is treated as one:
+//   * the SAME message and the same 404 for an unknown ID, a non-finance
+//     account, and a deactivated one — a caller learns nothing about which;
+//   * its own rate limit, far tighter than the app-wide 500/15min, because
+//     guessing IDs is the only thing this endpoint can be abused for;
+//   * it returns an email and NOTHING else. No name, no role, no confirmation
+//     that a password will work. Knowing the address gets an attacker no
+//     further than the sign-in form they were already looking at.
+const financeLookupLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many sign-in attempts. Please wait a few minutes and try again.' },
+});
+
+router.post('/finance-lookup', financeLookupLimiter, async (req, res, next) => {
+  try {
+    const parsed = FinanceLoginLookupSchema.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: 'Enter your Finance User ID.' });
+      return;
+    }
+
+    const raw = parsed.data.userId.trim();
+    // An email is accepted too, so an admin who only knows the address is not
+    // locked out of their own module. Usernames are stored lowercase.
+    const isEmail = raw.includes('@');
+    const column = isEmail ? 'email' : 'username';
+
+    const { data, error } = await supabaseAdmin
+      .from('users')
+      .select('email, role, status')
+      .eq(column, raw.toLowerCase())
+      .maybeSingle();
+
+    const denied = () => {
+      res.status(404).json({
+        error: 'No Finance account matches that User ID.',
+        code: 'finance-account-not-found',
+      });
+    };
+
+    if (error || !data) { denied(); return; }
+    if (!canAccessFinance(data.role)) { denied(); return; }
+    if (data.status !== 'active') { denied(); return; }
+
+    res.json({ email: data.email });
+  } catch (err) {
+    next(err);
+  }
+});
 
 // ─── Password recovery (PUBLIC — user is logged out) ──────────────────────────
 // Admin accounts only. Returns { allowed: true } so the client may then trigger

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { USER_ROLES } from '../types/user.types';
 
 export const CreateUserSchema = z.object({
   email: z.string().email('Invalid email address'),
@@ -6,14 +7,17 @@ export const CreateUserSchema = z.object({
   phone: z.string().min(10, 'Invalid phone number'),
   username: z.string().min(3, 'Username must be at least 3 characters').regex(/^[a-z0-9_]+$/, 'Username can only contain lowercase letters, numbers, and underscores'),
   password: z.string().min(8, 'Password must be at least 8 characters'),
-  role: z.enum(['super_admin', 'branch_manager', 'production_user']),
+  // Driven off USER_ROLES so adding a role to the union (and the Postgres enum)
+  // cannot leave this list behind — which would reject the new role with a
+  // validation error that names no field the admin can see.
+  role: z.enum(USER_ROLES),
   branchId: z.string().nullable(),
 });
 
 export const UpdateUserSchema = z.object({
   displayName: z.string().min(2).optional(),
   phone: z.string().min(10).optional(),
-  role: z.enum(['super_admin', 'branch_manager', 'production_user']).optional(),
+  role: z.enum(USER_ROLES).optional(),
   branchId: z.string().nullable().optional(),
   status: z.enum(['active', 'inactive', 'suspended']).optional(),
 });
