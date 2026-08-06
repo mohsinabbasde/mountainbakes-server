@@ -24,7 +24,7 @@ router.use(authenticate, requireRole('super_admin', 'branch_manager'));
  * reports do not depend on an unapplied migration.
  */
 const ORDER_SELECT = `
-  id, status, grand_total, branch_id, branch_name, payment_method,
+  id, status, grand_total, discount_total, branch_id, branch_name, payment_method,
   business_date, created_at,
   items:order_items(product_id, product_name, category_name, qty, line_total)
 `;
@@ -33,6 +33,7 @@ interface OrderRow {
   id: string;
   status: string;
   grand_total: number | string;
+  discount_total: number | string;
   branch_id: string;
   branch_name: string | null;
   payment_method: string | null;
@@ -88,6 +89,9 @@ router.get('/summary', async (req: AuthRequest, res, next) => {
 
     const totalOrders = orders.length;
     const totalRevenue = paid.reduce((s, o) => s + total(o.grand_total), 0);
+    // Discount given away, over the same `paid` set as totalRevenue — a cancelled
+    // or staff order's discount never cost the branch anything.
+    const totalDiscount = paid.reduce((s, o) => s + total(o.discount_total), 0);
     const totalCancelled = orders.filter((o) => o.status === 'cancelled').length;
     const totalPending = orders.filter((o) => o.status === 'pending').length;
 
@@ -202,6 +206,7 @@ router.get('/summary', async (req: AuthRequest, res, next) => {
       period, from, to,
       totalOrders,
       totalRevenue,
+      totalDiscount,
       staffTotal,
       totalCancelled,
       totalPending,
