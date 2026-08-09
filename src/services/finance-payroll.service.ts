@@ -418,7 +418,7 @@ export async function approveSalaryPayment(
       entryDate: doc.paymentDate ?? businessDateStr(),
       ledgerHeadId: head.id,
       headType: 'expense',
-      description: `Salary ${doc.salaryMonth} — ${doc.employeeName} (${doc.designation}, ${doc.department}) [${doc.salaryNo}]`,
+      description: `Salary ${doc.salaryMonth} — ${doc.employeeName}`,
       amount: doc.netSalary,
       account: doc.account,
       paymentMethod: doc.paymentMethod,
