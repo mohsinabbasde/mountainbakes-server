@@ -106,6 +106,55 @@ export async function listTransactions(q: TransactionQuery): Promise<FinanceTran
   return rowToApi<FinanceTransaction[]>(data ?? []).map((t) => ({ ...t, amount: num(t.amount) }));
 }
 
+/**
+ * Branch income posts income-type ledger entries automatically (company
+ * share / branch share — see finance-income.service.ts). A manual entry
+ * booked against the same head, for the same amount, on the same date is
+ * almost always someone re-keying money that already reached the book, not
+ * a second real transaction that happens to coincide. Rather than silently
+ * accepting the double-count, this throws a 409 with the matching entry
+ * attached; the client shows it as a warning and can resubmit with
+ * `confirmDuplicate: true` for the rare case it really is a coincidence.
+ */
+async function assertNotDuplicateIncome(
+  ledgerHeadId: string,
+  amount: number,
+  businessDate: string,
+): Promise<void> {
+  const { data: existing, error } = await supabaseAdmin
+    .from('ledger_entries')
+    .select('voucher_no, entry_date, debit, ledger_head_name')
+    .eq('ledger_head_id', ledgerHeadId)
+    .eq('entry_date', businessDate)
+    .eq('debit', round2(amount))
+    .in('source_type', ['branch_income', 'company_share', 'branch_share'])
+    .in('status', ['posted', 'locked'])
+    .limit(1)
+    .maybeSingle();
+  if (error) throw error;
+  if (!existing) return;
+
+  throw Object.assign(
+    new Error(
+      `This matches ${existing.voucher_no} — ${existing.ledger_head_name}, already posted from Branch ` +
+        `Income for ${existing.entry_date} at the same amount. If this is a genuinely separate ` +
+        `transaction that happens to coincide, confirm to create it anyway.`,
+    ),
+    {
+      status: 409,
+      details: {
+        code: 'duplicate_income',
+        existing: {
+          voucherNo: existing.voucher_no as string,
+          entryDate: existing.entry_date as string,
+          amount: num(existing.debit),
+          ledgerHeadName: existing.ledger_head_name as string,
+        },
+      },
+    },
+  );
+}
+
 export async function createTransaction(
   input: CreateFinanceTransactionInput,
   actor: { uid: string; name: string },
@@ -114,6 +163,11 @@ export async function createTransaction(
   // income or expense. Nothing the client sent gets a vote — see the schema note.
   const head = await requireActiveHead(input.ledgerHeadId);
   const branch = await resolveBranch(input.branchId);
+  const businessDate = input.businessDate ?? businessDateStr();
+
+  if (head.type === 'income' && !input.confirmDuplicate) {
+    await assertNotDuplicateIncome(head.id, input.amount, businessDate);
+  }
 
   const { data, error } = await supabaseAdmin
     .from('finance_transactions')
@@ -127,7 +181,7 @@ export async function createTransaction(
       amount: round2(input.amount),
       payment_method: input.paymentMethod,
       account: input.account,
-      business_date: input.businessDate ?? businessDateStr(),
+      business_date: businessDate,
       status: initialStatus(input.asDraft),
       reference_no: input.referenceNo ?? null,
       notes: input.notes ?? null,

@@ -85,10 +85,14 @@ export const CreateFinanceTransactionSchema = z.object({
   notes: z.string().max(500).nullish(),
   /** Save as a draft instead of going straight to Pending Approval. */
   asDraft: z.boolean().default(false),
+  /** Set after the server warns this looks like a duplicate of a Branch Income
+   *  entry (same head/amount/date) and the user confirms it anyway. */
+  confirmDuplicate: z.boolean().default(false),
 });
 
 export const UpdateFinanceTransactionSchema = CreateFinanceTransactionSchema.partial().omit({
   asDraft: true,
+  confirmDuplicate: true,
 });
 
 // ---------------------------------------------------------------------------
