@@ -216,6 +216,8 @@ export const SYSTEM_LEDGER_HEAD_CODES = {
   PARTNER_WITHDRAWAL: 'EXP-PARTNER',
   OPENING_BALANCE: 'INC-OPENING',
   ADJUSTMENT: 'EXP-ADJUSTMENT',
+  BRANCH_SHARE_PAYOUT: 'EXP-BRANCH-SHARE-PAYOUT',
+  PRODUCTION_EXPENSE: 'EXP-PRODUCTION',
 } as const;
 
 // ---------------------------------------------------------------------------
@@ -235,7 +237,9 @@ export type LedgerSourceType =
   | 'branch_share'
   | 'salary'
   | 'partner_expense'
-  | 'adjustment';
+  | 'adjustment'
+  | 'branch_share_payout'
+  | 'branch_share_bonus';
 
 /**
  * `posted` is the normal state. `locked` is applied when the finance day closes.
@@ -423,12 +427,33 @@ export interface FinanceEmployee {
   designation: string;
   branchId: string | null;
   branchName: string | null;
+  /** The salary effective as of today — resolved from salary_revisions, not a raw column. */
   baseSalary: number;
+  /** An already-recorded revision whose effective date hasn't arrived yet, if any. */
+  pendingRevision: { newSalary: number; effectiveFrom: string; reason: string } | null;
   phone: string | null;
   joinedOn: string | null;
   isActive: boolean;
   createdAt: string;
   updatedAt: string;
+}
+
+/**
+ * One recorded base-salary change. Append-only (salary_revisions table) — a
+ * correction is a new row, not an edit to this one. See the migration
+ * comment for why this can never restate a payslip that already exists.
+ */
+export interface SalaryRevision {
+  id: string;
+  employeeId: string;
+  employeeName: string;
+  previousSalary: number;
+  newSalary: number;
+  reason: string;
+  effectiveFrom: string;
+  changedBy: string | null;
+  changedByName: string;
+  createdAt: string;
 }
 
 export interface SalaryPayment {
@@ -463,13 +488,43 @@ export interface SalaryPayment {
 }
 
 // ---------------------------------------------------------------------------
-// Partner expenses
+// Partners, partner advances/draws, branch share payouts
 // ---------------------------------------------------------------------------
 
+/** One of the four fixed owners. `sharePct` is informational here — the 25%
+ * split is enforced by the migration's check constraint, not read live from
+ * this row by every consumer, so a future ownership change is one row edit
+ * away rather than a re-derivation. */
+export interface FinancePartner {
+  id: string;
+  name: string;
+  fatherName: string | null;
+  dateOfBirth: string | null;
+  joinedOn: string | null;
+  partnerType: 'founder' | 'co_founder' | null;
+  address: string | null;
+  contactNumber: string | null;
+  emergencyNumber: string | null;
+  sharePct: number;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type PartnerTxnKind = 'advance' | 'draw';
+
+/**
+ * An ADVANCE is money lent to a partner against their future share (deducted
+ * later); a DRAW is a partner withdrawing money they are already entitled to
+ * from the current grand total. Both post as an expense under EXP-PARTNER —
+ * `txnKind` is what the Partner Share Detail report groups by.
+ */
 export interface PartnerExpense {
   id: string;
   expenseNo: string;
+  partnerId: string | null;
   partnerName: string;
+  txnKind: PartnerTxnKind;
   ledgerHeadId: string;
   ledgerHeadName: string;
   description: string;
@@ -488,6 +543,62 @@ export interface PartnerExpense {
   ledgerEntryId: string | null;
   createdAt: string;
   updatedAt: string;
+}
+
+/**
+ * Actually paying a branch its already-recorded share. Branch income
+ * approval posts the company/branch share split to the ledger immediately,
+ * but that only RECORDS the split — this is the payout. `bonus` is optional
+ * and posts separately to Production Expenses rather than the share-payout
+ * head, with a note naming the branch.
+ */
+export interface BranchSharePayment {
+  id: string;
+  paymentNo: string;
+  branchId: string;
+  branchName: string;
+  amount: number;
+  bonus: number;
+  businessDate: string;
+  paymentMethod: string;
+  account: FinanceAccount;
+  status: FinanceDocStatus;
+  notes: string | null;
+  requestedBy: string | null;
+  requestedByName: string;
+  approvedBy: string | null;
+  approvedByName: string | null;
+  approvedAt: string | null;
+  rejectionReason: string | null;
+  ledgerEntryId: string | null;
+  bonusLedgerEntryId: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** One row of the Partner Share Detail table — computed, not stored. */
+export interface PartnerShareRow {
+  id: string;
+  name: string;
+  sharePct: number;
+  /** grandTotal × sharePct / 100 */
+  sharePctAmount: number;
+  advancePaid: number;
+  drawPaid: number;
+  /** sharePctAmount − advancePaid − drawPaid */
+  balance: number;
+}
+
+export interface PartnerShareSummary {
+  from: string | null;
+  to: string | null;
+  /** Every posted expense except partner advances/draws — production, utilities, packaging, salaries, branch share payouts, etc. */
+  totalExpense: number;
+  /** Every posted entry under the Company Share head. */
+  totalCompanyShare: number;
+  /** totalCompanyShare − totalExpense */
+  grandTotal: number;
+  partners: PartnerShareRow[];
 }
 
 // ---------------------------------------------------------------------------
@@ -590,7 +701,8 @@ export type FinanceAuditAction =
   | 'adjusted'
   | 'locked'
   | 'imported'
-  | 'settings_updated';
+  | 'settings_updated'
+  | 'salary_revised';
 
 export type FinanceAuditEntity =
   | 'ledger_entry'
@@ -601,7 +713,9 @@ export type FinanceAuditEntity =
   | 'partner_expense'
   | 'employee'
   | 'day_closing'
-  | 'settings';
+  | 'settings'
+  | 'branch_share_payment'
+  | 'finance_partner';
 
 export interface FinanceAuditLog {
   id: string;

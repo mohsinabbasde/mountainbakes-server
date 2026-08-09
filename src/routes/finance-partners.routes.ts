@@ -6,6 +6,7 @@ import {
   ApproveSchema,
   CreatePartnerExpenseSchema,
   RejectSchema,
+  UpdateFinancePartnerSchema,
   UpdatePartnerExpenseSchema,
   type FinanceDocStatus,
 } from '../shared';
@@ -13,9 +14,12 @@ import {
   approvePartnerExpense,
   createPartnerExpense,
   getPartnerExpense,
+  getPartnerShareSummary,
+  listFinancePartners,
   listPartnerExpenses,
   rejectPartnerExpense,
   submitPartnerExpense,
+  updateFinancePartner,
   updatePartnerExpense,
 } from '../services/finance-documents.service';
 import { auditSnapshot, logFinanceAudit } from '../services/finance-audit.service';
@@ -37,12 +41,65 @@ function actorOf(req: AuthRequest): { uid: string; name: string } {
   return { uid: req.user!.uid, name: req.user!.email };
 }
 
+// ---------------------------------------------------------------------------
+// Partners — the fixed four, and the Partner Share Detail report
+// ---------------------------------------------------------------------------
+
+router.get('/partners', requireFinance('view'), async (req: AuthRequest, res, next) => {
+  try {
+    const partners = await listFinancePartners(req.query['includeInactive'] === 'true');
+    res.json({ partners, total: partners.length });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.put(
+  '/partners/:id',
+  requireFinance('configure'),
+  validate(UpdateFinancePartnerSchema),
+  async (req: AuthRequest, res, next) => {
+    try {
+      const id = String(req.params['id']);
+      const partner = await updateFinancePartner(id, req.body);
+      await logFinanceAudit(req, {
+        entity: 'finance_partner',
+        entityId: partner.id,
+        entityRef: partner.name,
+        action: 'updated',
+        newValues: auditSnapshot(partner as unknown as Record<string, unknown>, [
+          'fatherName', 'dateOfBirth', 'joinedOn', 'partnerType', 'address', 'contactNumber', 'emergencyNumber',
+        ]),
+      });
+      res.json({ partner });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+router.get('/share-summary', requireFinance('view'), async (req: AuthRequest, res, next) => {
+  try {
+    const q = req.query as Record<string, string | undefined>;
+    const summary = await getPartnerShareSummary(q['from'], q['to']);
+    res.json({ summary });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Partner advances / draws
+// ---------------------------------------------------------------------------
+
 router.get('/', requireFinance('view'), async (req: AuthRequest, res, next) => {
   try {
     const q = req.query as Record<string, string | undefined>;
     const expenses = await listPartnerExpenses({
       status: (q['status'] as FinanceDocStatus | 'pending') || undefined,
+      partnerId: q['partnerId'],
       partnerName: q['partnerName'],
+      txnKind: q['txnKind'] as 'advance' | 'draw' | undefined,
       from: q['from'],
       to: q['to'],
       search: q['search'],
@@ -67,7 +124,7 @@ router.post(
         entityRef: expense.expenseNo,
         action: 'created',
         newValues: auditSnapshot(expense as unknown as Record<string, unknown>, [
-          'partnerName', 'ledgerHeadName', 'description', 'amount', 'paymentMethod', 'businessDate', 'status',
+          'partnerName', 'txnKind', 'description', 'amount', 'paymentMethod', 'businessDate', 'status',
         ]),
       });
       res.status(201).json({ expense });
@@ -93,9 +150,9 @@ router.put(
         entityRef: expense.expenseNo,
         action: 'updated',
         previousValues: before
-          ? auditSnapshot(before as unknown as Record<string, unknown>, ['partnerName', 'ledgerHeadName', 'description', 'amount', 'status'])
+          ? auditSnapshot(before as unknown as Record<string, unknown>, ['partnerName', 'txnKind', 'amount', 'status'])
           : null,
-        newValues: auditSnapshot(expense as unknown as Record<string, unknown>, ['partnerName', 'ledgerHeadName', 'description', 'amount', 'status']),
+        newValues: auditSnapshot(expense as unknown as Record<string, unknown>, ['partnerName', 'txnKind', 'amount', 'status']),
       });
 
       res.json({ expense });

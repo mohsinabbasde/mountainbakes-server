@@ -6,6 +6,7 @@ import {
   ApproveSchema,
   CreateEmployeeSchema,
   CreateSalaryPaymentSchema,
+  CreateSalaryRevisionSchema,
   RejectSchema,
   UpdateEmployeeSchema,
   UpdateSalaryPaymentSchema,
@@ -18,7 +19,9 @@ import {
   getSalaryPayment,
   listEmployees,
   listSalaryPayments,
+  listSalaryRevisions,
   rejectSalaryPayment,
+  reviseEmployeeSalary,
   submitSalaryPayment,
   updateEmployee,
   updateSalaryPayment,
@@ -98,12 +101,44 @@ router.put(
         entityRef: employee.employeeCode,
         action: 'updated',
         previousValues: before
-          ? auditSnapshot(before as unknown as Record<string, unknown>, ['name', 'department', 'designation', 'baseSalary', 'isActive'])
+          ? auditSnapshot(before as unknown as Record<string, unknown>, ['name', 'department', 'designation', 'isActive'])
           : null,
-        newValues: auditSnapshot(employee as unknown as Record<string, unknown>, ['name', 'department', 'designation', 'baseSalary', 'isActive']),
+        newValues: auditSnapshot(employee as unknown as Record<string, unknown>, ['name', 'department', 'designation', 'isActive']),
       });
 
       res.json({ employee });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+router.get('/employees/:id/salary-revisions', requireFinance('view'), async (req: AuthRequest, res, next) => {
+  try {
+    const revisions = await listSalaryRevisions(String(req.params['id']));
+    res.json({ revisions, total: revisions.length });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post(
+  '/employees/:id/salary-revisions',
+  requireFinance('configure'),
+  validate(CreateSalaryRevisionSchema),
+  async (req: AuthRequest, res, next) => {
+    try {
+      const id = String(req.params['id']);
+      const { employee, revision } = await reviseEmployeeSalary(id, req.body, actorOf(req));
+      await logFinanceAudit(req, {
+        entity: 'employee',
+        entityId: id,
+        entityRef: employee.employeeCode,
+        action: 'salary_revised',
+        previousValues: { baseSalary: revision.previousSalary },
+        newValues: { baseSalary: revision.newSalary, reason: revision.reason, effectiveFrom: revision.effectiveFrom },
+      });
+      res.status(201).json({ employee, revision });
     } catch (err) {
       next(err);
     }

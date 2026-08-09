@@ -5,10 +5,12 @@ import {
   SYSTEM_LEDGER_HEAD_CODES,
   type CreateEmployeeInput,
   type CreateSalaryPaymentInput,
+  type CreateSalaryRevisionInput,
   type FinanceDocStatus,
   type FinanceEmployee,
   type LedgerEntry,
   type SalaryPayment,
+  type SalaryRevision,
   type UpdateEmployeeInput,
   type UpdateSalaryPaymentInput,
 } from '../shared';
@@ -54,7 +56,59 @@ export async function listEmployees(opts: {
 
   const { data, error } = await query;
   if (error) throw error;
-  return rowToApi<FinanceEmployee[]>(data ?? []).map((e) => ({ ...e, baseSalary: num(e.baseSalary) }));
+  const employees = rowToApi<FinanceEmployee[]>(data ?? []).map((e) => ({
+    ...e,
+    baseSalary: num(e.baseSalary),
+    pendingRevision: null as FinanceEmployee['pendingRevision'],
+  }));
+  return applyEffectiveSalary(employees);
+}
+
+/**
+ * Resolves each employee's `baseSalary` to what's actually effective TODAY —
+ * the latest salary_revisions row with `effective_from <= today`, falling
+ * back to the raw `finance_employees.base_salary` column for an employee with
+ * no revisions yet. Also surfaces the next not-yet-effective revision, if any,
+ * as `pendingRevision` so the UI can show "salary changes to X on Y".
+ *
+ * One batched query rather than N+1: a bakery's payroll is small, but there is
+ * no reason to make it linear in request count.
+ */
+async function applyEffectiveSalary(employees: FinanceEmployee[]): Promise<FinanceEmployee[]> {
+  if (employees.length === 0) return employees;
+
+  const { data, error } = await supabaseAdmin
+    .from('salary_revisions')
+    .select('employee_id, new_salary, effective_from, reason')
+    .in('employee_id', employees.map((e) => e.id))
+    .order('effective_from', { ascending: true });
+  if (error) throw error;
+
+  const byEmployee = new Map<string, { effectiveFrom: string; newSalary: number; reason: string }[]>();
+  for (const row of data ?? []) {
+    const key = row['employee_id'] as string;
+    const list = byEmployee.get(key) ?? [];
+    list.push({
+      effectiveFrom: row['effective_from'] as string,
+      newSalary: num(row['new_salary']),
+      reason: row['reason'] as string,
+    });
+    byEmployee.set(key, list);
+  }
+
+  const today = businessDateStr();
+  return employees.map((e) => {
+    const revisions = byEmployee.get(e.id) ?? [];
+    let baseSalary = e.baseSalary;
+    let pendingRevision: FinanceEmployee['pendingRevision'] = null;
+    // Ascending order: the last one <= today is the current figure; the first
+    // one > today (if any) is the next scheduled change.
+    for (const r of revisions) {
+      if (r.effectiveFrom <= today) baseSalary = r.newSalary;
+      else if (!pendingRevision) pendingRevision = { newSalary: r.newSalary, effectiveFrom: r.effectiveFrom, reason: r.reason };
+    }
+    return { ...e, baseSalary, pendingRevision };
+  });
 }
 
 export async function createEmployee(input: CreateEmployeeInput): Promise<FinanceEmployee> {
@@ -74,7 +128,7 @@ export async function createEmployee(input: CreateEmployeeInput): Promise<Financ
     .select('*')
     .single();
   if (error) throw error;
-  return rowToApi<FinanceEmployee>(data);
+  return { ...rowToApi<FinanceEmployee>(data), pendingRevision: null };
 }
 
 export async function updateEmployee(id: string, input: UpdateEmployeeInput): Promise<FinanceEmployee> {
@@ -82,7 +136,6 @@ export async function updateEmployee(id: string, input: UpdateEmployeeInput): Pr
   if (input.name !== undefined) row['name'] = input.name;
   if (input.department !== undefined) row['department'] = input.department;
   if (input.designation !== undefined) row['designation'] = input.designation;
-  if (input.baseSalary !== undefined) row['base_salary'] = round2(input.baseSalary);
   if (input.phone !== undefined) row['phone'] = input.phone;
   if (input.joinedOn !== undefined) row['joined_on'] = input.joinedOn;
   if (input.isActive !== undefined) row['is_active'] = input.isActive;
@@ -99,7 +152,79 @@ export async function updateEmployee(id: string, input: UpdateEmployeeInput): Pr
     .select('*')
     .single();
   if (error) throw error;
-  return rowToApi<FinanceEmployee>(data);
+  const employee = rowToApi<FinanceEmployee>(data);
+  const [resolved] = await applyEffectiveSalary([
+    { ...employee, baseSalary: num(employee.baseSalary), pendingRevision: null },
+  ]);
+  return resolved!;
+}
+
+/**
+ * Record a base-salary change with a reason and an effective date.
+ *
+ * Never touches `finance_employees.base_salary` directly — the effective
+ * figure is always resolved on read (`applyEffectiveSalary`), whether this
+ * revision lands today or on a future date. That is what keeps an
+ * already-created payslip's `gross_salary` untouched no matter when a raise
+ * is recorded or when it takes effect.
+ */
+export async function reviseEmployeeSalary(
+  employeeId: string,
+  input: CreateSalaryRevisionInput,
+  actor: { uid: string; name: string },
+): Promise<{ employee: FinanceEmployee; revision: SalaryRevision }> {
+  const { data: empRow, error: empErr } = await supabaseAdmin
+    .from('finance_employees')
+    .select('*')
+    .eq('id', employeeId)
+    .maybeSingle();
+  if (empErr) throw empErr;
+  if (!empRow) throw Object.assign(new Error('Employee not found'), { status: 404 });
+
+  const employee = rowToApi<FinanceEmployee>(empRow);
+  const [current] = await applyEffectiveSalary([
+    { ...employee, baseSalary: num(employee.baseSalary), pendingRevision: null },
+  ]);
+
+  const { data: revRow, error: revErr } = await supabaseAdmin
+    .from('salary_revisions')
+    .insert({
+      employee_id: employeeId,
+      employee_name: employee.name,
+      previous_salary: current!.baseSalary,
+      new_salary: round2(input.newSalary),
+      reason: input.reason,
+      effective_from: input.effectiveFrom,
+      changed_by: actor.uid,
+      changed_by_name: actor.name,
+    })
+    .select('*')
+    .single();
+  if (revErr) throw revErr;
+
+  const [updated] = await applyEffectiveSalary([
+    { ...employee, baseSalary: num(employee.baseSalary), pendingRevision: null },
+  ]);
+
+  return {
+    employee: updated!,
+    revision: normaliseRevision(rowToApi<SalaryRevision>(revRow)),
+  };
+}
+
+function normaliseRevision(r: SalaryRevision): SalaryRevision {
+  return { ...r, previousSalary: num(r.previousSalary), newSalary: num(r.newSalary) };
+}
+
+export async function listSalaryRevisions(employeeId: string): Promise<SalaryRevision[]> {
+  const { data, error } = await supabaseAdmin
+    .from('salary_revisions')
+    .select('*')
+    .eq('employee_id', employeeId)
+    .order('effective_from', { ascending: false })
+    .order('created_at', { ascending: false });
+  if (error) throw error;
+  return rowToApi<SalaryRevision[]>(data ?? []).map(normaliseRevision);
 }
 
 // ---------------------------------------------------------------------------

@@ -2,19 +2,23 @@ import { supabaseAdmin } from '../config/supabase';
 import {
   businessDateStr,
   EDITABLE_DOC_STATUSES,
+  SYSTEM_LEDGER_HEAD_CODES,
   type CreateFinanceTransactionInput,
   type CreatePartnerExpenseInput,
   type FinanceDocStatus,
+  type FinancePartner,
   type FinanceTransaction,
   type LedgerEntry,
   type LedgerSourceType,
   type PartnerExpense,
+  type PartnerShareSummary,
+  type UpdateFinancePartnerInput,
   type UpdateFinanceTransactionInput,
   type UpdatePartnerExpenseInput,
 } from '../shared';
 import { rowToApi } from '../utils/case';
 import { postEntry, requireActiveHead } from './finance-ledger.service';
-import { round2 } from './finance-settings.service';
+import { getLedgerHeadByCode, round2 } from './finance-settings.service';
 
 /**
  * Manual income / expense documents and partner expenses.
@@ -243,12 +247,56 @@ export async function rejectTransaction(
 }
 
 // ---------------------------------------------------------------------------
-// Partner expenses
+// Partners
+// ---------------------------------------------------------------------------
+
+export async function listFinancePartners(includeInactive = false): Promise<FinancePartner[]> {
+  let query = supabaseAdmin.from('finance_partners').select('*').order('name', { ascending: true });
+  if (!includeInactive) query = query.eq('is_active', true);
+  const { data, error } = await query;
+  if (error) throw error;
+  return rowToApi<FinancePartner[]>(data ?? []).map((p) => ({ ...p, sharePct: num(p.sharePct) }));
+}
+
+async function requireActivePartner(id: string): Promise<FinancePartner> {
+  const { data, error } = await supabaseAdmin.from('finance_partners').select('*').eq('id', id).maybeSingle();
+  if (error) throw error;
+  if (!data) throw Object.assign(new Error('Partner not found'), { status: 404 });
+  const partner = { ...rowToApi<FinancePartner>(data), sharePct: num((data as Record<string, unknown>)['share_pct']) };
+  if (!partner.isActive) throw Object.assign(new Error(`${partner.name} is not an active partner.`), { status: 400 });
+  return partner;
+}
+
+/** Profile edit only — name and sharePct are fixed at seed time. */
+export async function updateFinancePartner(id: string, input: UpdateFinancePartnerInput): Promise<FinancePartner> {
+  const row: Record<string, unknown> = {};
+  if (input.fatherName !== undefined) row['father_name'] = input.fatherName;
+  if (input.dateOfBirth !== undefined) row['date_of_birth'] = input.dateOfBirth;
+  if (input.joinedOn !== undefined) row['joined_on'] = input.joinedOn;
+  if (input.partnerType !== undefined) row['partner_type'] = input.partnerType;
+  if (input.address !== undefined) row['address'] = input.address;
+  if (input.contactNumber !== undefined) row['contact_number'] = input.contactNumber;
+  if (input.emergencyNumber !== undefined) row['emergency_number'] = input.emergencyNumber;
+
+  const { data, error } = await supabaseAdmin
+    .from('finance_partners')
+    .update(row)
+    .eq('id', id)
+    .select('*')
+    .single();
+  if (error) throw error;
+  return { ...rowToApi<FinancePartner>(data), sharePct: num((data as Record<string, unknown>)['share_pct']) };
+}
+
+// ---------------------------------------------------------------------------
+// Partner advances / draws (partner_expenses)
 // ---------------------------------------------------------------------------
 
 export interface PartnerExpenseQuery {
   status?: FinanceDocStatus | 'pending';
+  partnerId?: string;
   partnerName?: string;
+  txnKind?: 'advance' | 'draw';
   from?: string;
   to?: string;
   search?: string;
@@ -265,7 +313,9 @@ export async function listPartnerExpenses(q: PartnerExpenseQuery): Promise<Partn
 
   if (q.status === 'pending') query = query.in('status', ['draft', 'pending_approval']);
   else if (q.status) query = query.eq('status', q.status);
+  if (q.partnerId) query = query.eq('partner_id', q.partnerId);
   if (q.partnerName) query = query.eq('partner_name', q.partnerName);
+  if (q.txnKind) query = query.eq('txn_kind', q.txnKind);
   if (q.from) query = query.gte('business_date', q.from);
   if (q.to) query = query.lte('business_date', q.to);
   if (q.search) {
@@ -282,22 +332,26 @@ export async function listPartnerExpenses(q: PartnerExpenseQuery): Promise<Partn
   return rowToApi<PartnerExpense[]>(data ?? []).map((p) => ({ ...p, amount: num(p.amount) }));
 }
 
+const TXN_KIND_LABEL: Record<'advance' | 'draw', string> = { advance: 'Advance to', draw: 'Draw by' };
+
 export async function createPartnerExpense(
   input: CreatePartnerExpenseInput,
   actor: { uid: string; name: string },
 ): Promise<PartnerExpense> {
-  // Partner money always leaves the business, so the head must be an expense
-  // head. Booking a partner withdrawal against an income head would show the
-  // company earning money it was actually paying out.
-  const head = await requireActiveHead(input.ledgerHeadId, 'expense');
+  const partner = await requireActivePartner(input.partnerId);
+  // Always EXP-PARTNER, resolved here rather than taken from the client — the
+  // form only asks for a partner, an amount and a reason, not a ledger head.
+  const head = await getLedgerHeadByCode(SYSTEM_LEDGER_HEAD_CODES.PARTNER_WITHDRAWAL);
 
   const { data, error } = await supabaseAdmin
     .from('partner_expenses')
     .insert({
-      partner_name: input.partnerName,
+      partner_id: partner.id,
+      partner_name: partner.name,
+      txn_kind: input.txnKind,
       ledger_head_id: head.id,
       ledger_head_name: head.name,
-      description: input.description,
+      description: `${TXN_KIND_LABEL[input.txnKind]} ${partner.name}`,
       amount: round2(input.amount),
       payment_method: input.paymentMethod,
       account: input.account,
@@ -322,13 +376,6 @@ export async function updatePartnerExpense(
   assertEditable(current, current.expenseNo);
 
   const row: Record<string, unknown> = {};
-  if (input.ledgerHeadId !== undefined) {
-    const head = await requireActiveHead(input.ledgerHeadId, 'expense');
-    row['ledger_head_id'] = head.id;
-    row['ledger_head_name'] = head.name;
-  }
-  if (input.partnerName !== undefined) row['partner_name'] = input.partnerName;
-  if (input.description !== undefined) row['description'] = input.description;
   if (input.amount !== undefined) row['amount'] = round2(input.amount);
   if (input.paymentMethod !== undefined) row['payment_method'] = input.paymentMethod;
   if (input.account !== undefined) row['account'] = input.account;
@@ -387,7 +434,7 @@ export async function approvePartnerExpense(
       entryDate: doc.businessDate,
       ledgerHeadId: doc.ledgerHeadId,
       headType: 'expense',
-      description: `${doc.partnerName} — ${doc.description} (${doc.expenseNo})`,
+      description: `${doc.description} (${doc.expenseNo})`,
       amount: doc.amount,
       account: doc.account,
       paymentMethod: doc.paymentMethod,
@@ -410,11 +457,93 @@ export async function rejectPartnerExpense(
 }
 
 // ---------------------------------------------------------------------------
+// Partner Share Detail — computed, not stored
+// ---------------------------------------------------------------------------
+
+/**
+ * Total expenses (everything except partner advances/draws), total company
+ * share, the grand total the four partners split, and each partner's cut,
+ * advances, draws and remaining balance.
+ *
+ * Both totals come straight off `ledger_entries` rather than the source
+ * documents — a posted entry is the one thing every finance figure on this
+ * page has to agree with, and reading it directly means a reversal or an
+ * adjustment is reflected automatically instead of needing this report to
+ * know about every document type that can post one.
+ */
+export async function getPartnerShareSummary(from?: string, to?: string): Promise<PartnerShareSummary> {
+  let ledgerQuery = supabaseAdmin
+    .from('ledger_entries')
+    .select('ledger_head_type, source_type, debit, credit')
+    .in('status', ['posted', 'locked']);
+  if (from) ledgerQuery = ledgerQuery.gte('entry_date', from);
+  if (to) ledgerQuery = ledgerQuery.lte('entry_date', to);
+
+  const { data: entries, error: ledgerErr } = await ledgerQuery;
+  if (ledgerErr) throw ledgerErr;
+
+  let totalExpense = 0;
+  let totalCompanyShare = 0;
+  for (const row of entries ?? []) {
+    if (row['ledger_head_type'] === 'expense' && row['source_type'] !== 'partner_expense') {
+      totalExpense += num(row['credit']);
+    }
+    if (row['source_type'] === 'company_share') totalCompanyShare += num(row['debit']);
+  }
+
+  const grandTotal = round2(totalCompanyShare - totalExpense);
+
+  const partners = await listFinancePartners();
+
+  let txnQuery = supabaseAdmin
+    .from('partner_expenses')
+    .select('partner_id, txn_kind, amount')
+    .in('status', ['posted', 'locked'])
+    .not('partner_id', 'is', null);
+  if (from) txnQuery = txnQuery.gte('business_date', from);
+  if (to) txnQuery = txnQuery.lte('business_date', to);
+
+  const { data: txns, error: txnErr } = await txnQuery;
+  if (txnErr) throw txnErr;
+
+  const totalsByPartner = new Map<string, { advance: number; draw: number }>();
+  for (const row of txns ?? []) {
+    const partnerId = row['partner_id'] as string;
+    const bucket = totalsByPartner.get(partnerId) ?? { advance: 0, draw: 0 };
+    const amount = num(row['amount']);
+    if (row['txn_kind'] === 'advance') bucket.advance += amount;
+    else bucket.draw += amount;
+    totalsByPartner.set(partnerId, bucket);
+  }
+
+  return {
+    from: from ?? null,
+    to: to ?? null,
+    totalExpense: round2(totalExpense),
+    totalCompanyShare: round2(totalCompanyShare),
+    grandTotal,
+    partners: partners.map((p) => {
+      const bucket = totalsByPartner.get(p.id) ?? { advance: 0, draw: 0 };
+      const sharePctAmount = round2((grandTotal * p.sharePct) / 100);
+      return {
+        id: p.id,
+        name: p.name,
+        sharePct: p.sharePct,
+        sharePctAmount,
+        advancePaid: round2(bucket.advance),
+        drawPaid: round2(bucket.draw),
+        balance: round2(sharePctAmount - bucket.advance - bucket.draw),
+      };
+    }),
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Shared approval machinery
 // ---------------------------------------------------------------------------
 
 export interface ApproveDocumentInput {
-  table: 'finance_transactions' | 'partner_expenses' | 'salary_payments';
+  table: 'finance_transactions' | 'partner_expenses' | 'salary_payments' | 'branch_share_payments';
   id: string;
   ref: string;
   status: FinanceDocStatus;
