@@ -53,13 +53,49 @@ export const ApprovedPackingItemSchema = z.object({
   approvedQty: z.number().int().nonnegative('Approved quantity cannot be negative'),
 });
 
+// 'awaiting_verification' replaces the old 'approved' outcome here: Production's
+// review still transfers stock immediately (unchanged), but the order only
+// becomes 'approved' once the branch verifies what physically arrived.
+//
+// 'approved' is still ACCEPTED as a legacy alias and normalised to
+// 'awaiting_verification' by the route. The web app is a static-export PWA, so a
+// client that loaded the old bundle keeps sending 'approved' until it reloads —
+// rejecting it here would 400 those users for as long as their tab stays open.
 export const ReviewProductionOrderSchema = z.object({
-  status: z.enum(['approved', 'rejected']),
-  // Only meaningful when status === 'approved'.
+  status: z.enum(['awaiting_verification', 'approved', 'rejected']),
+  // Only meaningful when status is 'awaiting_verification' (or its 'approved' alias).
   approvedItems: z.array(ApprovedItemSchema).optional(),
   approvedPackingItems: z.array(ApprovedPackingItemSchema).optional(),
   reason: z.string().max(500).optional(),
 });
 
+/** Production adding an extra line to a still-'pending' order before submitting it. */
+export const AddProductionOrderItemSchema = z.object({
+  productId: z.string().min(1, 'Product is required'),
+  qty: z.number().int().positive('Quantity must be at least 1'),
+  remarks: z.string().max(500).default(''),
+});
+
+// Per-item quantity the branch confirms it physically received, correcting for
+// any shortage/overage against what Production recorded. Omitted items keep
+// their approved quantity unchanged.
+export const VerifiedItemSchema = z.object({
+  productId: z.string().min(1),
+  verifiedQty: z.number().nonnegative('Verified quantity cannot be negative'),
+});
+
+/** An item the branch found on arrival that wasn't on the original demand. */
+export const NewVerifiedItemSchema = z.object({
+  productId: z.string().min(1, 'Product is required'),
+  qty: z.number().positive('Quantity must be at least 1'),
+});
+
+export const VerifyProductionOrderSchema = z.object({
+  verifiedItems: z.array(VerifiedItemSchema).default([]),
+  newItems: z.array(NewVerifiedItemSchema).default([]),
+});
+
 export type CreateProductionOrderInput = z.infer<typeof CreateProductionOrderSchema>;
 export type ReviewProductionOrderInput = z.infer<typeof ReviewProductionOrderSchema>;
+export type AddProductionOrderItemInput = z.infer<typeof AddProductionOrderItemSchema>;
+export type VerifyProductionOrderInput = z.infer<typeof VerifyProductionOrderSchema>;

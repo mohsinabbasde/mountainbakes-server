@@ -3,7 +3,13 @@ import type { BranchProductionOrderPackingItem } from './packing-material.types'
 // Named "Branch…" to avoid colliding with production.types.ts `ProductionOrder`
 // (the production-queue view of a customer order). This is the branch's daily
 // production *request* (collection `production_orders`).
-export type BranchProductionOrderStatus = 'pending' | 'approved' | 'rejected';
+//
+// 'awaiting_verification' sits between 'pending' and 'approved': Production's
+// review still moves stock into branch inventory immediately (unchanged), but
+// the order isn't 'approved' until the branch has physically checked what
+// arrived and confirmed it via the verify step — which is what may still
+// adjust quantities/add items before the order is finally 'approved'.
+export type BranchProductionOrderStatus = 'pending' | 'awaiting_verification' | 'approved' | 'rejected';
 
 export interface BranchProductionOrderItem {
   productId: string;
@@ -53,6 +59,10 @@ export interface BranchProductionOrder {
   /** Set once the production slip has been printed. Idempotent — printing never mutates stock. */
   printed?: boolean;
   printedAt?: string | null; // ISO UTC
+  /** Set when the branch verifies a demand that's 'awaiting_verification', moving it to 'approved'. */
+  verifiedBy?: string | null;
+  verifiedByName?: string | null;
+  verifiedAt?: string | null;
 }
 
 /**

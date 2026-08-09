@@ -6,6 +6,8 @@ import { validate } from '../middleware/validate';
 import {
   CreateProductionOrderSchema,
   ReviewProductionOrderSchema,
+  AddProductionOrderItemSchema,
+  VerifyProductionOrderSchema,
   businessDateStr,
   businessDaysAgoStr,
   karachiTimeStr,
@@ -13,8 +15,8 @@ import {
   isWithinOrderWindow,
 } from '../shared';
 import { notify } from '../services/push.service';
-import { applyProductionToStock } from '../services/stock.service';
-import { transferOutOnApproval } from '../services/production-stock.service';
+import { applyProductionToStock, applyStockMovement } from '../services/stock.service';
+import { transferOutOnApproval, applyProductionStockMovement } from '../services/production-stock.service';
 import { getAppSettings, orderWindowMinutes } from '../services/settings.service';
 import { assertBusinessDayOpen } from '../middleware/assertBusinessDayOpen';
 import { rowToApi } from '../utils/case';
@@ -264,16 +266,24 @@ interface ReviewedPackingItem {
   approvedQty: number;
 }
 
-// PUT /api/production-orders/:id/review — production/admin approves or rejects
+// PUT /api/production-orders/:id/review — production/admin submits for
+// verification, or rejects. 'awaiting_verification' still transfers stock to
+// the branch immediately (unchanged) — the branch's own /verify step is what
+// finally moves the order to 'approved'.
 router.put('/:id/review', requireRole('super_admin', 'production_user'), validate(ReviewProductionOrderSchema), async (req: AuthRequest, res, next) => {
   try {
-    const { status, approvedItems, approvedPackingItems, reason } = req.body as {
-      status: 'approved' | 'rejected';
+    const { status: rawStatus, approvedItems, approvedPackingItems, reason } = req.body as {
+      status: 'awaiting_verification' | 'approved' | 'rejected';
       approvedItems?: { productId: string; approvedQty: number }[];
       approvedPackingItems?: { packingMaterialId: string; approvedQty: number }[];
       reason?: string;
     };
     const id = req.params['id']!;
+
+    // Legacy alias: a still-cached old web bundle sends 'approved' for what is
+    // now 'awaiting_verification'. Normalise it so those clients keep working
+    // until they reload — see ReviewProductionOrderSchema.
+    const status = rawStatus === 'approved' ? 'awaiting_verification' : rawStatus;
 
     // Status check-and-set, balance carry-forward and the item rewrite all happen
     // inside review_production_order (migration 16) — they must be one
@@ -309,13 +319,14 @@ router.put('/:id/review', requireRole('super_admin', 'production_user'), validat
       return;
     }
 
-    // On approval, move approved units OUT of the production pool and INTO branch
-    // stock (both idempotent by order id, kept as separate retry-safe units).
+    // Stock still transfers at THIS step, unchanged — 'awaiting_verification' is
+    // a status rename of the old approval outcome for what moves stock; only the
+    // final 'approved' label now waits on the branch's own /verify call.
     //
     // Packing materials are deliberately absent from this: they are not stock-tracked
     // yet (migration 38), so approving them records the quantity and nothing more.
     // When packing stock does land, it hangs off packing_material_id here.
-    if (status === 'approved') {
+    if (status === 'awaiting_verification') {
       const moves = result.items
         .map((it) => ({ productId: it.productId, productName: it.productName, qty: Number(it.approvedQty) }))
         .filter((m) => m.qty > 0);
@@ -345,13 +356,15 @@ router.put('/:id/review', requireRole('super_admin', 'production_user'), validat
       .join(' · ');
 
     const message =
-      status === 'approved'
-        ? [productSummary, packingSummary && `Packing — ${packingSummary}`].filter(Boolean).join(' | ')
+      status === 'awaiting_verification'
+        ? [productSummary, packingSummary && `Packing — ${packingSummary}`, 'Please check items received and verify.']
+            .filter(Boolean)
+            .join(' | ')
         : 'Your production order was rejected';
 
     await notify({
       type: 'production_reviewed',
-      title: status === 'approved' ? 'Production Order Approved' : 'Production Order Rejected',
+      title: status === 'awaiting_verification' ? 'Production Order Sent — Please Verify' : 'Production Order Rejected',
       message,
       targetRole: 'branch_manager',
       branchId: result.branchId,
@@ -379,6 +392,178 @@ router.put('/:id/printed', requireRole('super_admin', 'production_user'), async 
     if (!data) { res.status(404).json({ error: 'Production order not found' }); return; }
 
     res.json({ success: true });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// POST /api/production-orders/:id/items — Production adds an extra line to a
+// still-'pending' order before submitting it for verification. Once submitted
+// the order's items are frozen by review_production_order; this only inserts,
+// it never touches stock (that happens for every item, old and new, in the
+// same /review transfer once the order is submitted).
+router.post('/:id/items', requireRole('super_admin', 'production_user'), validate(AddProductionOrderItemSchema), async (req: AuthRequest, res, next) => {
+  try {
+    const id = req.params['id']!;
+    const { productId, qty, remarks } = req.body as { productId: string; qty: number; remarks: string };
+
+    const { data: order, error: orderErr } = await supabaseAdmin
+      .from('production_orders')
+      .select('id, status')
+      .eq('id', id)
+      .maybeSingle();
+    if (orderErr) throw orderErr;
+    if (!order) { res.status(404).json({ error: 'Production order not found' }); return; }
+    if (order.status !== 'pending') {
+      res.status(409).json({ error: 'This order has already been submitted — items can no longer be added' });
+      return;
+    }
+
+    const { data: product, error: prodErr } = await supabaseAdmin
+      .from('products')
+      .select('name')
+      .eq('id', productId)
+      .maybeSingle();
+    if (prodErr) throw prodErr;
+    if (!product) { res.status(400).json({ error: 'Product not found' }); return; }
+
+    const { data: maxRow, error: maxErr } = await supabaseAdmin
+      .from('production_order_items')
+      .select('line_no')
+      .eq('production_order_id', id)
+      .order('line_no', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (maxErr) throw maxErr;
+    const nextLineNo = (maxRow?.line_no ?? 0) + 1;
+
+    const { error: insErr } = await supabaseAdmin.from('production_order_items').insert({
+      production_order_id: id,
+      product_id: productId,
+      product_name: product.name,
+      qty,
+      remarks: remarks || '',
+      line_no: nextLineNo,
+    });
+    if (insErr) throw insErr;
+
+    res.status(201).json({ success: true });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// PUT /api/production-orders/:id/verify — the branch confirms what it
+// physically received against an 'awaiting_verification' demand, correcting
+// any shortage/overage and/or adding lines that arrived unrequested. Moves the
+// order to 'approved'. Scoped to the branch that owns the order — a branch
+// manager can only verify their own branch's demands.
+router.put('/:id/verify', requireRole('branch_manager'), validate(VerifyProductionOrderSchema), async (req: AuthRequest, res, next) => {
+  try {
+    const id = req.params['id']!;
+    const { verifiedItems, newItems } = req.body as {
+      verifiedItems: { productId: string; verifiedQty: number }[];
+      newItems: { productId: string; qty: number }[];
+    };
+
+    const { data: order, error: orderErr } = await supabaseAdmin
+      .from('production_orders')
+      .select('id, branch_id, status')
+      .eq('id', id)
+      .maybeSingle();
+    if (orderErr) throw orderErr;
+    if (!order) { res.status(404).json({ error: 'Production order not found' }); return; }
+    if (order.branch_id !== req.user!.branchId) {
+      res.status(403).json({ error: 'This demand belongs to a different branch' });
+      return;
+    }
+
+    // newItems only carry a productId from the client — resolve names the same
+    // way order creation and /items do, so a stale/tampered name can never land.
+    let resolvedNewItems: { productId: string; productName: string; qty: number }[] = [];
+    if (newItems.length > 0) {
+      const productIds = [...new Set(newItems.map((i) => i.productId))];
+      const { data: products, error: prodErr } = await supabaseAdmin
+        .from('products')
+        .select('id, name')
+        .in('id', productIds);
+      if (prodErr) throw prodErr;
+      const nameById = new Map((products ?? []).map((p) => [p.id as string, p.name as string]));
+      resolvedNewItems = newItems.map((i) => {
+        const name = nameById.get(i.productId);
+        if (!name) throw Object.assign(new Error(`Product ${i.productId} not found`), { status: 400 });
+        return { productId: i.productId, productName: name, qty: i.qty };
+      });
+    }
+
+    const { data, error } = await supabaseAdmin.rpc('verify_production_order', {
+      p_order_id: id,
+      p_verified_items: verifiedItems.map((v) => ({ productId: v.productId, verifiedQty: v.verifiedQty })),
+      p_new_items: resolvedNewItems,
+      p_verified_by: req.user!.uid,
+      p_verified_by_name: req.user!.email,
+    });
+    if (error) throw error;
+
+    const result = data as
+      | { status: 'ok'; branchId: string; branchName: string | null; corrections: { productId: string; productName: string; delta: number }[] }
+      | { status: 'not_found' }
+      | { status: 'already_reviewed' };
+
+    if (result.status === 'not_found') {
+      res.status(404).json({ error: 'Production order not found' });
+      return;
+    }
+    if (result.status === 'already_reviewed') {
+      res.status(409).json({ error: 'This order is not awaiting verification (already verified, or not yet submitted)' });
+      return;
+    }
+
+    // Correct the stock for every changed/new line: a positive delta means the
+    // branch actually has more than was recorded (found extra, or a brand-new
+    // item), so it moves OUT of the pool and INTO branch stock; negative means a
+    // shortfall, so it moves back. Both sides use 'adjustment' — the same
+    // movement type production_returns already uses for an out-of-band
+    // correction, distinct from the original review's 'transfer_out'/'production'.
+    const corrections = result.corrections.filter((c) => c.delta !== 0);
+    await Promise.all(
+      corrections.map((c) =>
+        Promise.all([
+          applyProductionStockMovement({
+            productId: c.productId,
+            productName: c.productName,
+            delta: -c.delta,
+            type: 'adjustment',
+            refId: id,
+          }),
+          applyStockMovement({
+            branchId: order.branch_id,
+            productId: c.productId,
+            productName: c.productName,
+            delta: c.delta,
+            type: 'adjustment',
+            refId: id,
+          }),
+        ]),
+      ),
+    );
+
+    const correctionSummary = corrections
+      .map((c) => `${c.productName}: ${c.delta > 0 ? '+' : ''}${c.delta}`)
+      .join(' · ');
+
+    await notify({
+      type: 'production_order_verified',
+      title: 'Production Order Verified',
+      message: correctionSummary
+        ? `${req.user!.branchName || 'A branch'} verified receipt with corrections — ${correctionSummary}`
+        : `${req.user!.branchName || 'A branch'} verified receipt — all items matched`,
+      targetRole: 'production_user',
+      branchId: null,
+      relatedId: id,
+    });
+
+    res.json({ success: true, corrections });
   } catch (err) {
     next(err);
   }

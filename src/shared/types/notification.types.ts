@@ -21,6 +21,7 @@ export type NotificationType =
   | 'production_demand' // branch submitted a new production demand → Production
   | 'production_reviewed' // Production approved/rejected a demand → branch
   | 'production_return' // a product return was recorded/accepted
+  | 'production_order_verified' // branch verified physical receipt of a demand → Production
   // Help Desk → Support Center queries (migration 25)
   | 'support_query' // a branch/production user raised a query → Admin
   | 'support_resolved' // Admin resolved/rejected or corrected the figures → raiser
