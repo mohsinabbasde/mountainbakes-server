@@ -4,12 +4,21 @@ import type { BranchProductionOrderPackingItem } from './packing-material.types'
 // (the production-queue view of a customer order). This is the branch's daily
 // production *request* (collection `production_orders`).
 //
-// 'awaiting_verification' sits between 'pending' and 'approved': Production's
-// review still moves stock into branch inventory immediately (unchanged), but
-// the order isn't 'approved' until the branch has physically checked what
-// arrived and confirmed it via the verify step — which is what may still
-// adjust quantities/add items before the order is finally 'approved'.
-export type BranchProductionOrderStatus = 'pending' | 'awaiting_verification' | 'approved' | 'rejected';
+// Four live states, in order:
+//   pending               branch submitted, Production has not reviewed
+//   awaiting_verification Production sent it out — NO stock has moved yet
+//   verified              branch counted what arrived — STOCK MOVES AT THIS STEP
+//   approved              Production's final sign-off; status only
+//
+// Stock deliberately moves on verification rather than on Production's step, so
+// the pool is debited once for the quantity actually counted and branch stock
+// never claims goods nobody has confirmed receiving.
+export type BranchProductionOrderStatus =
+  | 'pending'
+  | 'awaiting_verification'
+  | 'verified'
+  | 'approved'
+  | 'rejected';
 
 export interface BranchProductionOrderItem {
   productId: string;

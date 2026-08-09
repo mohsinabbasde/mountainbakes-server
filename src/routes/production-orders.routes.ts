@@ -15,8 +15,8 @@ import {
   isWithinOrderWindow,
 } from '../shared';
 import { notify } from '../services/push.service';
-import { applyProductionToStock, applyStockMovement } from '../services/stock.service';
-import { transferOutOnApproval, applyProductionStockMovement } from '../services/production-stock.service';
+import { applyProductionToStock } from '../services/stock.service';
+import { transferOutOnApproval } from '../services/production-stock.service';
 import { getAppSettings, orderWindowMinutes } from '../services/settings.service';
 import { assertBusinessDayOpen } from '../middleware/assertBusinessDayOpen';
 import { rowToApi } from '../utils/case';
@@ -441,31 +441,10 @@ router.put('/:id/review', requireRole('super_admin', 'production_user'), validat
       return;
     }
 
-    // Stock still transfers at THIS step, unchanged — 'awaiting_verification' is
-    // a status rename of the old approval outcome for what moves stock; only the
-    // final 'approved' label now waits on the branch's own /verify call.
-    //
-    // Packing materials are deliberately absent from this: they are not stock-tracked
-    // yet (migration 38), so approving them records the quantity and nothing more.
-    // When packing stock does land, it hangs off packing_material_id here.
-    if (status === 'awaiting_verification') {
-      const moves = result.items
-        .map((it) => ({ productId: it.productId, productName: it.productName, qty: Number(it.approvedQty) }))
-        .filter((m) => m.qty > 0);
-
-      await transferOutOnApproval(id, moves);
-      await Promise.all(
-        moves.map((m) =>
-          applyProductionToStock({
-            branchId: result.branchId,
-            productId: m.productId,
-            productName: m.productName,
-            qty: m.qty,
-            refId: id,
-          }),
-        ),
-      );
-    }
+    // NO stock movement here any more (migration 58). The pool is debited when
+    // the branch verifies what physically arrived, for the quantity it actually
+    // counted — so this step is paperwork, and there is no window where branch
+    // stock claims goods nobody has confirmed receiving.
 
     // Notify the branch with a per-product Total Required / Approved / Pending summary.
     const productSummary = result.items
@@ -628,7 +607,7 @@ router.put('/:id/verify', requireRole('branch_manager'), validate(VerifyProducti
     if (error) throw error;
 
     const result = data as
-      | { status: 'ok'; branchId: string; branchName: string | null; corrections: { productId: string; productName: string; delta: number }[] }
+      | { status: 'ok'; branchId: string; branchName: string | null; items: { productId: string; productName: string; qty: number }[] }
       | { status: 'not_found' }
       | { status: 'already_reviewed' };
 
@@ -641,51 +620,97 @@ router.put('/:id/verify', requireRole('branch_manager'), validate(VerifyProducti
       return;
     }
 
-    // Correct the stock for every changed/new line: a positive delta means the
-    // branch actually has more than was recorded (found extra, or a brand-new
-    // item), so it moves OUT of the pool and INTO branch stock; negative means a
-    // shortfall, so it moves back. Both sides use 'adjustment' — the same
-    // movement type production_returns already uses for an out-of-band
-    // correction, distinct from the original review's 'transfer_out'/'production'.
-    const corrections = result.corrections.filter((c) => c.delta !== 0);
+    // THE stock movement for this order — not a correction on top of an earlier
+    // one. /review no longer moves anything, so the pool is debited once here,
+    // for the quantity the branch actually counted.
+    //
+    // Both helpers are idempotent on (refId, productId, type). That also makes
+    // this safe for any order left mid-flight by the previous behaviour: those
+    // already carry a transfer_out under this same order id, so re-running is a
+    // no-op rather than a second debit.
+    //
+    // Packing materials stay absent: not stock-tracked yet (migration 38).
+    const moves = result.items
+      .map((it) => ({ productId: it.productId, productName: it.productName, qty: Number(it.qty) }))
+      .filter((m) => m.qty > 0);
+
+    await transferOutOnApproval(id, moves);
     await Promise.all(
-      corrections.map((c) =>
-        Promise.all([
-          applyProductionStockMovement({
-            productId: c.productId,
-            productName: c.productName,
-            delta: -c.delta,
-            type: 'adjustment',
-            refId: id,
-          }),
-          applyStockMovement({
-            branchId: order.branch_id,
-            productId: c.productId,
-            productName: c.productName,
-            delta: c.delta,
-            type: 'adjustment',
-            refId: id,
-          }),
-        ]),
+      moves.map((m) =>
+        applyProductionToStock({
+          branchId: order.branch_id,
+          productId: m.productId,
+          productName: m.productName,
+          qty: m.qty,
+          refId: id,
+        }),
       ),
     );
 
-    const correctionSummary = corrections
-      .map((c) => `${c.productName}: ${c.delta > 0 ? '+' : ''}${c.delta}`)
-      .join(' · ');
+    const correctionSummary = moves.map((m) => `${m.productName}: ${m.qty}`).join(' · ');
 
     await notify({
       type: 'production_order_verified',
-      title: 'Production Order Verified',
-      message: correctionSummary
-        ? `${req.user!.branchName || 'A branch'} verified receipt with corrections — ${correctionSummary}`
-        : `${req.user!.branchName || 'A branch'} verified receipt — all items matched`,
+      title: 'Production Order Verified — Awaiting Final Approval',
+      message: `${req.user!.branchName || 'A branch'} verified receipt${correctionSummary ? ` — ${correctionSummary}` : ''}`,
       targetRole: 'production_user',
       branchId: null,
       relatedId: id,
     });
 
-    res.json({ success: true, corrections });
+    res.json({ success: true, items: moves });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// PUT /api/production-orders/:id/final-approve — Production's closing sign-off
+// on a demand the branch has verified. Status only: stock already moved at
+// verification, which is also why there is no reject counterpart here — undoing
+// it would mean clawing goods back out of branch inventory.
+//
+// The `.eq('status', 'verified')` predicate is the check-and-set: a second call
+// matches no row and 409s rather than re-stamping the approval.
+router.put('/:id/final-approve', requireRole('super_admin', 'production_user'), async (req: AuthRequest, res, next) => {
+  try {
+    const id = req.params['id']!;
+
+    const { data, error } = await supabaseAdmin
+      .from('production_orders')
+      .update({
+        status: 'approved',
+        approved_by: req.user!.uid,
+        approved_by_name: req.user!.email,
+        approved_at: new Date().toISOString(),
+      })
+      .eq('id', id)
+      .eq('status', 'verified')
+      .select('id, branch_id')
+      .maybeSingle();
+    if (error) throw error;
+
+    if (!data) {
+      const { data: exists, error: exErr } = await supabaseAdmin
+        .from('production_orders')
+        .select('id, status')
+        .eq('id', id)
+        .maybeSingle();
+      if (exErr) throw exErr;
+      if (!exists) { res.status(404).json({ error: 'Production order not found' }); return; }
+      res.status(409).json({ error: `Cannot approve an order that is ${exists.status} — it must be verified by the branch first` });
+      return;
+    }
+
+    await notify({
+      type: 'production_reviewed',
+      title: 'Production Order Approved',
+      message: 'Your verified demand has been approved by Production.',
+      targetRole: 'branch_manager',
+      branchId: data.branch_id,
+      relatedId: id,
+    });
+
+    res.json({ success: true });
   } catch (err) {
     next(err);
   }
