@@ -286,7 +286,7 @@ router.get('/:id/previous-balance', requireRole('super_admin', 'production_user'
     // 'rejected' never will, so both are skipped when walking back.
     const { data: prev, error: prevErr } = await supabaseAdmin
       .from('production_orders')
-      .select('id, demand_number, business_date, items:production_order_items(product_id, approved_qty)')
+      .select('id, demand_number, business_date, submitted_at, items:production_order_items(product_id, approved_qty)')
       .eq('branch_id', order.branch_id)
       .in('status', ['awaiting_verification', 'approved'])
       .lt('submitted_at', order.submitted_at)
@@ -305,7 +305,7 @@ router.get('/:id/previous-balance', requireRole('super_admin', 'production_user'
     if (!prev) {
       res.json({
         previous: null, deliveredValue: 0, companySharePct,
-        companyShareValue: 0, returnsValue: 0, amountToCollect: 0,
+        companyShareValue: 0, returnsValue: 0, returnItems: [], amountToCollect: 0,
       });
       return;
     }
@@ -327,23 +327,28 @@ router.get('/:id/previous-balance', requireRole('super_admin', 'production_user'
       );
     }
 
-    // The same accepted returns the slip already itemises under "Return Items
-    // (Previous Day)" — deducting a different set than it prints would make the
-    // total unauditable at the counter.
-    const d = new Date(`${order.business_date}T00:00:00Z`);
-    d.setUTCDate(d.getUTCDate() - 1);
-    const prevDay = d.toISOString().slice(0, 10);
-
+    // Returns that came back during the period this slip bills for: after the
+    // previous order was placed, up to and including this one.
+    //
+    // Windowed on the billing period rather than on "the previous calendar day",
+    // which is what this did first and which was wrong twice over. Branches take
+    // several deliveries a day, so a day-based rule (a) credited returns against
+    // an order they had nothing to do with, and worse (b) re-credited the SAME
+    // returns on every slip of that day — four orders, one return deducted four
+    // times. Bounding by the two orders' timestamps partitions returns exactly:
+    // each falls in one window, so it is deducted once and never lost.
     const { data: returns, error: retErr } = await supabaseAdmin
       .from('production_returns')
-      .select('product_id, qty')
+      .select('product_id, product_name, qty')
       .eq('branch_id', order.branch_id)
       .eq('status', 'accepted')
-      .eq('business_date', prevDay);
+      .gt('created_at', prev.submitted_at)
+      .lte('created_at', order.submitted_at);
     if (retErr) throw retErr;
 
     let returnsValue = 0;
-    const returnRows = (returns ?? []) as { product_id: string; qty: number | string }[];
+    let returnItems: { productName: string; qty: number; amount: number }[] = [];
+    const returnRows = (returns ?? []) as { product_id: string; product_name: string; qty: number | string }[];
     if (returnRows.length > 0) {
       const retIds = [...new Set(returnRows.map((r) => r.product_id))];
       const { data: retProducts, error: retProdErr } = await supabaseAdmin
@@ -352,7 +357,14 @@ router.get('/:id/previous-balance', requireRole('super_admin', 'production_user'
         .in('id', retIds);
       if (retProdErr) throw retProdErr;
       const retPriceById = new Map((retProducts ?? []).map((p) => [p.id as string, Number(p.price ?? 0)]));
-      returnsValue = returnRows.reduce((a, r) => a + Number(r.qty ?? 0) * (retPriceById.get(r.product_id) ?? 0), 0);
+      // Itemised here rather than re-derived on the client, so the lines the slip
+      // prints are by construction the ones the total was built from.
+      returnItems = returnRows.map((r) => ({
+        productName: r.product_name,
+        qty: Number(r.qty ?? 0),
+        amount: Number(r.qty ?? 0) * (retPriceById.get(r.product_id) ?? 0),
+      }));
+      returnsValue = returnItems.reduce((a, r) => a + r.amount, 0);
     }
 
     const companyShareValue = (deliveredValue * companySharePct) / 100;
@@ -363,6 +375,7 @@ router.get('/:id/previous-balance', requireRole('super_admin', 'production_user'
       companySharePct,
       companyShareValue,
       returnsValue,
+      returnItems,
       amountToCollect: companyShareValue - returnsValue,
     });
   } catch (err) {
