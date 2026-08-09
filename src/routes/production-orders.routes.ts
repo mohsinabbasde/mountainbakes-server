@@ -248,6 +248,128 @@ router.get('/balances', async (req: AuthRequest, res, next) => {
   }
 });
 
+// GET /api/production-orders/:id/previous-balance — what the branch owes for its
+// PREVIOUS delivery, for the company copy of this order's slip.
+//
+// Deliberately NOT production_balances: that table is unmet demand (goods the
+// branch asked for and Production could not supply), i.e. value owed TO the
+// branch — the opposite direction from a receivable.
+//
+// Bills the IMMEDIATELY PRECEDING delivered order, not the previous business
+// day's total, and that distinction is load-bearing: branches routinely take
+// several deliveries in one day (four on 2026-08-09 for one branch). Billing a
+// day's total would reprint the same figure on every slip that day and invite
+// collecting it more than once, whereas chaining slip→previous order bills each
+// delivery exactly once. The tradeoff accepted here is that a slip can bill
+// goods delivered only hours earlier rather than strictly "yesterday".
+//
+// Computed server-side because company_share_pct lives in finance_settings, and
+// production users have no access to the finance module at any layer — only the
+// service-role client can read it. The money maths stays server-side with it.
+//
+// NOTE: nothing records whether a previous order was actually settled, so this
+// reports the same figure on every reprint. It is a "what this order was worth"
+// statement, not a live outstanding balance.
+router.get('/:id/previous-balance', requireRole('super_admin', 'production_user'), async (req, res, next) => {
+  try {
+    const id = req.params['id']!;
+
+    const { data: order, error: orderErr } = await supabaseAdmin
+      .from('production_orders')
+      .select('id, branch_id, business_date, submitted_at')
+      .eq('id', id)
+      .maybeSingle();
+    if (orderErr) throw orderErr;
+    if (!order) { res.status(404).json({ error: 'Production order not found' }); return; }
+
+    // Only a DELIVERED order can be owed for. 'pending' shipped nothing yet and
+    // 'rejected' never will, so both are skipped when walking back.
+    const { data: prev, error: prevErr } = await supabaseAdmin
+      .from('production_orders')
+      .select('id, demand_number, business_date, items:production_order_items(product_id, approved_qty)')
+      .eq('branch_id', order.branch_id)
+      .in('status', ['awaiting_verification', 'approved'])
+      .lt('submitted_at', order.submitted_at)
+      .order('submitted_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (prevErr) throw prevErr;
+
+    const { data: fin, error: finErr } = await supabaseAdmin
+      .from('finance_settings')
+      .select('company_share_pct')
+      .maybeSingle();
+    if (finErr) throw finErr;
+    const companySharePct = Number(fin?.company_share_pct ?? 75);
+
+    if (!prev) {
+      res.json({
+        previous: null, deliveredValue: 0, companySharePct,
+        companyShareValue: 0, returnsValue: 0, amountToCollect: 0,
+      });
+      return;
+    }
+
+    const prevItems = (prev.items ?? []) as { product_id: string | null; approved_qty: number | string | null }[];
+    const productIds = [...new Set(prevItems.map((i) => i.product_id).filter((p): p is string => !!p))];
+
+    let deliveredValue = 0;
+    if (productIds.length > 0) {
+      const { data: products, error: prodErr } = await supabaseAdmin
+        .from('products')
+        .select('id, price')
+        .in('id', productIds);
+      if (prodErr) throw prodErr;
+      const priceById = new Map((products ?? []).map((p) => [p.id as string, Number(p.price ?? 0)]));
+      deliveredValue = prevItems.reduce(
+        (a, i) => a + Number(i.approved_qty ?? 0) * (i.product_id ? (priceById.get(i.product_id) ?? 0) : 0),
+        0,
+      );
+    }
+
+    // The same accepted returns the slip already itemises under "Return Items
+    // (Previous Day)" — deducting a different set than it prints would make the
+    // total unauditable at the counter.
+    const d = new Date(`${order.business_date}T00:00:00Z`);
+    d.setUTCDate(d.getUTCDate() - 1);
+    const prevDay = d.toISOString().slice(0, 10);
+
+    const { data: returns, error: retErr } = await supabaseAdmin
+      .from('production_returns')
+      .select('product_id, qty')
+      .eq('branch_id', order.branch_id)
+      .eq('status', 'accepted')
+      .eq('business_date', prevDay);
+    if (retErr) throw retErr;
+
+    let returnsValue = 0;
+    const returnRows = (returns ?? []) as { product_id: string; qty: number | string }[];
+    if (returnRows.length > 0) {
+      const retIds = [...new Set(returnRows.map((r) => r.product_id))];
+      const { data: retProducts, error: retProdErr } = await supabaseAdmin
+        .from('products')
+        .select('id, price')
+        .in('id', retIds);
+      if (retProdErr) throw retProdErr;
+      const retPriceById = new Map((retProducts ?? []).map((p) => [p.id as string, Number(p.price ?? 0)]));
+      returnsValue = returnRows.reduce((a, r) => a + Number(r.qty ?? 0) * (retPriceById.get(r.product_id) ?? 0), 0);
+    }
+
+    const companyShareValue = (deliveredValue * companySharePct) / 100;
+
+    res.json({
+      previous: { demandNumber: prev.demand_number, date: prev.business_date },
+      deliveredValue,
+      companySharePct,
+      companyShareValue,
+      returnsValue,
+      amountToCollect: companyShareValue - returnsValue,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
 interface ReviewedItem {
   productId: string;
   productName: string;
