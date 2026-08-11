@@ -702,7 +702,9 @@ export type FinanceAuditAction =
   | 'locked'
   | 'imported'
   | 'settings_updated'
-  | 'salary_revised';
+  | 'salary_revised'
+  | 'resolved'
+  | 'deleted';
 
 export type FinanceAuditEntity =
   | 'ledger_entry'
@@ -715,7 +717,8 @@ export type FinanceAuditEntity =
   | 'day_closing'
   | 'settings'
   | 'branch_share_payment'
-  | 'finance_partner';
+  | 'finance_partner'
+  | 'finance_ticket';
 
 export interface FinanceAuditLog {
   id: string;
@@ -814,3 +817,85 @@ export interface FinanceReportQuery {
 }
 
 export type FinanceExportFormat = 'pdf' | 'excel' | 'csv';
+
+// ---------------------------------------------------------------------------
+// Finance Help Desk
+//
+// A query an Accountant or Finance Manager raises against a finance record, and
+// the Finance Admin's resolution of it. Kept separate from the admin Support
+// Center (`support.types.ts`) on purpose — see migration 60 for why.
+// ---------------------------------------------------------------------------
+
+/**
+ * The finance records a query can be raised against, each keyed to the table it
+ * lives in and the column carrying its human reference number. The API resolves
+ * a typed reference number (FV-000001, SAL-000012, …) through this map, so the
+ * raiser never has to say which kind of record they mean.
+ */
+export const FINANCE_TICKET_REFERENCES = {
+  ledger_entry:         { prefix: 'FV',  table: 'ledger_entries',           refColumn: 'voucher_no',   label: 'Ledger Voucher' },
+  income_approval:      { prefix: 'INC', table: 'finance_income_approvals', refColumn: 'reference_no', label: 'Branch Income' },
+  finance_transaction:  { prefix: 'FTX', table: 'finance_transactions',     refColumn: 'txn_no',       label: 'Transaction' },
+  salary_payment:       { prefix: 'SAL', table: 'salary_payments',          refColumn: 'salary_no',    label: 'Salary Payment' },
+  partner_expense:      { prefix: 'PEX', table: 'partner_expenses',         refColumn: 'expense_no',   label: 'Partner Expense' },
+  branch_share_payment: { prefix: 'BSP', table: 'branch_share_payments',    refColumn: 'payment_no',   label: 'Branch Share' },
+} as const;
+
+export type FinanceTicketReferenceType = keyof typeof FINANCE_TICKET_REFERENCES;
+
+export const FINANCE_TICKET_REFERENCE_LABELS: Record<FinanceTicketReferenceType, string> = {
+  ledger_entry: 'Ledger Voucher',
+  income_approval: 'Branch Income',
+  finance_transaction: 'Transaction',
+  salary_payment: 'Salary Payment',
+  partner_expense: 'Partner Expense',
+  branch_share_payment: 'Branch Share',
+};
+
+/** Reference-number prefix → the record type it identifies. Derived, never hand-written. */
+export const FINANCE_TICKET_PREFIX_MAP: Record<string, FinanceTicketReferenceType> = Object.fromEntries(
+  (Object.keys(FINANCE_TICKET_REFERENCES) as FinanceTicketReferenceType[]).map((k) => [
+    FINANCE_TICKET_REFERENCES[k].prefix,
+    k,
+  ]),
+);
+
+export type FinanceTicketStatus = 'open' | 'resolved' | 'rejected';
+
+export const FINANCE_TICKET_STATUS_LABELS: Record<FinanceTicketStatus, string> = {
+  open: 'Open',
+  resolved: 'Resolved',
+  rejected: 'Rejected',
+};
+
+export interface FinanceTicket {
+  id: string;
+  ticketNo: string;
+  referenceType: FinanceTicketReferenceType;
+  /** Null when the referenced row has since been removed; the snapshot survives. */
+  referenceId: string | null;
+  referenceNo: string;
+  /** The record's figures as they stood when the query was raised. */
+  referenceSnapshot: Record<string, unknown> | null;
+  subject: string;
+  message: string;
+  status: FinanceTicketStatus;
+  resolutionNote: string | null;
+  raisedBy: string | null;
+  raisedByName: string;
+  raisedByRole: string | null;
+  resolvedBy: string | null;
+  resolvedByName: string | null;
+  resolvedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** What GET /api/finance/tickets/lookup returns for a reference number. */
+export interface FinanceTicketReferenceLookup {
+  referenceType: FinanceTicketReferenceType;
+  referenceId: string;
+  referenceNo: string;
+  label: string;
+  snapshot: Record<string, unknown>;
+}

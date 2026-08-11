@@ -40,6 +40,7 @@ export * from './schemas/closing-notifications.schemas';
 export * from './schemas/special-event.schemas';
 export * from './schemas/geofence.schemas';
 export * from './schemas/finance.schemas';
+export * from './schemas/finance-ticket.schemas';
 
 // Utils
 export * from './utils/timezone';

@@ -13,7 +13,6 @@ import { router as productionRouter } from './production.routes';
 import { router as productionOrdersRouter } from './production-orders.routes';
 import { router as productionStockRouter } from './production-stock.routes';
 import { router as productionReturnsRouter } from './production-returns.routes';
-import { router as productionExpensesRouter } from './production-expenses.routes';
 import { router as productionReportsRouter } from './production-reports.routes';
 import { router as expensesRouter } from './expenses.routes';
 import { router as stockRouter } from './stock.routes';
@@ -30,6 +29,7 @@ import { router as financePayrollRouter } from './finance-payroll.routes';
 import { router as financePartnersRouter } from './finance-partners.routes';
 import { router as financeBranchShareRouter } from './finance-branch-share.routes';
 import { router as financeReportsRouter } from './finance-reports.routes';
+import { router as financeTicketsRouter } from './finance-tickets.routes';
 
 export function setupRoutes(app: Express) {
   app.use('/api/auth', authRouter);
@@ -52,7 +52,6 @@ export function setupRoutes(app: Express) {
   app.use('/api/production-orders', productionOrdersRouter);
   app.use('/api/production-stock', productionStockRouter);
   app.use('/api/production-returns', productionReturnsRouter);
-  app.use('/api/production-expenses', productionExpensesRouter);
   app.use('/api/production-reports', productionReportsRouter);
   app.use('/api/expenses', expensesRouter);
   app.use('/api/stock', stockRouter);
@@ -76,5 +75,6 @@ export function setupRoutes(app: Express) {
   app.use('/api/finance/partner-expenses', financePartnersRouter);
   app.use('/api/finance/branch-share', financeBranchShareRouter);
   app.use('/api/finance/reports', financeReportsRouter);
+  app.use('/api/finance/tickets', financeTicketsRouter);
   app.use('/api/finance', financeRouter);
 }

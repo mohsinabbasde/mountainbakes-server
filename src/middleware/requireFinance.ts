@@ -53,6 +53,52 @@ export function requireFinance(permission: FinancePermission) {
 }
 
 /**
+ * Administering a Finance Help Desk query — edit, resolve/reject, delete.
+ *
+ * Deliberately NOT one of the five `FinancePermission`s. Those describe acts on
+ * the BOOKS: `configure` is ledger heads and share percentages, `adjust` is
+ * reversing a posted entry. Closing a query moves no money and touches no
+ * ledger row, so routing it through either would overload a permission with a
+ * meaning it does not have — and would silently hand ticket deletion to anyone
+ * later granted `configure` for an unrelated reason.
+ *
+ * The rule is simply the one the brief states: the Finance Admin owns the
+ * queue. Super Admin follows the same `allowSuperAdminWrite` toggle as the rest
+ * of the module (off by default), read per request so a revoked grant applies
+ * immediately.
+ */
+export function requireFinanceTicketAdmin() {
+  return async (req: AuthRequest, res: Response, next: NextFunction) => {
+    if (!req.user) {
+      res.status(401).json({ error: 'Unauthorized' });
+      return;
+    }
+    try {
+      if (req.user.role === 'finance_admin') {
+        next();
+        return;
+      }
+      if (req.user.role === 'super_admin') {
+        const { allowSuperAdminWrite } = await getFinanceSettings();
+        if (allowSuperAdminWrite) {
+          next();
+          return;
+        }
+        res.status(403).json({
+          error: 'Forbidden: Super Admin write access to finance is turned off in Finance Settings.',
+        });
+        return;
+      }
+      res.status(403).json({
+        error: 'Forbidden: only a Finance Admin may edit, resolve or delete a Help Desk query.',
+      });
+    } catch (err) {
+      next(err);
+    }
+  };
+}
+
+/**
  * The Admin-verifies step in the branch-income workflow.
  *
  *   Branch closing → ADMIN VERIFIES → Finance approves → posted.
