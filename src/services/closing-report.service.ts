@@ -170,7 +170,7 @@ export async function buildBranchReport(
 // Production
 // ---------------------------------------------------------------------------
 export async function buildProductionReport(businessDate: string): Promise<ProductionClosingReport> {
-  const [movements, pool, demandOrders, prodExpenses] = await Promise.all([
+  const [movements, pool, demandOrders] = await Promise.all([
     supabaseAdmin
       .from('production_stock_history')
       .select('type, delta')
@@ -180,12 +180,8 @@ export async function buildProductionReport(businessDate: string): Promise<Produ
       .from('production_orders')
       .select('status, items:production_order_items(qty, approved_qty)')
       .eq('business_date', businessDate),
-    supabaseAdmin
-      .from('production_expenses')
-      .select('amount, category')
-      .eq('business_date', businessDate),
   ]);
-  for (const r of [movements, pool, demandOrders, prodExpenses]) {
+  for (const r of [movements, pool, demandOrders]) {
     if (r.error) throw r.error;
   }
 
@@ -209,15 +205,6 @@ export async function buildProductionReport(businessDate: string): Promise<Produ
     }
   }
 
-  const byCategory: Record<string, number> = {};
-  let expTotal = 0;
-  for (const e of (prodExpenses.data ?? []) as { amount: number; category?: string }[]) {
-    const amt = num(e.amount);
-    expTotal += amt;
-    const cat = e.category || 'Uncategorised';
-    byCategory[cat] = (byCategory[cat] || 0) + amt;
-  }
-
   return {
     scope: 'production',
     businessDate,
@@ -230,7 +217,6 @@ export async function buildProductionReport(businessDate: string): Promise<Produ
       approved: round2(demandApproved),
       pending: round2(Math.max(0, demandTotal - demandApproved)),
     },
-    expenses: { total: round2(expTotal), byCategory },
     orders: { closed: ordersClosed, pending: ordersPending },
   };
 }
@@ -244,8 +230,9 @@ export function buildCompanyReport(
   production: ProductionClosingReport,
 ): CompanyClosingReport {
   const totalSales = branchReports.reduce((s, b) => s + b.sales.total, 0);
-  const branchExpenses = branchReports.reduce((s, b) => s + b.expenses.total, 0);
-  const totalExpenses = branchExpenses + production.expenses.total;
+  // Branch shop expenses are the whole of it since production_expenses was dropped
+  // (migration 59) — the production report no longer carries an expense figure.
+  const totalExpenses = branchReports.reduce((s, b) => s + b.expenses.total, 0);
 
   return {
     scope: 'company',
@@ -343,8 +330,6 @@ export function formatProductionMessage(r: ProductionClosingReport, companyName 
     'Closing Stock', `${r.production.remaining} Items`,
     '',
     'Pending Demand', `${r.demand.pending} Items`,
-    '',
-    'Production Expense', money(r.expenses.total, symbol),
     '',
     'Business Date', formatBusinessDate(r.businessDate),
   );

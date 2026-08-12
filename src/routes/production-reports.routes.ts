@@ -20,8 +20,7 @@ export type ProductionReportType =
   | 'pending-balance'
   | 'returned-products'
   | 'production-stock'
-  | 'branch-stock'
-  | 'production-expenses';
+  | 'branch-stock';
 
 /** Karachi date-string range for a named period (anchored to today). */
 function periodDateRange(period: string): { fromStr: string; toStr: string } {
@@ -153,20 +152,6 @@ async function buildReport(
         title: 'Returned Products',
         headers: ['Date', 'Branch', 'Product', 'Qty', 'Reason', 'Status'],
         rows: returns.map((r) => [r.business_date, r.branch_name, r.product_name, r.qty, r.reason, r.status]),
-      };
-    }
-    case 'production-expenses': {
-      const { data, error } = await supabaseAdmin
-        .from('production_expenses')
-        .select('business_date, category, description, amount, payment_method, supplier')
-        .gte('business_date', fromStr);
-      if (error) throw error;
-      const expenses = ((data ?? []) as { business_date: string; category: string; description: string; amount: number; payment_method: string; supplier: string }[])
-        .filter((e) => inRange(e.business_date));
-      return {
-        title: 'Production Expenses',
-        headers: ['Date', 'Category', 'Description', 'Amount', 'Payment', 'Supplier'],
-        rows: expenses.map((e) => [e.business_date, e.category, e.description, e.amount, e.payment_method, e.supplier || '']),
       };
     }
     case 'production':

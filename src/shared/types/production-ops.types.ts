@@ -92,22 +92,3 @@ export interface ProductionReturn {
   reviewedByName: string | null;
   reviewedAt: string | null;
 }
-
-// ── Production Expenses ──────────────────────────────────────────────────────
-
-export type ProductionExpensePaymentMethod = 'cash' | 'easypaisa' | 'bank_account';
-
-export interface ProductionExpense {
-  id: string;
-  expenseNumber: string; // human-readable EXP-###### (unique across branch + production expenses)
-  date: string; // 'YYYY-MM-DD' (Karachi)
-  category: string;
-  description: string;
-  amount: number;
-  paymentMethod: ProductionExpensePaymentMethod;
-  supplier: string;
-  notes: string;
-  createdBy: string;
-  createdByName: string;
-  createdAt: string; // ISO UTC
-}

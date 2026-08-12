@@ -36,6 +36,18 @@ import { rowToApi } from '../utils/case';
 
 export const router = Router();
 
+/**
+ * Tables a resolution is allowed to write a figure edit into.
+ *
+ * `reference_snapshot` is frozen onto the ticket as JSONB when it is raised and
+ * never revisited, so a ticket raised before migration 59 can still name
+ * `production_expenses` — a table that no longer exists. Resolving it would send
+ * an UPDATE to a dropped relation and 500. Gating on this set makes such a ticket
+ * resolve as a manual follow-up (`applied` stays false) instead, which is what it
+ * now is: there is no row left to correct.
+ */
+const LIVE_EDITABLE_TABLES = new Set(['expenses']);
+
 router.use(authenticate);
 
 // ---------------------------------------------------------------------------
@@ -307,10 +319,12 @@ async function resolveReference(
     };
   }
 
-  // --- EXPENSE (expenses / production_expenses .expense_number) ------------
+  // --- EXPENSE (expenses.expense_number) -----------------------------------
   if (type === 'expense') {
-    // Branch managers see only their branch's shop expenses; production users
-    // see only production expenses; admins see either.
+    // Shop expenses only — production_expenses was dropped (migration 59), so a
+    // production user has no expense of their own to raise a ticket against.
+    // EXP-###### still comes from the counter both tables once shared, so a
+    // number that belonged to a production expense simply no longer resolves.
     if (role !== 'production_user') {
       let q = supabaseAdmin
         .from('expenses')
@@ -337,35 +351,6 @@ async function resolveReference(
           editableFields: [
             { key: 'amount', label: 'Amount', kind: 'number', value: Number(data.amount) },
             { key: 'description', label: 'Description', kind: 'text', value: data.description },
-          ],
-        };
-      }
-    }
-    if (role !== 'branch_manager') {
-      const { data, error } = await supabaseAdmin
-        .from('production_expenses')
-        .select('id, expense_number, category, description, amount, payment_method, supplier, business_date')
-        .eq('expense_number', referenceId)
-        .maybeSingle();
-      if (error) throw error;
-      if (data) {
-        return {
-          type,
-          referenceId,
-          entityId: data.id,
-          entityTable: 'production_expenses',
-          title: `Production Expense ${referenceId} — ${data.category} · ${money(data.amount)}`,
-          fields: [
-            { label: 'Category', value: data.category },
-            { label: 'Description', value: data.description ?? '—' },
-            { label: 'Amount', value: money(data.amount) },
-            { label: 'Payment', value: String(data.payment_method ?? '—') },
-            { label: 'Supplier', value: data.supplier ?? '—' },
-            { label: 'Date', value: String(data.business_date ?? '—') },
-          ],
-          editableFields: [
-            { key: 'amount', label: 'Amount', kind: 'number', value: Number(data.amount) },
-            { key: 'description', label: 'Description', kind: 'text', value: data.description ?? '' },
           ],
         };
       }
@@ -809,7 +794,7 @@ router.patch('/:id/figures', requireRole('super_admin'), validate(ChangeFiguresS
         }
         throw err;
       }
-    } else if (snapshot?.entityTable && allowed.size > 0) {
+    } else if (snapshot?.entityTable && LIVE_EDITABLE_TABLES.has(snapshot.entityTable) && allowed.size > 0) {
       // Live mutation — only expense columns are ever in `allowed` here.
       const patch: Record<string, unknown> = {};
       for (const [k, v] of Object.entries(edits)) {

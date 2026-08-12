@@ -61,22 +61,7 @@ export const CreateBranchReturnSchema = z.object({
   reason: z.string().max(500).optional().default(''),
 });
 
-// ── Production Expenses ──────────────────────────────────────────────────────
-export const PRODUCTION_EXPENSE_PAYMENT_METHODS = ['cash', 'easypaisa', 'bank_account'] as const;
-
-export const CreateProductionExpenseSchema = z.object({
-  category: z.string().min(1, 'Category is required').max(100),
-  description: z.string().min(1, 'Description is required').max(200),
-  amount: z.number().positive('Amount must be greater than 0'),
-  paymentMethod: z.enum(PRODUCTION_EXPENSE_PAYMENT_METHODS),
-  supplier: z.string().max(200).default(''),
-  notes: z.string().max(500).default(''),
-  // Optional Karachi date; defaults to today server-side when omitted.
-  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Invalid date').optional(),
-});
-
 export type PrepareProductionInput = z.infer<typeof PrepareProductionSchema>;
 export type CreateProductionReturnInput = z.infer<typeof CreateProductionReturnSchema>;
 export type ReviewProductionReturnInput = z.infer<typeof ReviewProductionReturnSchema>;
 export type CreateBranchReturnInput = z.infer<typeof CreateBranchReturnSchema>;
-export type CreateProductionExpenseInput = z.infer<typeof CreateProductionExpenseSchema>;
