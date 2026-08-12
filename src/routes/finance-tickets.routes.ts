@@ -395,7 +395,12 @@ router.delete('/:id', requireFinanceTicketAdmin(), async (req: AuthRequest, res,
     );
     if (sourceError) throw sourceError;
 
-    const source = (removed ?? {}) as { deleted?: boolean; referenceNo?: string };
+    const source = (removed ?? {}) as {
+      deleted?: boolean;
+      referenceNo?: string;
+      balancesRewritten?: number;
+      closingBalance?: number | null;
+    };
     if (source.deleted) {
       await logFinanceAudit(req, {
         // Every FinanceTicketReferenceType is also a FinanceAuditEntity, so the
@@ -404,7 +409,17 @@ router.delete('/:id', requireFinanceTicketAdmin(), async (req: AuthRequest, res,
         entityId: ticket.reference_id,
         entityRef: source.referenceNo ?? ticket.reference_no,
         action: 'deleted',
-        newValues: { deletedVia: 'finance_ticket', ticketNo: ticket.ticket_no },
+        newValues: {
+          deletedVia: 'finance_ticket',
+          ticketNo: ticket.ticket_no,
+          // Deleting a voucher rewrites the running balance on every later row
+          // (migration 64). How many rows moved, and where the book landed, is
+          // the part of a deletion an auditor most needs and cannot reconstruct
+          // afterwards — the old balances are gone.
+          ...(source.balancesRewritten
+            ? { balancesRewritten: source.balancesRewritten, closingBalance: source.closingBalance ?? null }
+            : {}),
+        },
       });
     }
 
