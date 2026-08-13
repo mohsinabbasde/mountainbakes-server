@@ -22,6 +22,8 @@ import {
   type EventDashboardSummary,
   type EventProductionStage,
   type SpecialEventView,
+  BRANCH_ROLES,
+  isBranchRole,
 } from '../shared';
 import { notify } from '../services/push.service';
 import { rowToApi } from '../utils/case';
@@ -141,7 +143,7 @@ async function scopedEventRows(
     then: unknown;
   };
 
-  if (req.user!.role !== 'branch_manager') {
+  if (!isBranchRole(req.user!.role)) {
     const { data, error } = (await query) as unknown as {
       data: Record<string, unknown>[] | null;
       error: unknown;
@@ -1061,7 +1063,7 @@ router.get(
 );
 
 // GET /api/special-events/:id/my-demand — the caller's own branch demand.
-router.get('/:id/my-demand', requireRole('branch_manager'), async (req: AuthRequest, res, next) => {
+router.get('/:id/my-demand', requireRole(...BRANCH_ROLES), async (req: AuthRequest, res, next) => {
   try {
     const eventId = req.params['id']!;
     const branchId = req.user!.branchId;
@@ -1092,7 +1094,7 @@ router.get('/:id/my-demand', requireRole('branch_manager'), async (req: AuthRequ
  */
 router.post(
   '/:id/demands',
-  requireRole('branch_manager'),
+  requireRole(...BRANCH_ROLES),
   validate(SaveEventDemandSchema),
   async (req: AuthRequest, res, next) => {
     try {
@@ -1230,7 +1232,7 @@ router.post(
 );
 
 // POST /api/special-events/:id/demands/:demandId/submit
-router.post('/:id/demands/:demandId/submit', requireRole('branch_manager'), async (req: AuthRequest, res, next) => {
+router.post('/:id/demands/:demandId/submit', requireRole(...BRANCH_ROLES), async (req: AuthRequest, res, next) => {
   try {
     const eventId = req.params['id']!;
     const demandId = req.params['demandId']!;
@@ -1294,7 +1296,7 @@ router.post('/:id/demands/:demandId/submit', requireRole('branch_manager'), asyn
 router.get('/:id/production-status', async (req: AuthRequest, res, next) => {
   try {
     const eventId = req.params['id']!;
-    if (req.user!.role === 'branch_manager') {
+    if (isBranchRole(req.user!.role)) {
       await assertBranchMayAccessEvent(eventId, req.user!.branchId);
     }
 
@@ -1393,7 +1395,7 @@ router.get('/:id', async (req: AuthRequest, res, next) => {
     }
 
     const row = data as Record<string, unknown>;
-    if (req.user!.role === 'branch_manager') {
+    if (isBranchRole(req.user!.role)) {
       await assertBranchMayAccessEvent(id, req.user!.branchId);
     }
 

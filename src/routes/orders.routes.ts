@@ -3,7 +3,7 @@ import { supabaseAdmin } from '../config/supabase';
 import { authenticate, type AuthRequest } from '../middleware/auth';
 import { requireRole } from '../middleware/requireRole';
 import { validate } from '../middleware/validate';
-import { CreateOrderSchema, CreatePosSaleSchema, CreateProductionSaleSchema, UpdateOrderStatusSchema, LOW_STOCK_THRESHOLD, businessDateStr } from '../shared';
+import { CreateOrderSchema, CreatePosSaleSchema, CreateProductionSaleSchema, UpdateOrderStatusSchema, LOW_STOCK_THRESHOLD, businessDateStr, BRANCH_ROLES, isBranchRole } from '../shared';
 import { getProductionBranchId } from '../utils/productionBranch';
 import { generateOrderNumber } from '../utils/orderNumber';
 import { notify } from '../services/push.service';
@@ -133,7 +133,7 @@ router.get('/', async (req: AuthRequest, res, next) => {
       .order('line_no', ORDER_ITEMS_ORDER);
 
     // Branch managers see only their branch.
-    if (req.user!.role === 'branch_manager' && req.user!.branchId) {
+    if (isBranchRole(req.user!.role) && req.user!.branchId) {
       query = query.eq('branch_id', req.user!.branchId);
     } else if (req.query['branchId']) {
       query = query.eq('branch_id', req.query['branchId']);
@@ -188,7 +188,7 @@ router.get('/:id', async (req: AuthRequest, res, next) => {
     if (error) throw error;
     if (!data) { res.status(404).json({ error: 'Order not found' }); return; }
 
-    if (req.user!.role === 'branch_manager' && (data as { branch_id: string }).branch_id !== req.user!.branchId) {
+    if (isBranchRole(req.user!.role) && (data as { branch_id: string }).branch_id !== req.user!.branchId) {
       res.status(403).json({ error: 'Access denied' });
       return;
     }
@@ -201,12 +201,12 @@ router.get('/:id', async (req: AuthRequest, res, next) => {
 
 // Geofence AFTER validate: the branch the order is for is read out of the body, so
 // the body has to be known-good first. Super admins are exempt inside the middleware.
-router.post('/', requireRole('super_admin', 'branch_manager'), validate(CreateOrderSchema), requireInsideGeofence('order.create'), async (req: AuthRequest, res, next) => {
+router.post('/', requireRole('super_admin', ...BRANCH_ROLES), validate(CreateOrderSchema), requireInsideGeofence('order.create'), async (req: AuthRequest, res, next) => {
   try {
     const { branchId, customerId, items, paymentMethod, deliveryCharges, notes } = req.body;
 
     // Scope check for branch managers
-    if (req.user!.role === 'branch_manager' && branchId !== req.user!.branchId) {
+    if (isBranchRole(req.user!.role) && branchId !== req.user!.branchId) {
       res.status(403).json({ error: 'Cannot create orders for other branches' });
       return;
     }
@@ -327,11 +327,11 @@ router.post('/', requireRole('super_admin', 'branch_manager'), validate(CreateOr
 });
 
 // POST /api/orders/pos — retail POS sale (completed immediately, decrements stock)
-router.post('/pos', requireRole('super_admin', 'branch_manager'), validate(CreatePosSaleSchema), requireInsideGeofence('sale.create'), async (req: AuthRequest, res, next) => {
+router.post('/pos', requireRole('super_admin', ...BRANCH_ROLES), validate(CreatePosSaleSchema), requireInsideGeofence('sale.create'), async (req: AuthRequest, res, next) => {
   try {
     const { branchId, customerName, customerPhone, items, paymentMethod, receivedCash, notes } = req.body;
 
-    if (req.user!.role === 'branch_manager' && branchId !== req.user!.branchId) {
+    if (isBranchRole(req.user!.role) && branchId !== req.user!.branchId) {
       res.status(403).json({ error: 'Cannot create sales for other branches' });
       return;
     }
@@ -425,17 +425,23 @@ router.post('/pos', requireRole('super_admin', 'branch_manager'), validate(Creat
         ? `${crossed[0]!.productName} is low on stock (${crossed[0]!.after} left) at ${branch.name}. Please create a Production Order.`
         : `${crossed.length} products are low on stock at ${branch.name}. Please create a Production Order.`;
       await Promise.all(
-        // Only branch_manager is branch-scoped, so only it keeps branchId (which
-        // limits the alert to that branch's manager). production_user/super_admin
+        // Only the shop-floor roles are branch-scoped, so only they keep branchId
+        // (which limits the alert to that one branch). production_user/super_admin
         // are central and carry no branch claim — a non-null branchId there would
         // be filtered out by the notifications RLS, so they get null.
-        (['branch_manager', 'production_user', 'super_admin'] as const).map((role) =>
+        //
+        // branch_user is on the list because it can act on the alert: creating the
+        // production demand it asks for is one of the six things a shift account
+        // may do. Leaving it off would send "please create a Production Order" to
+        // a manager who may be off shift while the person who can is standing at
+        // the till.
+        (['branch_manager', 'branch_user', 'production_user', 'super_admin'] as const).map((role) =>
           notify({
             type: 'low_stock',
             title: 'Low Stock',
             message,
             targetRole: role,
-            branchId: role === 'branch_manager' ? branchId : null,
+            branchId: isBranchRole(role) ? branchId : null,
             relatedId: null,
           }),
         ),
@@ -615,7 +621,7 @@ router.put('/:id/status', validate(UpdateOrderStatusSchema), async (req: AuthReq
     if (!order) { res.status(404).json({ error: 'Order not found' }); return; }
 
     // Branch managers can only update their own branch orders
-    if (req.user!.role === 'branch_manager' && order.branch_id !== req.user!.branchId) {
+    if (isBranchRole(req.user!.role) && order.branch_id !== req.user!.branchId) {
       res.status(403).json({ error: 'Access denied' });
       return;
     }

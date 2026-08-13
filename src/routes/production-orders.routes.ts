@@ -13,6 +13,8 @@ import {
   karachiTimeStr,
   karachiMinutesOfDay,
   isWithinOrderWindow,
+  BRANCH_ROLES,
+  isBranchRole,
 } from '../shared';
 import { notify } from '../services/push.service';
 import { applyProductionToStock } from '../services/stock.service';
@@ -50,7 +52,7 @@ const PACKING_ITEMS_ORDER = { referencedTable: 'production_order_packing_items',
 router.use(authenticate);
 
 // POST /api/production-orders — branch submits a daily production request
-router.post('/', requireRole('branch_manager'), validate(CreateProductionOrderSchema), async (req: AuthRequest, res, next) => {
+router.post('/', requireRole(...BRANCH_ROLES), validate(CreateProductionOrderSchema), async (req: AuthRequest, res, next) => {
   try {
     // Branch production requests are only accepted inside the configured order
     // window (default 8:00 AM–2:00 AM Karachi, which wraps past midnight).
@@ -200,7 +202,7 @@ router.get('/', async (req: AuthRequest, res, next) => {
       .order('line_no', ITEMS_ORDER)
       .order('line_no', PACKING_ITEMS_ORDER);
 
-    if (req.user!.role === 'branch_manager' && req.user!.branchId) {
+    if (isBranchRole(req.user!.role) && req.user!.branchId) {
       query = query.eq('branch_id', req.user!.branchId);
     } else if (req.query['branchId']) {
       query = query.eq('branch_id', req.query['branchId']);
@@ -233,7 +235,7 @@ router.get('/balances', async (req: AuthRequest, res, next) => {
     // pending_qty > 0 is served by production_balances_outstanding_idx.
     let query = supabaseAdmin.from('production_balances').select('*').gt('pending_qty', 0);
 
-    if (req.user!.role === 'branch_manager' && req.user!.branchId) {
+    if (isBranchRole(req.user!.role) && req.user!.branchId) {
       query = query.eq('branch_id', req.user!.branchId);
     } else if (req.query['branchId']) {
       query = query.eq('branch_id', req.query['branchId']);
@@ -572,7 +574,7 @@ router.post('/:id/items', requireRole('super_admin', 'production_user'), validat
 // any shortage/overage and/or adding lines that arrived unrequested. Moves the
 // order to 'approved'. Scoped to the branch that owns the order — a branch
 // manager can only verify their own branch's demands.
-router.put('/:id/verify', requireRole('branch_manager'), validate(VerifyProductionOrderSchema), async (req: AuthRequest, res, next) => {
+router.put('/:id/verify', requireRole(...BRANCH_ROLES), validate(VerifyProductionOrderSchema), async (req: AuthRequest, res, next) => {
   try {
     const id = req.params['id']!;
     const { verifiedItems, newItems } = req.body as {

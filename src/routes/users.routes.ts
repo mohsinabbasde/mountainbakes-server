@@ -80,7 +80,7 @@ router.get('/:id', async (req: AuthRequest, res, next) => {
 // POST /api/users
 router.post('/', validate(CreateUserSchema), async (req: AuthRequest, res, next) => {
   try {
-    const { email, displayName, phone, username, password, role, branchId } = req.body;
+    const { email, displayName, phone, username, password, role, branchId, shift } = req.body;
 
     // branch_name is a denormalised cache of branches.name.
     let branchName: string | null = null;
@@ -118,6 +118,9 @@ router.post('/', validate(CreateUserSchema), async (req: AuthRequest, res, next)
       role,
       branch_id: branchId ?? null,
       branch_name: branchName,
+      // Null for every role but branch_user — the schema refuses the combination
+      // and migration 66's check constraint refuses it again.
+      shift: shift ?? null,
       status: 'active',
     });
 
@@ -167,6 +170,22 @@ router.put('/:id', validate(UpdateUserSchema), async (req: AuthRequest, res, nex
     if (updates['username'] !== undefined) patch['username'] = updates['username'];
     if (updates['role'] !== undefined) patch['role'] = updates['role'];
     if (updates['status'] !== undefined) patch['status'] = updates['status'];
+
+    // Shift follows the role it belongs to. Migration 66 constrains it to
+    // branch_user, so promoting a shift account to manager while its `shift`
+    // still reads 'morning' violates the check and 500s the whole update — the
+    // role change silently fails and the admin is told nothing useful. Clearing
+    // it in the same patch is what keeps that single statement legal.
+    const effectiveRole = (updates['role'] ?? current.role) as string;
+    if (effectiveRole !== 'branch_user') {
+      if (updates['shift']) {
+        res.status(400).json({ error: 'Only a branch user has a shift' });
+        return;
+      }
+      if (current.shift) patch['shift'] = null;
+    } else if (updates['shift'] !== undefined) {
+      patch['shift'] = updates['shift'];
+    }
 
     // If role or branchId changed, the JWT claims must move with them — the RLS
     // policies and middleware/auth.ts both read role/branch from app_metadata.

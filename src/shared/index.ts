@@ -22,6 +22,7 @@ export * from './types/closing-notifications.types';
 export * from './types/special-event.types';
 export * from './types/geofence.types';
 export * from './types/finance.types';
+export * from './types/branch-user-request.types';
 
 // Zod schemas + inferred input types
 export * from './schemas/user.schemas';
@@ -41,6 +42,7 @@ export * from './schemas/special-event.schemas';
 export * from './schemas/geofence.schemas';
 export * from './schemas/finance.schemas';
 export * from './schemas/finance-ticket.schemas';
+export * from './schemas/branch-user-request.schemas';
 
 // Utils
 export * from './utils/timezone';

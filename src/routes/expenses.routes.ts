@@ -3,7 +3,7 @@ import { supabaseAdmin } from '../config/supabase';
 import { authenticate, type AuthRequest } from '../middleware/auth';
 import { requireRole } from '../middleware/requireRole';
 import { validate } from '../middleware/validate';
-import { CreateExpenseSchema, businessDateStr, businessDaysAgoStr } from '../shared';
+import { CreateExpenseSchema, businessDateStr, businessDaysAgoStr, BRANCH_ROLES, isBranchRole } from '../shared';
 import { assertBusinessDayOpen } from '../middleware/assertBusinessDayOpen';
 import { rowToApi } from '../utils/case';
 
@@ -22,7 +22,7 @@ router.get('/', async (req: AuthRequest, res, next) => {
       .gte('business_date', businessDaysAgoStr(6)) // inclusive last 7 business days
       .order('created_at', { ascending: false });
 
-    if (req.user!.role === 'branch_manager' && req.user!.branchId) {
+    if (isBranchRole(req.user!.role) && req.user!.branchId) {
       query = query.eq('branch_id', req.user!.branchId);
     } else if (req.query['branchId']) {
       query = query.eq('branch_id', req.query['branchId']);
@@ -43,7 +43,7 @@ router.get('/', async (req: AuthRequest, res, next) => {
 });
 
 // POST /api/expenses — record a shop expense for the acting branch
-router.post('/', requireRole('super_admin', 'branch_manager'), validate(CreateExpenseSchema), async (req: AuthRequest, res, next) => {
+router.post('/', requireRole('super_admin', ...BRANCH_ROLES), validate(CreateExpenseSchema), async (req: AuthRequest, res, next) => {
   try {
     const branchId = req.user!.branchId;
     if (!branchId) { res.status(400).json({ error: 'No branch assigned to this account' }); return; }

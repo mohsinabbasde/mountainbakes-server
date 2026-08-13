@@ -4,7 +4,7 @@ import { supabaseAdmin } from '../config/supabase';
 import { authenticate, type AuthRequest } from '../middleware/auth';
 import { requireRole } from '../middleware/requireRole';
 import { validate } from '../middleware/validate';
-import { businessDateStr, CreateBranchReturnSchema, type StockAuditLog } from '../shared';
+import { businessDateStr, CreateBranchReturnSchema, type StockAuditLog, BRANCH_ROLES, isBranchRole } from '../shared';
 import { notify } from '../services/push.service';
 import { returnIntoPool } from '../services/production-stock.service';
 import { commitBranchReturn, computeStockRows, InsufficientStockError } from '../services/stock.service';
@@ -28,7 +28,7 @@ router.get('/audit', async (req: AuthRequest, res, next) => {
       .order('created_at', { ascending: false })
       .limit(200);
 
-    if (req.user!.role === 'branch_manager') {
+    if (isBranchRole(req.user!.role)) {
       if (!req.user!.branchId) { res.status(400).json({ error: 'No branch assigned' }); return; }
       query = query.eq('branch_id', req.user!.branchId);
     } else if (req.user!.role !== 'super_admin') {
@@ -51,7 +51,7 @@ router.get('/audit', async (req: AuthRequest, res, next) => {
 // GET /api/stock?date=YYYY-MM-DD — Opening/New/Sold/Balance per product for a branch (today by default)
 router.get('/', async (req: AuthRequest, res, next) => {
   try {
-    const branchId = req.user!.role === 'branch_manager'
+    const branchId = isBranchRole(req.user!.role)
       ? req.user!.branchId
       : (req.query['branchId'] as string | undefined) ?? null;
 
@@ -81,9 +81,9 @@ router.get('/', async (req: AuthRequest, res, next) => {
 // branch negative, and the 409 names what did commit. Those stay committed:
 // they are real stock movements, and silently reversing them would be worse.
 // True all-or-nothing needs a commit_branch_return_batch(p_items jsonb) function.
-router.post('/return', requireRole('super_admin', 'branch_manager'), validate(CreateBranchReturnSchema), requireInsideGeofence('stock.return'), async (req: AuthRequest, res, next) => {
+router.post('/return', requireRole('super_admin', ...BRANCH_ROLES), validate(CreateBranchReturnSchema), requireInsideGeofence('stock.return'), async (req: AuthRequest, res, next) => {
   try {
-    const branchId = req.user!.role === 'branch_manager'
+    const branchId = isBranchRole(req.user!.role)
       ? req.user!.branchId
       : ((req.body as { branchId?: string }).branchId ?? null);
     if (!branchId) { res.status(400).json({ error: 'Branch context required' }); return; }

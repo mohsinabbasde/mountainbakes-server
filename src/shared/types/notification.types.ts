@@ -28,6 +28,9 @@ export type NotificationType =
   // Finance Help Desk queries (migration 60) — a separate queue from the two above
   | 'finance_query' // an Accountant/Finance Manager raised a query → Finance Admin
   | 'finance_query_resolved' // Finance Admin resolved/rejected it → raiser
+  // Branch shift accounts (migration 65) — branch_manager asks, Admin decides
+  | 'branch_user_requested' // a manager forwarded a request for a shift account → Admin
+  | 'branch_user_reviewed' // Admin approved or rejected it → the requesting manager
   // Special Events (migration 42)
   | 'event_created' // a new event was published → branches + Production
   | 'event_reminder' // a scheduled countdown reminder fired → branch or Production
