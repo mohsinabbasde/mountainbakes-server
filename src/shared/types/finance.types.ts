@@ -601,6 +601,31 @@ export interface BranchSharePayment {
   attachments?: Attachment[];
 }
 
+/**
+ * What one branch is still owed — computed from the ledger, never stored.
+ *
+ * `recorded` is every posted Branch Share entry for the branch (what income
+ * approval booked as theirs); `paidOut` is every posted Branch Share Payout for
+ * it. The difference is what a payout should be for, which is the number the
+ * payout form previously asked someone to key from memory.
+ *
+ * Bonuses are excluded on purpose — a bonus posts to Production Expenses, not
+ * against the branch's share, so counting it here would make the branch look
+ * settled when its share is still outstanding.
+ */
+export interface BranchShareBalance {
+  branchId: string;
+  branchName: string;
+  /** The split this branch is currently on, and whether it is its own. */
+  companySharePct: number;
+  branchSharePct: number;
+  isOverride: boolean;
+  recorded: number;
+  paidOut: number;
+  /** recorded − paidOut. Negative means the branch has been overpaid. */
+  outstanding: number;
+}
+
 /** One row of the Partner Share Detail table — computed, not stored. */
 export interface PartnerShareRow {
   id: string;

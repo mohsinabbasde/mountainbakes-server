@@ -12,6 +12,7 @@ import {
 import {
   approveBranchSharePayment,
   createBranchSharePayment,
+  getBranchShareBalances,
   getBranchSharePayment,
   listBranchSharePayments,
   rejectBranchSharePayment,
@@ -33,6 +34,23 @@ router.use(authenticate);
 function actorOf(req: AuthRequest): { uid: string; name: string } {
   return { uid: req.user!.uid, name: req.user!.email };
 }
+
+/**
+ * What each branch is still owed, and the split it is on.
+ *
+ * Registered before the `/:id`-shaped routes below. There is no `GET /:id`
+ * today so nothing shadows it either way, but a literal segment that a future
+ * param route could swallow belongs above it — the same prefix-order rule
+ * routes/index.ts follows for /api/products/price.
+ */
+router.get('/balances', requireFinance('view'), async (req: AuthRequest, res, next) => {
+  try {
+    const branchId = (req.query as Record<string, string | undefined>)['branchId'];
+    res.json({ balances: await getBranchShareBalances(branchId) });
+  } catch (err) {
+    next(err);
+  }
+});
 
 router.get('/', requireFinance('view'), async (req: AuthRequest, res, next) => {
   try {

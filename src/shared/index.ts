@@ -51,3 +51,4 @@ export * from './utils/timezone';
 export * from './utils/stock';
 export * from './utils/hijri';
 export * from './utils/geo';
+export * from './utils/share';

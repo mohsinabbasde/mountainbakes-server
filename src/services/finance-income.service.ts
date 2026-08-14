@@ -7,9 +7,16 @@ import {
   type IncomeApprovalStatus,
   type LedgerEntry,
 } from '../shared';
+import { splitShare } from '../shared';
 import { bindAttachments, listAttachments, listAttachmentsFor } from './attachments.service';
 import { buildBranchReport } from './closing-report.service';
-import { getFinanceSettings, getLedgerHeadByCode, round2 } from './finance-settings.service';
+import {
+  getBranchShareSplit,
+  getBranchShareSplits,
+  getFinanceSettings,
+  getLedgerHeadByCode,
+  round2,
+} from './finance-settings.service';
 import { postEntry } from './finance-ledger.service';
 import { rowToApi } from '../utils/case';
 
@@ -77,6 +84,11 @@ export async function importBranchIncome(opts: {
     ((existingRows ?? []) as Record<string, unknown>[]).map((r) => [r['branch_id'] as string, r]),
   );
 
+  // One lookup for the whole import rather than one per branch: each branch may
+  // be on its own split (branches.company_share_pct), and the loop below runs
+  // once per active branch.
+  const splits = await getBranchShareSplits(((branches ?? []) as { id: string }[]).map((b) => b.id));
+
   const result: ImportResult = { businessDate, imported: 0, refreshed: 0, skipped: [] };
 
   for (const branch of ((branches ?? []) as { id: string; name: string }[])) {
@@ -101,6 +113,12 @@ export async function importBranchIncome(opts: {
     const branchExpenses = round2(report.expenses.total);
     const netAmount = round2(total - branchExpenses);
     const shareBase = settings.shareBasis === 'net' ? netAmount : total;
+    const split = splits.get(branch.id) ?? {
+      companySharePct: settings.companySharePct,
+      branchSharePct: settings.branchSharePct,
+      isOverride: false,
+    };
+    const preview = splitShare(shareBase, split.companySharePct);
 
     const row = {
       branch_id: branch.id,
@@ -114,12 +132,13 @@ export async function importBranchIncome(opts: {
       other_amount: round2(report.payments.other),
       branch_expenses: branchExpenses,
       net_amount: netAmount,
-      // A preview of the split for the pending list. The authoritative snapshot
-      // is taken again at approval — see approveIncome.
-      company_share_pct: settings.companySharePct,
-      branch_share_pct: settings.branchSharePct,
-      company_share: round2((shareBase * settings.companySharePct) / 100),
-      branch_share: round2(shareBase - round2((shareBase * settings.companySharePct) / 100)),
+      // A preview of the split for the pending list, at THIS branch's
+      // percentage — its own if it has one, the global default otherwise. The
+      // authoritative snapshot is taken again at approval — see approveIncome.
+      company_share_pct: split.companySharePct,
+      branch_share_pct: split.branchSharePct,
+      company_share: preview.companyShare,
+      branch_share: preview.branchShare,
       status: settings.requireAdminVerification
         ? ('pending_verification' as const)
         : ('pending_approval' as const),
@@ -284,7 +303,9 @@ export async function verifyIncome(
  *
  * The percentages are re-read and SNAPSHOT here rather than reused from import:
  * approval is the decisive moment, and an owner who changed the split this
- * morning expects today's approvals to use the new one.
+ * morning expects today's approvals to use the new one. Since migration 68 the
+ * split is resolved PER BRANCH — `branches.company_share_pct` where the branch
+ * has its own terms, the global finance setting where it does not.
  */
 export async function approveIncome(
   id: string,
@@ -306,12 +327,16 @@ export async function approveIncome(
   }
 
   const settings = await getFinanceSettings();
+  // This branch's own percentage where it has one, the global default where it
+  // does not — resolved fresh here for the same reason the global one always
+  // was: approval is the decisive moment, and an owner who moved THIS branch
+  // onto 70/30 this morning expects today's approval to use it.
+  const split = await getBranchShareSplit(row.branchId);
   const base = settings.shareBasis === 'net' ? row.netAmount : row.totalAmount;
-  const companyShare = round2((base * settings.companySharePct) / 100);
   // Derived by subtraction, never by a second percentage multiplication: at
   // 33.33/66.67 two independent roundings can leave the split a paisa short of
   // the gross, and a ledger that is a paisa out is a ledger nobody trusts.
-  const branchShare = round2(base - companyShare);
+  const { companyShare, branchShare } = splitShare(base, split.companySharePct);
 
   const entries: LedgerEntry[] = [];
 
@@ -322,8 +347,8 @@ export async function approveIncome(
     ]);
 
     for (const [head, share, label] of [
-      [companyHead, companyShare, `Company share ${settings.companySharePct}%`],
-      [branchHead, branchShare, `Branch share ${settings.branchSharePct}%`],
+      [companyHead, companyShare, `Company share ${split.companySharePct}%`],
+      [branchHead, branchShare, `Branch share ${split.branchSharePct}%`],
     ] as [{ id: string; name: string }, number, string][]) {
       for (const slice of splitByAccount(share, row.cashAmount, base)) {
         entries.push(
@@ -350,8 +375,8 @@ export async function approveIncome(
     .from(TABLE)
     .update({
       status: 'approved',
-      company_share_pct: settings.companySharePct,
-      branch_share_pct: settings.branchSharePct,
+      company_share_pct: split.companySharePct,
+      branch_share_pct: split.branchSharePct,
       company_share: companyShare,
       branch_share: branchShare,
       approved_by: actor.uid,

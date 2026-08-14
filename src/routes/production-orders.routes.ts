@@ -15,6 +15,7 @@ import {
   isWithinOrderWindow,
   BRANCH_ROLES,
   isBranchRole,
+  resolveShareSplit,
 } from '../shared';
 import { bindAttachments, listAttachmentsFor } from '../services/attachments.service';
 import { notify } from '../services/push.service';
@@ -302,9 +303,10 @@ router.get('/balances', async (req: AuthRequest, res, next) => {
 // delivery exactly once. The tradeoff accepted here is that a slip can bill
 // goods delivered only hours earlier rather than strictly "yesterday".
 //
-// Computed server-side because company_share_pct lives in finance_settings, and
-// production users have no access to the finance module at any layer — only the
-// service-role client can read it. The money maths stays server-side with it.
+// Computed server-side because the company share lives in finance_settings (and
+// per branch on branches.company_share_pct), and production users have no access
+// to the finance module at any layer — only the service-role client can read it.
+// The money maths stays server-side with it.
 //
 // NOTE: nothing records whether a previous order was actually settled, so this
 // reports the same figure on every reprint. It is a "what this order was worth"
@@ -334,12 +336,19 @@ router.get('/:id/previous-balance', requireRole('super_admin', 'production_user'
       .maybeSingle();
     if (prevErr) throw prevErr;
 
-    const { data: fin, error: finErr } = await supabaseAdmin
-      .from('finance_settings')
-      .select('company_share_pct')
-      .maybeSingle();
+    // The branch's own percentage where it has one, the global finance setting
+    // where it does not (migration 68) — the same resolution branch-income
+    // approval uses, so the slip bills at the terms the branch is actually on.
+    const [{ data: fin, error: finErr }, { data: branchRow, error: branchErr }] = await Promise.all([
+      supabaseAdmin.from('finance_settings').select('company_share_pct').maybeSingle(),
+      supabaseAdmin.from('branches').select('company_share_pct').eq('id', order.branch_id).maybeSingle(),
+    ]);
     if (finErr) throw finErr;
-    const companySharePct = Number(fin?.company_share_pct ?? 75);
+    if (branchErr) throw branchErr;
+    const { companySharePct } = resolveShareSplit(
+      (branchRow?.company_share_pct ?? null) as number | null,
+      Number(fin?.company_share_pct ?? 75),
+    );
 
     if (!prev) {
       res.json({

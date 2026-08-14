@@ -2,8 +2,10 @@ import { supabaseAdmin } from '../config/supabase';
 import {
   DEFAULT_FINANCE_SETTINGS,
   SYSTEM_LEDGER_HEAD_CODES,
+  resolveShareSplit,
   type FinanceSettings,
   type FinanceAccount,
+  type ShareSplit,
   type UpdateFinanceSettingsInput,
 } from '../shared';
 import { getCached, setCached, invalidate } from '../utils/cache';
@@ -53,6 +55,60 @@ export async function getFinanceSettings(): Promise<FinanceSettings> {
 
   setCached(CACHE_KEY, settings);
   return settings;
+}
+
+// ---------------------------------------------------------------------------
+// Per-branch share split
+// ---------------------------------------------------------------------------
+
+/**
+ * Resolve the company/branch split for one branch.
+ *
+ * `branches.company_share_pct` overrides the global setting; NULL inherits it
+ * (migration 68). Every posting path that splits a branch's collection resolves
+ * it through here rather than reading `settings.companySharePct` directly —
+ * that read is what this feature exists to replace, and one straggler would
+ * post a share the branch was never on.
+ */
+export async function getBranchShareSplit(branchId: string): Promise<ShareSplit> {
+  const [settings, { data, error }] = await Promise.all([
+    getFinanceSettings(),
+    supabaseAdmin.from('branches').select('company_share_pct').eq('id', branchId).maybeSingle(),
+  ]);
+  if (error) throw error;
+  // PostgREST serialises numeric as a STRING; resolveShareSplit coerces, but a
+  // missing branch must fall back rather than resolve to a 0% company share.
+  return resolveShareSplit(
+    data ? (data['company_share_pct'] as number | null) : null,
+    settings.companySharePct,
+  );
+}
+
+/**
+ * The same resolution for many branches in one round trip.
+ *
+ * `importBranchIncome` walks every active branch, so a per-branch query there
+ * would be one extra round trip per branch per import. Branch ids not present in
+ * the map simply inherit — callers should treat a miss as `resolveShareSplit(null, …)`.
+ */
+export async function getBranchShareSplits(branchIds: string[]): Promise<Map<string, ShareSplit>> {
+  const settings = await getFinanceSettings();
+  const out = new Map<string, ShareSplit>();
+  if (branchIds.length === 0) return out;
+
+  const { data, error } = await supabaseAdmin
+    .from('branches')
+    .select('id, company_share_pct')
+    .in('id', branchIds);
+  if (error) throw error;
+
+  const overrideById = new Map(
+    ((data ?? []) as Record<string, unknown>[]).map((r) => [r['id'] as string, r['company_share_pct'] as number | null]),
+  );
+  for (const id of branchIds) {
+    out.set(id, resolveShareSplit(overrideById.get(id) ?? null, settings.companySharePct));
+  }
+  return out;
 }
 
 /** Postgres returns unset columns as null, which would clobber a default. */

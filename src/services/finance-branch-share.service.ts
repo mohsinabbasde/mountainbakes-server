@@ -3,6 +3,7 @@ import {
   businessDateStr,
   EDITABLE_DOC_STATUSES,
   SYSTEM_LEDGER_HEAD_CODES,
+  type BranchShareBalance,
   type BranchSharePayment,
   type CreateBranchSharePaymentInput,
   type FinanceDocStatus,
@@ -12,7 +13,7 @@ import {
 import { rowToApi } from '../utils/case';
 import { bindAttachments, listAttachments, listAttachmentsFor } from './attachments.service';
 import { postEntry } from './finance-ledger.service';
-import { getLedgerHeadByCode, round2 } from './finance-settings.service';
+import { getBranchShareSplits, getLedgerHeadByCode, round2 } from './finance-settings.service';
 import { rejectDocument } from './finance-documents.service';
 
 /**
@@ -72,6 +73,85 @@ export async function listBranchSharePayments(q: BranchShareQuery): Promise<Bran
     rows.map((p) => p.id),
   );
   return rows.map((p) => ({ ...p, attachments: photos.get(p.id) ?? [] }));
+}
+
+/**
+ * What each branch is still owed, straight off the ledger.
+ *
+ * The payout form used to ask someone to key an amount from memory, which is
+ * exactly the number a per-branch split makes hard to hold in your head. This
+ * derives it:
+ *
+ *     outstanding = Σ posted Branch Share  −  Σ posted Branch Share Payout
+ *
+ * Read from `ledger_entries` rather than from `finance_income_approvals` and
+ * `branch_share_payments` because the ledger is the book of record — an entry
+ * reversed after the fact drops to status 'reversed' and falls out of both sides
+ * of this sum automatically, whereas the source documents would still show it.
+ *
+ * Two things it deliberately does not count:
+ *   * Bonuses. A bonus posts to Production Expenses, not against the branch's
+ *     share, so netting it here would show a branch as settled while its share
+ *     is still owed.
+ *   * Corrections re-posted via `adjustEntry`. Those carry source_type
+ *     'adjustment', so a share corrected after posting shows at its ORIGINAL
+ *     figure here. Rare, and visible in the ledger itself — treating every
+ *     adjustment as a share movement would be worse, since most are not.
+ */
+export async function getBranchShareBalances(branchId?: string): Promise<BranchShareBalance[]> {
+  let entriesQuery = supabaseAdmin
+    .from('ledger_entries')
+    .select('branch_id, branch_name, debit, credit, source_type')
+    .in('source_type', ['branch_share', 'branch_share_payout'])
+    .in('status', ['posted', 'locked'])
+    .not('branch_id', 'is', null);
+  if (branchId) entriesQuery = entriesQuery.eq('branch_id', branchId);
+
+  let branchQuery = supabaseAdmin.from('branches').select('id, name').eq('is_active', true).order('name');
+  if (branchId) branchQuery = branchQuery.eq('id', branchId);
+
+  const [{ data: entries, error: entryErr }, { data: branches, error: branchErr }] = await Promise.all([
+    entriesQuery,
+    branchQuery,
+  ]);
+  if (entryErr) throw entryErr;
+  if (branchErr) throw branchErr;
+
+  const totals = new Map<string, { name: string; recorded: number; paidOut: number }>();
+  for (const b of ((branches ?? []) as { id: string; name: string }[])) {
+    totals.set(b.id, { name: b.name, recorded: 0, paidOut: 0 });
+  }
+
+  for (const row of ((entries ?? []) as Record<string, unknown>[])) {
+    const id = row['branch_id'] as string;
+    // A branch deactivated after it was posted to still has a balance, and
+    // hiding it would quietly write off money. Seed it from the entry's own
+    // snapshotted name — `branches` was filtered to active rows.
+    const bucket = totals.get(id) ?? { name: (row['branch_name'] as string) ?? 'Unknown branch', recorded: 0, paidOut: 0 };
+    // The share is an income head (posted as a debit); the payout is an expense
+    // head (posted as a credit) — see postEntry.
+    if (row['source_type'] === 'branch_share') bucket.recorded += num(row['debit']);
+    else bucket.paidOut += num(row['credit']);
+    totals.set(id, bucket);
+  }
+
+  const splits = await getBranchShareSplits([...totals.keys()]);
+
+  return [...totals.entries()]
+    .map(([id, t]) => {
+      const split = splits.get(id);
+      return {
+        branchId: id,
+        branchName: t.name,
+        companySharePct: split?.companySharePct ?? 0,
+        branchSharePct: split?.branchSharePct ?? 0,
+        isOverride: split?.isOverride ?? false,
+        recorded: round2(t.recorded),
+        paidOut: round2(t.paidOut),
+        outstanding: round2(t.recorded - t.paidOut),
+      };
+    })
+    .sort((a, b) => a.branchName.localeCompare(b.branchName));
 }
 
 export async function getBranchSharePayment(id: string): Promise<BranchSharePayment | null> {
