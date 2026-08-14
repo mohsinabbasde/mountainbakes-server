@@ -39,6 +39,24 @@ export interface BranchProductionOrderItem {
   previousBalanceQty?: number; // outstanding balance carried in from prior orders
   totalRequiredQty?: number; // previousBalanceQty + qty (New Demand)
   remainingBalanceQty?: number; // max(0, totalRequiredQty - approvedQty) — carried forward
+  /**
+   * This line came from the Special Order Items section, not the product list.
+   *
+   * It is still an ordinary line in every mechanical sense — it has a real
+   * product behind it (a hidden `is_special` one, created on submit) and moves
+   * stock exactly like any other. The flag is what lets the screens group it
+   * under its own heading and label it. Absent on every demand raised before
+   * migration 69; read as `?? false`.
+   */
+  isSpecial?: boolean;
+  /**
+   * What the branch typed in the Description box. Stored in `remarks`, which is
+   * where it is read from — this alias exists only so a screen rendering a
+   * special item does not have to know that.
+   */
+  description?: string;
+  /** The optional photo captured with a special item. Empty on everything else. */
+  photos?: Attachment[];
 }
 
 export interface BranchProductionOrder {

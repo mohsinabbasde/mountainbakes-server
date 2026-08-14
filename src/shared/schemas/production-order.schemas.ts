@@ -1,5 +1,23 @@
 import { z } from 'zod';
-import { requiredAttachmentIds } from './attachment.schemas';
+import { optionalAttachmentIds, requiredAttachmentIds } from './attachment.schemas';
+
+/**
+ * A one-off the branch needs that is not in the catalogue — a named cake, a
+ * colour of box nobody stocks. Free text by nature: there is no product to pick.
+ *
+ * The server turns each of these into a hidden `is_special` product and an
+ * ordinary order line against it, which is what lets a special item reach
+ * production stock and branch stock like anything else (migration 69).
+ *
+ * Only the name and quantity are required. The description and the photo are
+ * both optional — a branch asking for "20 blue boxes" has nothing to add.
+ */
+export const SpecialOrderItemSchema = z.object({
+  name: z.string().trim().min(1, 'Item name is required').max(120, 'Item name is too long'),
+  qty: z.number().int().positive('Quantity must be at least 1'),
+  description: z.string().trim().max(500, 'Description is too long').default(''),
+  attachmentIds: optionalAttachmentIds,
+});
 
 export const ProductionOrderItemSchema = z.object({
   productId: z.string().min(1, 'Product is required'),
@@ -19,24 +37,63 @@ export const ProductionOrderPackingItemSchema = z.object({
 // branchId is derived from the auth token server-side, never trusted from the client.
 export const CreateProductionOrderSchema = z
   .object({
-    items: z.array(ProductionOrderItemSchema).min(1, 'At least one item is required'),
+    // No longer `.min(1)`: a demand may legitimately consist only of special
+    // order items (a branch asking for one named cake and nothing else). The
+    // superRefine below enforces the real rule — a demand must contain SOMETHING.
+    items: z.array(ProductionOrderItemSchema).default([]),
     // Optional by design: most demands are products only, and an absent key must
     // behave exactly like the pre-packing-material payload.
     packingItems: z.array(ProductionOrderPackingItemSchema).default([]),
+    /** One-off items typed by hand. Absent on most demands. */
+    specialItems: z.array(SpecialOrderItemSchema).default([]),
     /**
-     * Photo the branch captures when raising the demand — the shelf, the empty
-     * crate, whatever justifies the quantities being asked for. Required: it is
-     * what Production looks at when a demand's numbers seem wrong.
+     * Photos of what the demand is for. OPTIONAL.
      *
-     * NOTE this is a breaking change to the endpoint's contract. The web app is
-     * a static-export PWA, so a tab still running the previous bundle will send
-     * no attachmentIds and get a 400 until it reloads. That is deliberate — the
-     * alternative is a grace period during which the photo is silently optional,
-     * which is indistinguishable from the feature not working.
+     * This was briefly required (the photo was captured on the confirm step),
+     * and is deliberately being relaxed rather than removed: demands raised
+     * before this change still carry their photos and the read path still shows
+     * them. Requiring a camera capture on every demand put a blocking step in
+     * front of the most frequent action in the app, several times a day, for a
+     * photo of a shelf that told Production nothing it could not see in the
+     * quantities. The photo that actually matters is the VERIFICATION one — the
+     * only independent record of a delivery that has already been unpacked —
+     * and that one remains required.
+     *
+     * Relaxing a constraint is safe for the static-export PWA in a way that
+     * tightening one is not: a tab still running the previous bundle sends a
+     * photo, which is still accepted.
      */
-    attachmentIds: requiredAttachmentIds,
+    attachmentIds: optionalAttachmentIds,
   })
   .superRefine((val, ctx) => {
+    // A demand has to ask for something. Checked across all three kinds rather
+    // than with `.min(1)` on `items`, so a special-items-only demand is valid
+    // while a completely empty one is still rejected.
+    if (val.items.length === 0 && val.specialItems.length === 0 && val.packingItems.length === 0) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['items'],
+        message: 'At least one item is required',
+      });
+    }
+
+    // Two special lines with the same name would resolve to the SAME auto-created
+    // product, giving one order two lines against one product — which the review
+    // and the per-(branch, product) balance carry are not built for. Rejected
+    // here, matching the existing rule for duplicate packing materials.
+    const seenSpecial = new Set<string>();
+    val.specialItems.forEach((item, i) => {
+      const key = item.name.trim().toLowerCase();
+      if (seenSpecial.has(key)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['specialItems', i, 'name'],
+          message: 'This special item is already on the demand',
+        });
+      }
+      seenSpecial.add(key);
+    });
+
     // One material, one quantity — a duplicate row is meaningless and would also
     // violate the unique constraint in migration 39. Caught here so the user gets a
     // field error instead of a database error.
@@ -118,6 +175,7 @@ export const VerifyProductionOrderSchema = z.object({
   attachmentIds: requiredAttachmentIds,
 });
 
+export type SpecialOrderItemInput = z.infer<typeof SpecialOrderItemSchema>;
 export type CreateProductionOrderInput = z.infer<typeof CreateProductionOrderSchema>;
 export type ReviewProductionOrderInput = z.infer<typeof ReviewProductionOrderSchema>;
 export type AddProductionOrderItemInput = z.infer<typeof AddProductionOrderItemSchema>;

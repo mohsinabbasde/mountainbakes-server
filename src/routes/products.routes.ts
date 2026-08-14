@@ -125,15 +125,29 @@ router.get('/', authenticate, async (req, res, next) => {
   try {
     const { search, categoryId, isActive } = req.query;
 
+    /**
+     * Special products are auto-created to carry a branch's one-off order item
+     * (migration 69). They are real and active so that stock works, but this is
+     * the endpoint every catalogue picker reads — the branch order form, the
+     * POS, the price list — and a one-off birthday cake must not appear in any
+     * of them. Excluded by default; `includeSpecial=true` opts a screen back in.
+     */
+    const includeSpecial = req.query['includeSpecial'] === 'true';
+
     // Cache only the unfiltered-by-search list variants (the hot path used across the
     // app); free-text searches are pass-through so results are always fresh.
-    const cacheKey = search ? null : `products:${categoryId ?? 'all'}:${isActive ?? 'any'}`;
+    // The key varies with includeSpecial — otherwise the first caller's variant
+    // would be served to the other for the rest of the TTL.
+    const cacheKey = search
+      ? null
+      : `products:${categoryId ?? 'all'}:${isActive ?? 'any'}:${includeSpecial ? 'all' : 'ordinary'}`;
     if (cacheKey) {
       const hit = getCached<{ products: Record<string, unknown>[]; total: number }>(cacheKey);
       if (hit) { res.json(hit); return; }
     }
 
     let query = supabaseAdmin.from('products').select('*').order('name', { ascending: true });
+    if (!includeSpecial) query = query.eq('is_special', false);
     if (categoryId) query = query.eq('category_id', categoryId);
     if (isActive !== undefined) query = query.eq('is_active', isActive === 'true');
 

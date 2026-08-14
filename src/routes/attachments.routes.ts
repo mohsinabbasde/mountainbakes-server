@@ -48,6 +48,7 @@ const ENTITY_ROLES: Record<AttachmentEntity, (role: UserRole) => boolean> = {
   finance_income_approval: (r) => isFinanceRole(r) || r === 'super_admin',
   production_order_demand: (r) => isBranchRole(r) || r === 'super_admin',
   production_order_verification: (r) => isBranchRole(r) || r === 'super_admin',
+  production_order_special_item: (r) => isBranchRole(r) || r === 'super_admin',
 };
 
 router.use(authenticate);

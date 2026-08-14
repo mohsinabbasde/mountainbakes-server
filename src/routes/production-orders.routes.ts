@@ -24,6 +24,7 @@ import { transferOutOnApproval } from '../services/production-stock.service';
 import { getAppSettings, orderWindowMinutes } from '../services/settings.service';
 import { assertBusinessDayOpen } from '../middleware/assertBusinessDayOpen';
 import { rowToApi } from '../utils/case';
+import { invalidate } from '../utils/cache';
 
 export const router = Router();
 
@@ -38,7 +39,7 @@ export const router = Router();
 const ORDER_SELECT = `
   *,
   items:production_order_items(
-    product_id, product_name, qty, remarks,
+    id, product_id, product_name, qty, remarks, is_special,
     previous_balance_qty, total_required_qty, approved_qty, remaining_balance_qty, line_no
   ),
   packingItems:production_order_packing_items(
@@ -62,15 +63,136 @@ const PACKING_ITEMS_ORDER = { referencedTable: 'production_order_packing_items',
  */
 async function withPhotos(orders: Record<string, unknown>[]): Promise<Record<string, unknown>[]> {
   const ids = orders.map((o) => String(o['id']));
-  const [demand, verification] = await Promise.all([
+
+  // A special item's photo hangs off the ITEM row, not the order, so its ids
+  // come from the embedded lines. Collected across the whole page and fetched in
+  // the same batch as the other two — a week of demands would otherwise be one
+  // query per special line.
+  const specialItemIds = orders.flatMap((o) =>
+    ((o['items'] ?? []) as Record<string, unknown>[])
+      .filter((i) => i['is_special'])
+      .map((i) => String(i['id'])),
+  );
+
+  const [demand, verification, specialPhotos] = await Promise.all([
     listAttachmentsFor('production_order_demand', ids),
     listAttachmentsFor('production_order_verification', ids),
+    specialItemIds.length > 0
+      ? listAttachmentsFor('production_order_special_item', specialItemIds)
+      : Promise.resolve(new Map()),
   ]);
+
   return orders.map((o) => ({
     ...o,
+    items: ((o['items'] ?? []) as Record<string, unknown>[]).map((i) =>
+      i['is_special']
+        ? {
+            ...i,
+            // `description` mirrors `remarks` so a screen rendering a special
+            // item does not have to know which column it landed in.
+            description: i['remarks'] ?? '',
+            photos: specialPhotos.get(String(i['id'])) ?? [],
+          }
+        : i,
+    ),
     demandPhotos: demand.get(String(o['id'])) ?? [],
     verificationPhotos: verification.get(String(o['id'])) ?? [],
   }));
+}
+
+/** One special line, resolved onto the hidden product that will carry its stock. */
+interface ResolvedSpecialItem {
+  productId: string;
+  productName: string;
+  qty: number;
+  description: string;
+  attachmentIds: string[];
+}
+
+/**
+ * Turn each typed special item into a hidden `is_special` product and return the
+ * line to write against it.
+ *
+ * FIND-or-create, matched on the trimmed lower-cased name against the partial
+ * unique index in migration 69. A branch that asks for "Name Cake" every week
+ * must accumulate ONE product with a running stock balance, not fifty-two
+ * products with one movement each — the balance carry-forward and every stock
+ * report are keyed by product, so a fresh product per demand would make the
+ * stock this feature exists to track meaningless.
+ *
+ * The insert races: two branches can submit the same new special name in the
+ * same moment. The partial unique index is what actually decides it — the loser
+ * gets a 23505 and re-reads the winner's row rather than failing the demand,
+ * the same posture the concurrent-import path takes in finance-income.service.ts.
+ */
+async function resolveSpecialItems(
+  specialItems: { name: string; qty: number; description: string; attachmentIds: string[] }[],
+): Promise<ResolvedSpecialItem[]> {
+  if (specialItems.length === 0) return [];
+
+  const names = specialItems.map((s) => s.name.trim());
+  const keys = names.map((n) => n.toLowerCase());
+
+  // Existing special products for these names. Fetched in one query; the
+  // lower(trim()) match is redone in JS because PostgREST cannot filter on a
+  // functional expression.
+  const { data: existing, error: findErr } = await supabaseAdmin
+    .from('products')
+    .select('id, name')
+    .eq('is_special', true);
+  if (findErr) throw findErr;
+
+  const idByKey = new Map(
+    ((existing ?? []) as { id: string; name: string }[]).map((p) => [p.name.trim().toLowerCase(), p.id]),
+  );
+
+  const missing = names.filter((n, i) => !idByKey.has(keys[i]!));
+  if (missing.length > 0) {
+    // price 0 and no category: a special item is priced (if ever) by whoever
+    // handles the customer, not through the catalogue. is_active stays TRUE so
+    // the stock and production-stock queries, which read active products only,
+    // can see it.
+    const { data: created, error: createErr } = await supabaseAdmin
+      .from('products')
+      .insert(missing.map((name) => ({ name, price: 0, is_active: true, is_special: true })))
+      .select('id, name');
+
+    if (createErr && createErr.code !== '23505') throw createErr;
+    for (const p of ((created ?? []) as { id: string; name: string }[])) {
+      idByKey.set(p.name.trim().toLowerCase(), p.id);
+    }
+
+    // Lost the race (or part of it): re-read so the rows the other request
+    // created are picked up instead of failing a demand over a name that now
+    // exists.
+    if (createErr) {
+      const { data: reread, error: rereadErr } = await supabaseAdmin
+        .from('products')
+        .select('id, name')
+        .eq('is_special', true);
+      if (rereadErr) throw rereadErr;
+      for (const p of ((reread ?? []) as { id: string; name: string }[])) {
+        idByKey.set(p.name.trim().toLowerCase(), p.id);
+      }
+    }
+
+    // A new product changes what the catalogue endpoint would return.
+    invalidate('products');
+  }
+
+  return specialItems.map((s, i) => {
+    const productId = idByKey.get(keys[i]!);
+    if (!productId) {
+      throw Object.assign(new Error(`Could not create the special item "${s.name}"`), { status: 500 });
+    }
+    return {
+      productId,
+      productName: names[i]!,
+      qty: s.qty,
+      description: s.description ?? '',
+      attachmentIds: s.attachmentIds ?? [],
+    };
+  });
 }
 
 router.use(authenticate);
@@ -90,10 +212,11 @@ router.post('/', requireRole(...BRANCH_ROLES), validate(CreateProductionOrderSch
     const branchId = req.user!.branchId;
     if (!branchId) { res.status(400).json({ error: 'No branch assigned to this account' }); return; }
 
-    const { items, packingItems = [], attachmentIds } = req.body as {
+    const { items, packingItems = [], specialItems = [], attachmentIds = [] } = req.body as {
       items: { productId: string; qty: number; remarks: string }[];
       packingItems?: { packingMaterialId: string; qty: number }[];
-      attachmentIds: string[];
+      specialItems?: { name: string; qty: number; description: string; attachmentIds: string[] }[];
+      attachmentIds?: string[];
     };
 
     // Resolve product names server-side — branch users never send names or
@@ -142,6 +265,13 @@ router.post('/', requireRole(...BRANCH_ROLES), validate(CreateProductionOrderSch
       });
     }
 
+    // Special order items become hidden `is_special` products and then ride as
+    // ordinary lines — see migration 69 for why that shape and not a second
+    // items table. Resolved before the order row is written so a name that
+    // cannot be created fails the whole request rather than leaving a demand
+    // missing the line the branch asked for.
+    const resolvedSpecial = await resolveSpecialItems(specialItems);
+
     const now = new Date();
     await assertBusinessDayOpen(businessDateStr(now), req.user!.role);
 
@@ -162,17 +292,55 @@ router.post('/', requireRole(...BRANCH_ROLES), validate(CreateProductionOrderSch
     if (orderErr) throw orderErr;
 
     // Review-only columns stay null until approval.
-    const { error: itemsErr } = await supabaseAdmin.from('production_order_items').insert(
-      resolvedItems.map((it, idx) => ({
-        production_order_id: order.id,
-        product_id: it.productId,
-        product_name: it.productName,
-        qty: it.qty,
-        remarks: it.remarks,
-        line_no: idx + 1,
-      })),
-    );
+    //
+    // Special lines are appended AFTER the product lines and numbered on from
+    // them, so `line_no` stays a single sequence over the whole demand and the
+    // special items read last — which is where the branch entered them.
+    const { data: insertedItems, error: itemsErr } = await supabaseAdmin
+      .from('production_order_items')
+      .insert([
+        ...resolvedItems.map((it, idx) => ({
+          production_order_id: order.id,
+          product_id: it.productId,
+          product_name: it.productName,
+          qty: it.qty,
+          remarks: it.remarks,
+          is_special: false,
+          line_no: idx + 1,
+        })),
+        ...resolvedSpecial.map((it, idx) => ({
+          production_order_id: order.id,
+          product_id: it.productId,
+          product_name: it.productName,
+          // The typed description lives in `remarks` — the column that already
+          // exists for "what the branch wants doing with this line".
+          qty: it.qty,
+          remarks: it.description,
+          is_special: true,
+          line_no: resolvedItems.length + idx + 1,
+        })),
+      ])
+      .select('id, line_no');
     if (itemsErr) throw itemsErr;
+
+    // Claim each special item's optional photo against its own line. Keyed by
+    // line_no rather than by array position: the insert above returns rows in
+    // no guaranteed order, and binding one item's photo to another's line is
+    // exactly the kind of silent mix-up that is impossible to notice later.
+    const itemIdByLineNo = new Map(
+      ((insertedItems ?? []) as { id: string; line_no: number }[]).map((r) => [r.line_no, r.id]),
+    );
+    for (const [idx, special] of resolvedSpecial.entries()) {
+      if (special.attachmentIds.length === 0) continue;
+      const itemId = itemIdByLineNo.get(resolvedItems.length + idx + 1);
+      if (!itemId) continue;
+      await bindAttachments({
+        entity: 'production_order_special_item',
+        entityId: itemId,
+        attachmentIds: special.attachmentIds,
+        actor: { uid: req.user!.uid },
+      });
+    }
 
     // Packing lines ride on the same order. approved_qty stays null until review,
     // exactly like the product lines' review-only columns.
@@ -212,7 +380,13 @@ router.post('/', requireRole(...BRANCH_ROLES), validate(CreateProductionOrderSch
       message:
         `${req.user!.branchName || 'A branch'} submitted ${resolvedItems.length} item${resolvedItems.length === 1 ? '' : 's'}` +
         (resolvedPacking.length > 0
-          ? ` and ${resolvedPacking.length} packing material${resolvedPacking.length === 1 ? '' : 's'}`
+          ? `, ${resolvedPacking.length} packing material${resolvedPacking.length === 1 ? '' : 's'}`
+          : '') +
+        // Called out by name rather than folded into the item count: a special
+        // item is the one line on a demand that Production cannot fulfil from
+        // the shelf, so it is the reason to open this notification promptly.
+        (resolvedSpecial.length > 0
+          ? ` and ${resolvedSpecial.length} SPECIAL item${resolvedSpecial.length === 1 ? '' : 's'}`
           : ''),
       targetRole: 'production_user',
       branchId: null,

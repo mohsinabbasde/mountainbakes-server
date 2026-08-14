@@ -16,6 +16,7 @@ export const ATTACHMENT_ENTITIES = [
   'finance_income_approval',
   'production_order_demand',
   'production_order_verification',
+  'production_order_special_item',
 ] as const;
 
 export type AttachmentEntity = (typeof ATTACHMENT_ENTITIES)[number];
@@ -29,6 +30,7 @@ export const ATTACHMENT_ENTITY_LABELS: Record<AttachmentEntity, string> = {
   finance_income_approval: 'Branch income',
   production_order_demand: 'Demand',
   production_order_verification: 'Delivery verification',
+  production_order_special_item: 'Special order item',
 };
 
 /**
