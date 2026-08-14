@@ -1,4 +1,5 @@
 import type { BranchProductionOrderPackingItem } from './packing-material.types';
+import type { Attachment } from './attachment.types';
 
 // Named "Branch…" to avoid colliding with production.types.ts `ProductionOrder`
 // (the production-queue view of a customer order). This is the branch's daily
@@ -72,6 +73,17 @@ export interface BranchProductionOrder {
   verifiedBy?: string | null;
   verifiedByName?: string | null;
   verifiedAt?: string | null;
+  /**
+   * Photos the branch captured when RAISING the demand — what it is asking for
+   * and why. Absent on demands created before this feature; read as `?? []`.
+   */
+  demandPhotos?: Attachment[];
+  /**
+   * Photos the branch captured when VERIFYING what arrived. This is the set
+   * Production reviews before final approval, and the only independent record of
+   * a delivery that has already been unpacked. Empty until verification.
+   */
+  verificationPhotos?: Attachment[];
 }
 
 /**

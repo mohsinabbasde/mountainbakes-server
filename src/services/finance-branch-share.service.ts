@@ -10,6 +10,7 @@ import {
   type UpdateBranchSharePaymentInput,
 } from '../shared';
 import { rowToApi } from '../utils/case';
+import { bindAttachments, listAttachments, listAttachmentsFor } from './attachments.service';
 import { postEntry } from './finance-ledger.service';
 import { getLedgerHeadByCode, round2 } from './finance-settings.service';
 import { rejectDocument } from './finance-documents.service';
@@ -64,13 +65,23 @@ export async function listBranchSharePayments(q: BranchShareQuery): Promise<Bran
 
   const { data, error } = await query;
   if (error) throw error;
-  return rowToApi<BranchSharePayment[]>(data ?? []).map(normalise);
+
+  const rows = rowToApi<BranchSharePayment[]>(data ?? []).map(normalise);
+  const photos = await listAttachmentsFor(
+    'branch_share_payment',
+    rows.map((p) => p.id),
+  );
+  return rows.map((p) => ({ ...p, attachments: photos.get(p.id) ?? [] }));
 }
 
 export async function getBranchSharePayment(id: string): Promise<BranchSharePayment | null> {
   const { data, error } = await supabaseAdmin.from('branch_share_payments').select('*').eq('id', id).maybeSingle();
   if (error) throw error;
-  return data ? normalise(rowToApi<BranchSharePayment>(data)) : null;
+  if (!data) return null;
+  return {
+    ...normalise(rowToApi<BranchSharePayment>(data)),
+    attachments: await listAttachments('branch_share_payment', id),
+  };
 }
 
 async function requireBranch(branchId: string): Promise<{ id: string; name: string }> {
@@ -104,7 +115,15 @@ export async function createBranchSharePayment(
     .select('*')
     .single();
   if (error) throw error;
-  return normalise(rowToApi<BranchSharePayment>(data));
+
+  const payment = normalise(rowToApi<BranchSharePayment>(data));
+  const attachments = await bindAttachments({
+    entity: 'branch_share_payment',
+    entityId: payment.id,
+    attachmentIds: input.attachmentIds,
+    actor,
+  });
+  return { ...payment, attachments };
 }
 
 export async function updateBranchSharePayment(

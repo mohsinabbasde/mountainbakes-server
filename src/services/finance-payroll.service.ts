@@ -15,6 +15,7 @@ import {
   type UpdateSalaryPaymentInput,
 } from '../shared';
 import { rowToApi } from '../utils/case';
+import { bindAttachments, listAttachments, listAttachmentsFor } from './attachments.service';
 import { approveDocument, rejectDocument } from './finance-documents.service';
 import { getLedgerHeadByCode, round2 } from './finance-settings.service';
 
@@ -260,7 +261,13 @@ export async function listSalaryPayments(q: SalaryQuery): Promise<SalaryPayment[
 
   const { data, error } = await query;
   if (error) throw error;
-  return rowToApi<SalaryPayment[]>(data ?? []).map(normalise);
+
+  const rows = rowToApi<SalaryPayment[]>(data ?? []).map(normalise);
+  const photos = await listAttachmentsFor(
+    'salary_payment',
+    rows.map((s) => s.id),
+  );
+  return rows.map((s) => ({ ...s, attachments: photos.get(s.id) ?? [] }));
 }
 
 function normalise(s: SalaryPayment): SalaryPayment {
@@ -276,7 +283,11 @@ function normalise(s: SalaryPayment): SalaryPayment {
 export async function getSalaryPayment(id: string): Promise<SalaryPayment | null> {
   const { data, error } = await supabaseAdmin.from('salary_payments').select('*').eq('id', id).maybeSingle();
   if (error) throw error;
-  return data ? normalise(rowToApi<SalaryPayment>(data)) : null;
+  if (!data) return null;
+  return {
+    ...normalise(rowToApi<SalaryPayment>(data)),
+    attachments: await listAttachments('salary_payment', id),
+  };
 }
 
 export async function createSalaryPayment(
@@ -331,7 +342,15 @@ export async function createSalaryPayment(
     }
     throw error;
   }
-  return normalise(rowToApi<SalaryPayment>(data));
+
+  const salary = normalise(rowToApi<SalaryPayment>(data));
+  const attachments = await bindAttachments({
+    entity: 'salary_payment',
+    entityId: salary.id,
+    attachmentIds: input.attachmentIds,
+    actor,
+  });
+  return { ...salary, attachments };
 }
 
 export async function updateSalaryPayment(id: string, input: UpdateSalaryPaymentInput): Promise<SalaryPayment> {

@@ -116,7 +116,12 @@ router.post(
   validate(VerifyIncomeSchema),
   async (req: AuthRequest, res, next) => {
     try {
-      const approval = await verifyIncome(String(req.params['id']), actorOf(req), req.body.notes);
+      const approval = await verifyIncome(
+        String(req.params['id']),
+        actorOf(req),
+        req.body.notes,
+        req.body.attachmentIds,
+      );
       await logFinanceAudit(req, {
         entity: 'income_approval',
         entityId: approval.id,

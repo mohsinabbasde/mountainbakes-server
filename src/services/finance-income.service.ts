@@ -7,6 +7,7 @@ import {
   type IncomeApprovalStatus,
   type LedgerEntry,
 } from '../shared';
+import { bindAttachments, listAttachments, listAttachmentsFor } from './attachments.service';
 import { buildBranchReport } from './closing-report.service';
 import { getFinanceSettings, getLedgerHeadByCode, round2 } from './finance-settings.service';
 import { postEntry } from './finance-ledger.service';
@@ -170,13 +171,23 @@ export async function listIncomeApprovals(q: {
 
   const { data, error } = await query;
   if (error) throw error;
-  return rowToApi<FinanceIncomeApproval[]>(data ?? []).map(normalise);
+
+  const rows = rowToApi<FinanceIncomeApproval[]>(data ?? []).map(normalise);
+  const photos = await listAttachmentsFor(
+    'finance_income_approval',
+    rows.map((r) => r.id),
+  );
+  return rows.map((r) => ({ ...r, attachments: photos.get(r.id) ?? [] }));
 }
 
 export async function getIncomeApproval(id: string): Promise<FinanceIncomeApproval | null> {
   const { data, error } = await supabaseAdmin.from(TABLE).select('*').eq('id', id).maybeSingle();
   if (error) throw error;
-  return data ? normalise(rowToApi<FinanceIncomeApproval>(data)) : null;
+  if (!data) return null;
+  return {
+    ...normalise(rowToApi<FinanceIncomeApproval>(data)),
+    attachments: await listAttachments('finance_income_approval', id),
+  };
 }
 
 function normalise(r: FinanceIncomeApproval): FinanceIncomeApproval {
@@ -201,11 +212,20 @@ function normalise(r: FinanceIncomeApproval): FinanceIncomeApproval {
 // The three decisions
 // ---------------------------------------------------------------------------
 
-/** Admin's verification step. Only moves the row along; posts nothing. */
+/**
+ * Admin's verification step. Only moves the row along; posts nothing.
+ *
+ * `attachmentIds` is OPTIONAL here, unlike every other finance document. These
+ * rows are imported from the branch closing rather than typed into a form, so
+ * there is no moment of capture at which a photo could be demanded — the
+ * verifier may add one (a photo of the day's cash count, say) and usually does
+ * not. See the note on `optionalAttachmentIds`.
+ */
 export async function verifyIncome(
   id: string,
   actor: { uid: string; name: string },
   notes?: string | null,
+  attachmentIds: string[] = [],
 ): Promise<FinanceIncomeApproval> {
   const row = await requireApproval(id);
   if (row.status !== 'pending_verification') {
@@ -232,7 +252,17 @@ export async function verifyIncome(
     .select('*')
     .single();
   if (error) throw error;
-  return normalise(rowToApi<FinanceIncomeApproval>(data));
+
+  const approval = normalise(rowToApi<FinanceIncomeApproval>(data));
+  await bindAttachments({
+    entity: 'finance_income_approval',
+    entityId: approval.id,
+    attachmentIds,
+    actor,
+  });
+  // Re-read rather than returning just what this call bound: the row may already
+  // carry photos, and the verifier should see the whole set.
+  return { ...approval, attachments: await listAttachments('finance_income_approval', approval.id) };
 }
 
 /**

@@ -5,6 +5,7 @@ import {
   FINANCE_REPORT_TYPES,
   FINANCE_ROLES,
 } from '../types/finance.types';
+import { optionalAttachmentIds, requiredAttachmentIds } from './attachment.schemas';
 
 /**
  * Finance Ledger request schemas.
@@ -88,11 +89,23 @@ export const CreateFinanceTransactionSchema = z.object({
   /** Set after the server warns this looks like a duplicate of a Branch Income
    *  entry (same head/amount/date) and the user confirms it anyway. */
   confirmDuplicate: z.boolean().default(false),
+  /**
+   * Staged photos of the receipt/voucher, uploaded before this request. Required
+   * even for a draft: the point of the photo is that it is taken at the moment
+   * the money moves, and "I'll attach it when I submit" is exactly the gap it
+   * exists to close.
+   */
+  attachmentIds: requiredAttachmentIds,
 });
 
+// attachmentIds is omitted: an edit revises the figures on a draft or rejected
+// document, and the photos bound at creation stay bound. Rebinding on update
+// would let a rejected voucher swap its evidence for a different receipt before
+// coming back to the same approver.
 export const UpdateFinanceTransactionSchema = CreateFinanceTransactionSchema.partial().omit({
   asDraft: true,
   confirmDuplicate: true,
+  attachmentIds: true,
 });
 
 // ---------------------------------------------------------------------------
@@ -135,8 +148,17 @@ export const ImportBranchIncomeSchema = z.object({
   refresh: z.boolean().default(false),
 });
 
+/**
+ * Optional, not required — the only finance document where that is true.
+ *
+ * A branch-income row is imported from the branch closing by
+ * `importBranchIncome`, so it comes into being with no human at a camera.
+ * Requiring a photo would break that import outright. The verifier may attach
+ * one (a shot of the counted cash, say) and most will not.
+ */
 export const VerifyIncomeSchema = z.object({
   notes: z.string().max(500).nullish(),
+  attachmentIds: optionalAttachmentIds,
 });
 
 // ---------------------------------------------------------------------------
@@ -177,6 +199,8 @@ export const CreateSalaryPaymentSchema = z.object({
   account: z.enum(FINANCE_ACCOUNTS),
   notes: z.string().max(500).nullish(),
   asDraft: z.boolean().default(false),
+  /** Photo of the signed payslip or the cash handover. */
+  attachmentIds: requiredAttachmentIds,
 })
   // netSalary is computed server-side, but a payslip that nets out to nothing —
   // or below it — is a data-entry error worth catching before it reaches an
@@ -223,15 +247,19 @@ export const CreatePartnerExpenseSchema = z.object({
   businessDate: businessDate.optional(),
   notes: z.string().max(500).nullish(),
   asDraft: z.boolean().default(false),
+  /** Photo of the cash handover or the transfer slip. */
+  attachmentIds: requiredAttachmentIds,
 });
 
 // partnerId and txnKind are excluded from editing for the same reason
 // UpdateSalaryPaymentSchema excludes employeeId/salaryMonth: changing either
-// would sidestep the constraint the field exists to enforce.
+// would sidestep the constraint the field exists to enforce. attachmentIds is
+// excluded for the reason given on UpdateFinanceTransactionSchema.
 export const UpdatePartnerExpenseSchema = CreatePartnerExpenseSchema.omit({
   partnerId: true,
   txnKind: true,
   asDraft: true,
+  attachmentIds: true,
 }).partial();
 
 export const CreateBranchSharePaymentSchema = z
@@ -244,6 +272,8 @@ export const CreateBranchSharePaymentSchema = z
     businessDate: businessDate.optional(),
     notes: z.string().max(500).nullish(),
     asDraft: z.boolean().default(false),
+    /** Photo of the payout being handed over. */
+    attachmentIds: requiredAttachmentIds,
   })
   .refine((d) => d.amount > 0 || d.bonus > 0, {
     message: 'Enter a share amount, a bonus, or both',

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { requiredAttachmentIds } from './attachment.schemas';
 
 export const ProductionOrderItemSchema = z.object({
   productId: z.string().min(1, 'Product is required'),
@@ -22,6 +23,18 @@ export const CreateProductionOrderSchema = z
     // Optional by design: most demands are products only, and an absent key must
     // behave exactly like the pre-packing-material payload.
     packingItems: z.array(ProductionOrderPackingItemSchema).default([]),
+    /**
+     * Photo the branch captures when raising the demand — the shelf, the empty
+     * crate, whatever justifies the quantities being asked for. Required: it is
+     * what Production looks at when a demand's numbers seem wrong.
+     *
+     * NOTE this is a breaking change to the endpoint's contract. The web app is
+     * a static-export PWA, so a tab still running the previous bundle will send
+     * no attachmentIds and get a 400 until it reloads. That is deliberate — the
+     * alternative is a grace period during which the photo is silently optional,
+     * which is indistinguishable from the feature not working.
+     */
+    attachmentIds: requiredAttachmentIds,
   })
   .superRefine((val, ctx) => {
     // One material, one quantity — a duplicate row is meaningless and would also
@@ -93,6 +106,16 @@ export const NewVerifiedItemSchema = z.object({
 export const VerifyProductionOrderSchema = z.object({
   verifiedItems: z.array(VerifiedItemSchema).default([]),
   newItems: z.array(NewVerifiedItemSchema).default([]),
+  /**
+   * Photo of what physically arrived, captured at the moment of counting.
+   *
+   * Verification is the step that MOVES STOCK (see the note on
+   * BranchProductionOrderStatus), and it is the branch's own count that decides
+   * how much. The photo is the only independent record Production gets of a
+   * delivery it can no longer inspect — which is why this is required rather
+   * than encouraged.
+   */
+  attachmentIds: requiredAttachmentIds,
 });
 
 export type CreateProductionOrderInput = z.infer<typeof CreateProductionOrderSchema>;

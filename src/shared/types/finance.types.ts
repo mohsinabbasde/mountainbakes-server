@@ -20,6 +20,7 @@
  */
 
 import type { UserRole } from './user.types';
+import type { Attachment } from './attachment.types';
 
 // ---------------------------------------------------------------------------
 // Roles & permissions
@@ -288,6 +289,15 @@ export interface LedgerEntry {
   createdBy: string | null;
   createdByName: string | null;
   postedAt: string;
+  /**
+   * Photos of the SOURCE DOCUMENT this voucher was posted from, resolved on read
+   * via (sourceType, sourceId) — they are not stored on the ledger row, which is
+   * immutable by trigger. Absent on entries whose source carries no photo:
+   * opening balances, reversals, and anything imported rather than keyed in.
+   *
+   * The `url` on each is short-lived. See the note on `Attachment`.
+   */
+  attachments?: Attachment[];
 }
 
 export interface LedgerQuery {
@@ -376,6 +386,13 @@ export interface FinanceIncomeApproval {
   postedAt: string | null;
   createdAt: string;
   updatedAt: string;
+  /**
+   * Optional here, unlike every other finance document. These rows are IMPORTED
+   * from the branch closing rather than keyed into a form, so there is no moment
+   * of capture to require a photo at. A verifier may attach one; nothing forces
+   * it. See the note on `optionalAttachmentIds`.
+   */
+  attachments?: Attachment[];
 }
 
 // ---------------------------------------------------------------------------
@@ -408,6 +425,8 @@ export interface FinanceTransaction {
   ledgerEntryId: string | null;
   createdAt: string;
   updatedAt: string;
+  /** Photo of the receipt or voucher, captured when the entry was raised. */
+  attachments?: Attachment[];
 }
 
 // ---------------------------------------------------------------------------
@@ -485,6 +504,8 @@ export interface SalaryPayment {
   ledgerEntryId: string | null;
   createdAt: string;
   updatedAt: string;
+  /** Photo of the signed payslip or the cash handover. */
+  attachments?: Attachment[];
 }
 
 // ---------------------------------------------------------------------------
@@ -543,6 +564,8 @@ export interface PartnerExpense {
   ledgerEntryId: string | null;
   createdAt: string;
   updatedAt: string;
+  /** Photo of the cash handover or the transfer slip. */
+  attachments?: Attachment[];
 }
 
 /**
@@ -574,6 +597,8 @@ export interface BranchSharePayment {
   bonusLedgerEntryId: string | null;
   createdAt: string;
   updatedAt: string;
+  /** Photo of the payout being handed over. */
+  attachments?: Attachment[];
 }
 
 /** One row of the Partner Share Detail table — computed, not stored. */

@@ -17,7 +17,9 @@ import {
 } from '../shared';
 import { rowToApi } from '../utils/case';
 import { invalidate } from '../utils/cache';
+import { attachmentKey, listAttachmentsAcross } from './attachments.service';
 import { getLedgerHeadByCode, round2 } from './finance-settings.service';
+import type { AttachmentEntity } from '../shared';
 
 /**
  * The ledger itself: heads, postings, queries, the day's closing, the dashboard.
@@ -31,6 +33,54 @@ import { getLedgerHeadByCode, round2 } from './finance-settings.service';
  */
 
 const num = (v: unknown) => Number(v ?? 0);
+
+/**
+ * Which document table a voucher's `sourceId` points into, per `sourceType`.
+ *
+ * This is how the ledger shows the photo behind a posting: the photo belongs to
+ * the SOURCE DOCUMENT, not to the (immutable) ledger row, so the row's existing
+ * `(sourceType, sourceId)` pair is followed back to it.
+ *
+ * The four sources deliberately absent carry no photo and never will:
+ *   * `opening`     — a settings figure, not a transaction anyone witnessed.
+ *   * `adjustment`  — a reversal; `sourceId` is the entry being corrected, and
+ *                     the evidence is whatever the ORIGINAL carried.
+ *   * `company_share` / `branch_share` — both are posted by branch-income
+ *                     approval and their `sourceId` is the approval row. They
+ *                     are mapped anyway (below) precisely because that row CAN
+ *                     carry a verifier's photo.
+ */
+const SOURCE_ATTACHMENT_ENTITY: Partial<Record<LedgerSourceType, AttachmentEntity>> = {
+  manual: 'finance_transaction',
+  salary: 'salary_payment',
+  partner_expense: 'partner_expense',
+  branch_income: 'finance_income_approval',
+  company_share: 'finance_income_approval',
+  branch_share: 'finance_income_approval',
+};
+
+/**
+ * Resolve each entry's source-document photos and hang them off the entry.
+ *
+ * One batched lookup for the whole page across all source types — see
+ * `listAttachmentsAcross` for why that matters. An entry whose source carries no
+ * photo simply gets an empty array rather than being left undefined, so the
+ * client never has to distinguish "not loaded" from "none".
+ */
+async function withSourcePhotos(entries: LedgerEntry[]): Promise<LedgerEntry[]> {
+  const refs = entries.flatMap((e) => {
+    const entity = e.sourceId ? SOURCE_ATTACHMENT_ENTITY[e.sourceType] : undefined;
+    return entity && e.sourceId ? [{ entity, entityId: e.sourceId }] : [];
+  });
+  if (refs.length === 0) return entries.map((e) => ({ ...e, attachments: [] }));
+
+  const byKey = await listAttachmentsAcross(refs);
+  return entries.map((e) => {
+    const entity = e.sourceId ? SOURCE_ATTACHMENT_ENTITY[e.sourceType] : undefined;
+    const found = entity && e.sourceId ? byKey.get(attachmentKey(entity, e.sourceId)) : undefined;
+    return { ...e, attachments: found ?? [] };
+  });
+}
 
 // ---------------------------------------------------------------------------
 // Ledger heads
@@ -266,7 +316,7 @@ export async function queryLedger(q: LedgerQuery): Promise<LedgerPage> {
   if (rows.error) throw rows.error;
   if (totals.error) throw totals.error;
 
-  const entries = rowToApi<LedgerEntry[]>(rows.data ?? []).map(normaliseEntry);
+  const entries = await withSourcePhotos(rowToApi<LedgerEntry[]>(rows.data ?? []).map(normaliseEntry));
   // The RPC returns a one-row table, which supabase-js hands back as an array.
   const agg = (Array.isArray(totals.data) ? totals.data[0] : totals.data) as Record<string, unknown> | null;
 
@@ -327,7 +377,9 @@ function normaliseEntry(e: LedgerEntry): LedgerEntry {
 export async function getLedgerEntry(id: string): Promise<LedgerEntry | null> {
   const { data, error } = await supabaseAdmin.from('ledger_entries').select('*').eq('id', id).maybeSingle();
   if (error) throw error;
-  return data ? normaliseEntry(rowToApi<LedgerEntry>(data)) : null;
+  if (!data) return null;
+  const [entry] = await withSourcePhotos([normaliseEntry(rowToApi<LedgerEntry>(data))]);
+  return entry ?? null;
 }
 
 // ---------------------------------------------------------------------------

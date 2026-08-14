@@ -17,6 +17,7 @@ import {
   type UpdatePartnerExpenseInput,
 } from '../shared';
 import { rowToApi } from '../utils/case';
+import { bindAttachments, listAttachments, listAttachmentsFor } from './attachments.service';
 import { postEntry, requireActiveHead } from './finance-ledger.service';
 import { getLedgerHeadByCode, round2 } from './finance-settings.service';
 
@@ -103,7 +104,14 @@ export async function listTransactions(q: TransactionQuery): Promise<FinanceTran
 
   const { data, error } = await query;
   if (error) throw error;
-  return rowToApi<FinanceTransaction[]>(data ?? []).map((t) => ({ ...t, amount: num(t.amount) }));
+
+  const rows = rowToApi<FinanceTransaction[]>(data ?? []).map((t) => ({ ...t, amount: num(t.amount) }));
+  // One query and one signing call for the whole page, not one per row.
+  const photos = await listAttachmentsFor(
+    'finance_transaction',
+    rows.map((t) => t.id),
+  );
+  return rows.map((t) => ({ ...t, attachments: photos.get(t.id) ?? [] }));
 }
 
 /**
@@ -191,7 +199,20 @@ export async function createTransaction(
     .select('*')
     .single();
   if (error) throw error;
-  return rowToApi<FinanceTransaction>(data);
+
+  const txn = rowToApi<FinanceTransaction>(data);
+  // Binding happens after the insert because the staged photos need this row's
+  // id. A failure here throws, leaving an entry with no photo — recoverable
+  // (it is a draft or pending, both editable) and far preferable to the
+  // alternative of swallowing the error and silently accepting an
+  // unsubstantiated voucher.
+  const attachments = await bindAttachments({
+    entity: 'finance_transaction',
+    entityId: txn.id,
+    attachmentIds: input.attachmentIds,
+    actor,
+  });
+  return { ...txn, attachments };
 }
 
 export async function updateTransaction(
@@ -243,7 +264,12 @@ export async function updateTransaction(
 export async function getTransaction(id: string): Promise<FinanceTransaction | null> {
   const { data, error } = await supabaseAdmin.from('finance_transactions').select('*').eq('id', id).maybeSingle();
   if (error) throw error;
-  return data ? { ...rowToApi<FinanceTransaction>(data), amount: num((data as Record<string, unknown>)['amount']) } : null;
+  if (!data) return null;
+  return {
+    ...rowToApi<FinanceTransaction>(data),
+    amount: num((data as Record<string, unknown>)['amount']),
+    attachments: await listAttachments('finance_transaction', id),
+  };
 }
 
 /** Move a draft into the approval queue. */
@@ -383,7 +409,13 @@ export async function listPartnerExpenses(q: PartnerExpenseQuery): Promise<Partn
 
   const { data, error } = await query;
   if (error) throw error;
-  return rowToApi<PartnerExpense[]>(data ?? []).map((p) => ({ ...p, amount: num(p.amount) }));
+
+  const rows = rowToApi<PartnerExpense[]>(data ?? []).map((p) => ({ ...p, amount: num(p.amount) }));
+  const photos = await listAttachmentsFor(
+    'partner_expense',
+    rows.map((p) => p.id),
+  );
+  return rows.map((p) => ({ ...p, attachments: photos.get(p.id) ?? [] }));
 }
 
 const TXN_KIND_LABEL: Record<'advance' | 'draw', string> = { advance: 'Advance to', draw: 'Draw by' };
@@ -418,7 +450,15 @@ export async function createPartnerExpense(
     .select('*')
     .single();
   if (error) throw error;
-  return rowToApi<PartnerExpense>(data);
+
+  const expense = rowToApi<PartnerExpense>(data);
+  const attachments = await bindAttachments({
+    entity: 'partner_expense',
+    entityId: expense.id,
+    attachmentIds: input.attachmentIds,
+    actor,
+  });
+  return { ...expense, attachments };
 }
 
 export async function updatePartnerExpense(
@@ -454,7 +494,12 @@ export async function updatePartnerExpense(
 export async function getPartnerExpense(id: string): Promise<PartnerExpense | null> {
   const { data, error } = await supabaseAdmin.from('partner_expenses').select('*').eq('id', id).maybeSingle();
   if (error) throw error;
-  return data ? { ...rowToApi<PartnerExpense>(data), amount: num((data as Record<string, unknown>)['amount']) } : null;
+  if (!data) return null;
+  return {
+    ...rowToApi<PartnerExpense>(data),
+    amount: num((data as Record<string, unknown>)['amount']),
+    attachments: await listAttachments('partner_expense', id),
+  };
 }
 
 export async function submitPartnerExpense(id: string): Promise<PartnerExpense> {

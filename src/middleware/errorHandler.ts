@@ -1,4 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
+import { MulterError } from 'multer';
 import { ZodError } from 'zod';
 
 export function errorHandler(
@@ -13,6 +14,21 @@ export function errorHandler(
     res.status(400).json({
       error: 'Validation error',
       details: err.errors.map((e) => ({ field: e.path.join('.'), message: e.message })),
+    });
+    return;
+  }
+
+  // Multer rejects an oversized or unexpected upload by calling next(err) with a
+  // MulterError, which carries no `status` — without this it would fall through
+  // to the 500 branch below and be masked as "Internal server error" in
+  // production. The user would see a generic failure for something they can
+  // actually fix by retaking the photo.
+  if (err instanceof MulterError) {
+    const tooLarge = err.code === 'LIMIT_FILE_SIZE';
+    res.status(tooLarge ? 413 : 400).json({
+      error: tooLarge
+        ? 'That file is too large. Retake the photo and try again.'
+        : `Upload rejected: ${err.message}`,
     });
     return;
   }

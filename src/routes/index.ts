@@ -31,6 +31,7 @@ import { router as financePartnersRouter } from './finance-partners.routes';
 import { router as financeBranchShareRouter } from './finance-branch-share.routes';
 import { router as financeReportsRouter } from './finance-reports.routes';
 import { router as financeTicketsRouter } from './finance-tickets.routes';
+import { router as attachmentsRouter } from './attachments.routes';
 
 export function setupRoutes(app: Express) {
   app.use('/api/auth', authRouter);
@@ -64,6 +65,9 @@ export function setupRoutes(app: Express) {
   app.use('/api/special-events', specialEventsRouter);
   app.use('/api/settings', settingsRouter);
   app.use('/api/business-day', businessDayRouter);
+  // Shared by finance and branch: one upload endpoint for every captured photo,
+  // which decides what the caller may attach to from the `entity` field.
+  app.use('/api/attachments', attachmentsRouter);
 
   // ── Finance Ledger ──
   // PREFIX ORDER MATTERS here exactly as it does for /api/products/price above:

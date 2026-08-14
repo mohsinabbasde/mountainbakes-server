@@ -16,6 +16,7 @@ import {
   BRANCH_ROLES,
   isBranchRole,
 } from '../shared';
+import { bindAttachments, listAttachmentsFor } from '../services/attachments.service';
 import { notify } from '../services/push.service';
 import { applyProductionToStock } from '../services/stock.service';
 import { transferOutOnApproval } from '../services/production-stock.service';
@@ -49,6 +50,28 @@ const ITEMS_ORDER = { referencedTable: 'production_order_items', ascending: true
 /** Packing lines need their own ordering clause — see the ORDER_SELECT note above. */
 const PACKING_ITEMS_ORDER = { referencedTable: 'production_order_packing_items', ascending: true } as const;
 
+/**
+ * Hang the demand and verification photos off a page of orders.
+ *
+ * Two queries and two signing calls for the whole page rather than per order —
+ * an order list runs to a week of demands across every branch, and per-row
+ * signing would dominate the response time. Photos are NOT part of ORDER_SELECT
+ * because `attachments` has no foreign key to `production_orders` (the parent
+ * table is chosen by `entity`), so PostgREST cannot embed it.
+ */
+async function withPhotos(orders: Record<string, unknown>[]): Promise<Record<string, unknown>[]> {
+  const ids = orders.map((o) => String(o['id']));
+  const [demand, verification] = await Promise.all([
+    listAttachmentsFor('production_order_demand', ids),
+    listAttachmentsFor('production_order_verification', ids),
+  ]);
+  return orders.map((o) => ({
+    ...o,
+    demandPhotos: demand.get(String(o['id'])) ?? [],
+    verificationPhotos: verification.get(String(o['id'])) ?? [],
+  }));
+}
+
 router.use(authenticate);
 
 // POST /api/production-orders — branch submits a daily production request
@@ -66,9 +89,10 @@ router.post('/', requireRole(...BRANCH_ROLES), validate(CreateProductionOrderSch
     const branchId = req.user!.branchId;
     if (!branchId) { res.status(400).json({ error: 'No branch assigned to this account' }); return; }
 
-    const { items, packingItems = [] } = req.body as {
+    const { items, packingItems = [], attachmentIds } = req.body as {
       items: { productId: string; qty: number; remarks: string }[];
       packingItems?: { packingMaterialId: string; qty: number }[];
+      attachmentIds: string[];
     };
 
     // Resolve product names server-side — branch users never send names or
@@ -164,6 +188,17 @@ router.post('/', requireRole(...BRANCH_ROLES), validate(CreateProductionOrderSch
       if (packErr) throw packErr;
     }
 
+    // Claim the photos the branch captured while filling the form. Done before
+    // the notification so Production is never told about a demand whose photo
+    // failed to bind — the whole point of the notification is "come and look at
+    // this", and there would be nothing to look at.
+    await bindAttachments({
+      entity: 'production_order_demand',
+      entityId: order.id,
+      attachmentIds,
+      actor: { uid: req.user!.uid },
+    });
+
     // NOTE: branchId is deliberately null here. Production users are a central
     // role with no branch claim (only branch_manager carries a branchId), and the
     // notifications RLS narrows a role broadcast that carries a branch_id to that
@@ -216,11 +251,13 @@ router.get('/', async (req: AuthRequest, res, next) => {
     // camelCases keys, so remap those two here — otherwise the client's
     // date/time are undefined (blank columns, and slipReference → "PO--").
     const rows = rowToApi<Record<string, unknown>[]>(data ?? []);
-    const orders = rows.map(({ businessDate, submittedTime, ...rest }) => ({
-      ...rest,
-      date: businessDate,
-      time: submittedTime,
-    }));
+    const orders = await withPhotos(
+      rows.map(({ businessDate, submittedTime, ...rest }) => ({
+        ...rest,
+        date: businessDate,
+        time: submittedTime,
+      })),
+    );
     res.json({ orders, total: orders.length });
   } catch (err) {
     next(err);
@@ -577,9 +614,10 @@ router.post('/:id/items', requireRole('super_admin', 'production_user'), validat
 router.put('/:id/verify', requireRole(...BRANCH_ROLES), validate(VerifyProductionOrderSchema), async (req: AuthRequest, res, next) => {
   try {
     const id = req.params['id']!;
-    const { verifiedItems, newItems } = req.body as {
+    const { verifiedItems, newItems, attachmentIds } = req.body as {
       verifiedItems: { productId: string; verifiedQty: number }[];
       newItems: { productId: string; qty: number }[];
+      attachmentIds: string[];
     };
 
     const { data: order, error: orderErr } = await supabaseAdmin
@@ -611,6 +649,25 @@ router.put('/:id/verify', requireRole(...BRANCH_ROLES), validate(VerifyProductio
         return { productId: i.productId, productName: name, qty: i.qty };
       });
     }
+
+    // Bound BEFORE the RPC, unlike the demand photos on create.
+    //
+    // Verification is the step that moves stock. If binding ran after it and
+    // failed, the goods would already be in branch inventory with no photo of
+    // what arrived — the exact gap this feature exists to close, and
+    // unrecoverable because the order is no longer 'awaiting_verification'.
+    // Running it first means a binding failure aborts with nothing done.
+    //
+    // The cost is that a caller who loses the race — the RPC then answers
+    // 'already_reviewed' — leaves its photos attached to an order someone else
+    // verified. They are photos of the same delivery, so they belong there
+    // anyway; the alternative is the failure mode above.
+    await bindAttachments({
+      entity: 'production_order_verification',
+      entityId: id,
+      attachmentIds,
+      actor: { uid: req.user!.uid },
+    });
 
     const { data, error } = await supabaseAdmin.rpc('verify_production_order', {
       p_order_id: id,
