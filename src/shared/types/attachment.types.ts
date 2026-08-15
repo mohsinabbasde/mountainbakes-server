@@ -77,22 +77,49 @@ export const ATTACHMENT_MIME_TYPES = ['image/jpeg', 'image/png', 'image/webp'] a
 // ---------------------------------------------------------------------------
 
 /**
- * Longest edge a stored capture is allowed to keep, in pixels.
+ * The single size every stored capture is normalised to: its longest edge, in
+ * pixels. Aspect ratio is preserved, so a portrait shot stores 1500×2000 and a
+ * landscape one 2000×1500 — the same amount of picture either way.
  *
- * 1280 is chosen to keep a receipt's printed figures and a delivery photo's
- * crate labels legible when zoomed, while cutting a modern phone's 12 MP frame
- * (~4 MB) to a few hundred KB. Lowering it further starts to cost readability,
- * which is the entire point of requiring the photo.
+ * ONE canonical size matters because the phones do not agree on anything. The
+ * same receipt photographed on four branch handsets arrives as a 12 MP frame,
+ * a 48 MP frame, a 1080p frame and whatever an old Android WebView decides to
+ * hand over. Normalising on capture is what makes a stored photo cost a
+ * predictable amount of space and look the same in the gallery, whichever phone
+ * took it — rather than the database holding a 4 MB photo next to a 40 KB one.
+ *
+ * 2000 rather than the old 1280: 1280 is where small printed digits start to
+ * mush together, and a photo nobody can read is one nobody can check. The extra
+ * pixels are paid for by the encoder, not by the budget below — WebP at 2000px
+ * is smaller than JPEG was at 1280px.
+ *
+ * Never UPSCALED to reach it. A gallery image that arrives smaller is stored as
+ * it is: enlarging invents no detail and costs real bytes.
  */
-export const ATTACHMENT_MAX_DIMENSION = 1280;
-
-/** JPEG quality for the first encode pass. */
-export const ATTACHMENT_JPEG_QUALITY = 0.7;
+export const ATTACHMENT_STORED_DIMENSION = 2000;
 
 /**
- * Byte budget the client compresses towards, stepping quality down until the
- * encode fits. Roughly a quarter-megabyte — small enough to upload on a weak
- * branch connection, large enough to stay readable at 1280px.
+ * Kept as an alias so the ceiling has one name across both trees. Identical to
+ * ATTACHMENT_STORED_DIMENSION — nothing may exceed the size everything is
+ * normalised to.
+ */
+export const ATTACHMENT_MAX_DIMENSION = ATTACHMENT_STORED_DIMENSION;
+
+/**
+ * Quality for the first encode pass.
+ *
+ * 0.82, up from 0.7: at 0.7 the encoder puts visible ringing around small dark
+ * text on white, which is exactly the content these photos carry.
+ */
+export const ATTACHMENT_JPEG_QUALITY = 0.82;
+
+/**
+ * Byte budget the client compresses towards.
+ *
+ * Only QUALITY steps down to meet it, never the dimensions — the stored size
+ * stays fixed at ATTACHMENT_STORED_DIMENSION so every photo in the database is
+ * the same size. Roughly a quarter-megabyte: small enough to upload on a weak
+ * branch connection, and enough for a sharp 2000px WebP.
  */
 export const ATTACHMENT_TARGET_MAX_BYTES = 300 * 1024;
 
