@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { FINANCE_TICKET_REFERENCES, type FinanceTicketReferenceType } from '../types/finance.types';
+import { FINANCE_TICKET_PREFIXES } from '../types/finance.types';
 
 /**
  * Finance Help Desk payloads.
@@ -9,16 +9,17 @@ import { FINANCE_TICKET_REFERENCES, type FinanceTicketReferenceType } from '../t
  * shape, and merging them would put finance queries under admin control.
  */
 
-const PREFIXES = (Object.keys(FINANCE_TICKET_REFERENCES) as FinanceTicketReferenceType[])
-  .map((k) => FINANCE_TICKET_REFERENCES[k].prefix);
+const PREFIXES = FINANCE_TICKET_PREFIXES;
 
 /**
- * A finance reference number: FV-000001, SAL-000012, …
+ * A finance reference number: RV-000001, SAL-000012, …
  *
  * The prefix list is derived from FINANCE_TICKET_REFERENCES rather than typed
  * out, so adding a seventh referencable record is a one-line change in one
- * place. Uppercased before matching — a raiser who types `fv-000001` means the
- * same voucher, and rejecting them over case would be pure friction.
+ * place. It includes the alternate prefixes, which is what keeps a query
+ * raisable against a pre-migration-71 FV- voucher. Uppercased before matching —
+ * a raiser who types `rv-000001` means the same voucher, and rejecting them over
+ * case would be pure friction.
  */
 export const FinanceReferenceNoSchema = z
   .string()

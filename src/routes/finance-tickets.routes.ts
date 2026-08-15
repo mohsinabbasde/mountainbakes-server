@@ -7,6 +7,7 @@ import {
   CreateFinanceTicketSchema,
   EditFinanceTicketSchema,
   FINANCE_TICKET_PREFIX_MAP,
+  FINANCE_TICKET_PREFIXES,
   FINANCE_TICKET_REFERENCES,
   ResolveFinanceTicketSchema,
   type FinanceAuditEntity,
@@ -55,7 +56,7 @@ class LookupError extends Error {
 }
 
 /**
- * Resolve `FV-000001` to the row it names.
+ * Resolve `RV-000001` to the row it names.
  *
  * The prefix decides the table, so the raiser types one reference and never has
  * to say what kind of record it is. An unknown prefix is a 400 (the caller sent
@@ -70,7 +71,7 @@ async function resolveReference(refRaw: string): Promise<FinanceTicketReferenceL
   const referenceType = FINANCE_TICKET_PREFIX_MAP[prefix] as FinanceTicketReferenceType | undefined;
 
   if (!referenceType) {
-    const known = Object.values(FINANCE_TICKET_REFERENCES).map((r) => r.prefix).join(', ');
+    const known = FINANCE_TICKET_PREFIXES.join(', ');
     throw new LookupError(`Unknown reference type "${prefix}". Expected one of: ${known}.`, 400);
   }
 

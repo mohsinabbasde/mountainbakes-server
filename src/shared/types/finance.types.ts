@@ -879,11 +879,18 @@ export type FinanceExportFormat = 'pdf' | 'excel' | 'csv';
 /**
  * The finance records a query can be raised against, each keyed to the table it
  * lives in and the column carrying its human reference number. The API resolves
- * a typed reference number (FV-000001, SAL-000012, …) through this map, so the
+ * a typed reference number (RV-000001, SAL-000012, …) through this map, so the
  * raiser never has to say which kind of record they mean.
+ *
+ * `altPrefixes` exists because one table can carry more than one number series.
+ * `ledger_entries` carries three: RV- receipts and PV- payments (migration 71),
+ * plus every FV- voucher issued before that split — those rows still exist and
+ * are still what an old report or an open ticket cites, so the Help Desk has to
+ * keep resolving them. Order matters only for display: `prefix` is the one shown
+ * as the example.
  */
 export const FINANCE_TICKET_REFERENCES = {
-  ledger_entry:         { prefix: 'FV',  table: 'ledger_entries',           refColumn: 'voucher_no',   label: 'Ledger Voucher' },
+  ledger_entry:         { prefix: 'RV',  altPrefixes: ['PV', 'FV'], table: 'ledger_entries',           refColumn: 'voucher_no',   label: 'Ledger Voucher' },
   income_approval:      { prefix: 'INC', table: 'finance_income_approvals', refColumn: 'reference_no', label: 'Branch Income' },
   finance_transaction:  { prefix: 'FTX', table: 'finance_transactions',     refColumn: 'txn_no',       label: 'Transaction' },
   salary_payment:       { prefix: 'SAL', table: 'salary_payments',          refColumn: 'salary_no',    label: 'Salary Payment' },
@@ -892,6 +899,15 @@ export const FINANCE_TICKET_REFERENCES = {
 } as const;
 
 export type FinanceTicketReferenceType = keyof typeof FINANCE_TICKET_REFERENCES;
+
+/**
+ * Every prefix a raiser may legitimately type, primary and alternate alike.
+ * Derived, so adding a series is one edit to the map above — the Help Desk regex
+ * and the "expected one of" error both read this rather than their own list.
+ */
+export const FINANCE_TICKET_PREFIXES: string[] = Object.values(FINANCE_TICKET_REFERENCES).flatMap(
+  (r) => [r.prefix, ...(('altPrefixes' in r ? r.altPrefixes : []) as readonly string[])],
+);
 
 export const FINANCE_TICKET_REFERENCE_LABELS: Record<FinanceTicketReferenceType, string> = {
   ledger_entry: 'Ledger Voucher',
@@ -902,12 +918,17 @@ export const FINANCE_TICKET_REFERENCE_LABELS: Record<FinanceTicketReferenceType,
   branch_share_payment: 'Branch Share',
 };
 
-/** Reference-number prefix → the record type it identifies. Derived, never hand-written. */
+/**
+ * Reference-number prefix → the record type it identifies. Derived, never
+ * hand-written. Alternate prefixes map to the same type as their primary, which
+ * is what lets RV-, PV- and FV- all resolve to `ledger_entry`.
+ */
 export const FINANCE_TICKET_PREFIX_MAP: Record<string, FinanceTicketReferenceType> = Object.fromEntries(
-  (Object.keys(FINANCE_TICKET_REFERENCES) as FinanceTicketReferenceType[]).map((k) => [
-    FINANCE_TICKET_REFERENCES[k].prefix,
-    k,
-  ]),
+  (Object.keys(FINANCE_TICKET_REFERENCES) as FinanceTicketReferenceType[]).flatMap((k) => {
+    const ref = FINANCE_TICKET_REFERENCES[k];
+    const alts = ('altPrefixes' in ref ? ref.altPrefixes : []) as readonly string[];
+    return [ref.prefix, ...alts].map((p) => [p, k] as const);
+  }),
 );
 
 export type FinanceTicketStatus = 'open' | 'resolved' | 'rejected';
