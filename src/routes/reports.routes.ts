@@ -250,6 +250,9 @@ router.get('/packing-usage', async (req: AuthRequest, res, next) => {
       `)
       .gte('business_date', from)
       .lte('business_date', to)
+      // requestedQty is summed across every status, so a demand the branch
+      // deleted would still read as packing material somebody asked for.
+      .neq('status', 'cancelled')
       .order('business_date', { ascending: false });
 
     // Branch managers are scoped to their own branch, same rule as every other

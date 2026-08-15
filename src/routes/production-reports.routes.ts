@@ -83,7 +83,10 @@ async function buildReport(
       };
     }
     case 'branch-demand': {
-      const { data, error } = await supabaseAdmin.from('production_orders').select(ORDER_WITH_ITEMS).gte('business_date', fromStr);
+      // Every row counts here regardless of status, so a demand the branch
+      // deleted has to be dropped at the query or it inflates that branch's
+      // demand and order count.
+      const { data, error } = await supabaseAdmin.from('production_orders').select(ORDER_WITH_ITEMS).gte('business_date', fromStr).neq('status', 'cancelled');
       if (error) throw error;
       const orders = ((data ?? []) as unknown as RDoc[]).filter((o) => inRange(o.business_date));
       const map: Record<string, { name: string; qty: number; required: number; pending: number; orders: number }> = {};

@@ -14,12 +14,19 @@ import type { Attachment } from './attachment.types';
 // Stock deliberately moves on verification rather than on Production's step, so
 // the pool is debited once for the quantity actually counted and branch stock
 // never claims goods nobody has confirmed receiving.
+//
+// Two terminal states sit outside that line:
+//   rejected  Production refused it
+//   cancelled the BRANCH withdrew it, before Production reviewed (migration 73)
+//
+// They are kept apart deliberately — only one of them is a fulfilment failure.
 export type BranchProductionOrderStatus =
   | 'pending'
   | 'awaiting_verification'
   | 'verified'
   | 'approved'
-  | 'rejected';
+  | 'rejected'
+  | 'cancelled';
 
 export interface BranchProductionOrderItem {
   productId: string;
@@ -91,6 +98,16 @@ export interface BranchProductionOrder {
   verifiedBy?: string | null;
   verifiedByName?: string | null;
   verifiedAt?: string | null;
+  /**
+   * Why the branch deleted this demand. Present only on a 'cancelled' order, and
+   * mandatory there — the whole point of the soft delete is that Production can
+   * see what was withdrawn and why, rather than a demand quietly vanishing off
+   * the summary it was planning against.
+   */
+  cancelReason?: string | null;
+  cancelledBy?: string | null;
+  cancelledByName?: string | null;
+  cancelledAt?: string | null; // ISO UTC
   /**
    * Photos the branch captured when RAISING the demand — what it is asking for
    * and why. Absent on demands created before this feature; read as `?? []`.

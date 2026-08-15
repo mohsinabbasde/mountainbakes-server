@@ -139,6 +139,22 @@ export const ReviewProductionOrderSchema = z.object({
   reason: z.string().max(500).optional(),
 });
 
+/**
+ * The branch deleting a demand it has just sent.
+ *
+ * The reason is REQUIRED, and that is the feature — Production is planning
+ * against this demand the moment it lands, so a withdrawal that says nothing
+ * leaves them with a hole in the summary and no way to find out what happened.
+ * `.trim()` before `.min(3)` so a box of spaces cannot satisfy it.
+ */
+export const CancelProductionOrderSchema = z.object({
+  reason: z
+    .string()
+    .trim()
+    .min(3, 'Please give a reason for deleting this demand')
+    .max(500, 'Reason is too long'),
+});
+
 /** Production adding an extra line to a still-'pending' order before submitting it. */
 export const AddProductionOrderItemSchema = z.object({
   productId: z.string().min(1, 'Product is required'),
@@ -178,5 +194,6 @@ export const VerifyProductionOrderSchema = z.object({
 export type SpecialOrderItemInput = z.infer<typeof SpecialOrderItemSchema>;
 export type CreateProductionOrderInput = z.infer<typeof CreateProductionOrderSchema>;
 export type ReviewProductionOrderInput = z.infer<typeof ReviewProductionOrderSchema>;
+export type CancelProductionOrderInput = z.infer<typeof CancelProductionOrderSchema>;
 export type AddProductionOrderItemInput = z.infer<typeof AddProductionOrderItemSchema>;
 export type VerifyProductionOrderInput = z.infer<typeof VerifyProductionOrderSchema>;

@@ -8,6 +8,7 @@ import {
   ReviewProductionOrderSchema,
   AddProductionOrderItemSchema,
   VerifyProductionOrderSchema,
+  CancelProductionOrderSchema,
   businessDateStr,
   businessDaysAgoStr,
   karachiTimeStr,
@@ -708,6 +709,92 @@ router.put('/:id/review', requireRole('super_admin', 'production_user'), validat
     });
 
     res.json({ success: true, status });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// PUT /api/production-orders/:id/cancel — the branch deletes a demand it has
+// just sent, giving a reason. Soft delete (migration 73): the row stays and
+// keeps its items, so both the branch history and Production's order list can
+// show WHAT was withdrawn and WHY, while it drops out of everything that treats
+// a demand as work to do.
+//
+// Two guards, and both matter:
+//
+//  - Branch scope. A branch may only withdraw its OWN demand. Checked against
+//    the JWT's branchId, never a body field — `branch_user` carries its
+//    manager's branchId, so a shift account can delete its shop's demand and
+//    nobody else's.
+//  - Status. Only 'pending' — before Production reviewed it. Enforced as a
+//    check-and-set (`.eq('status', 'pending')`) rather than a read-then-write,
+//    because Production reviewing at the same moment is a real race: a
+//    read-then-write would cancel an order whose goods had already gone out,
+//    and past verification stock has moved, leaving branch inventory holding
+//    goods against a demand that no longer exists.
+router.put('/:id/cancel', requireRole(...BRANCH_ROLES), validate(CancelProductionOrderSchema), async (req: AuthRequest, res, next) => {
+  try {
+    const id = req.params['id']!;
+    const { reason } = req.body as { reason: string };
+
+    // Guarded rather than defaulted: `branch_id` is a uuid column, so passing an
+    // empty string for a branchless account is a 22P02 from Postgres — a 500
+    // where this is plainly a bad request.
+    const branchId = req.user!.branchId;
+    if (!branchId) { res.status(400).json({ error: 'No branch assigned to this account' }); return; }
+
+    const { data, error } = await supabaseAdmin
+      .from('production_orders')
+      .update({
+        status: 'cancelled',
+        cancel_reason: reason,
+        cancelled_by: req.user!.uid,
+        cancelled_by_name: req.user!.email,
+        cancelled_at: new Date().toISOString(),
+      })
+      .eq('id', id)
+      .eq('branch_id', branchId)
+      .eq('status', 'pending')
+      .select('id, demand_number')
+      .maybeSingle();
+    if (error) throw error;
+
+    // Nothing matched — work out which of the three predicates failed, so the
+    // branch is told what actually happened rather than a bare 404.
+    if (!data) {
+      const { data: exists, error: exErr } = await supabaseAdmin
+        .from('production_orders')
+        .select('id, status, branch_id')
+        .eq('id', id)
+        .maybeSingle();
+      if (exErr) throw exErr;
+      if (!exists) { res.status(404).json({ error: 'Production order not found' }); return; }
+      if (exists.branch_id !== branchId) {
+        res.status(403).json({ error: 'This demand belongs to a different branch' });
+        return;
+      }
+      res.status(409).json({
+        error:
+          exists.status === 'cancelled'
+            ? 'This demand has already been deleted'
+            : 'Production has already started on this demand — it can no longer be deleted',
+      });
+      return;
+    }
+
+    // branchId stays null for the same reason it does on submission: production
+    // users carry no branch claim, and the RLS narrowing would filter a
+    // branch-stamped role broadcast out for every one of them.
+    await notify({
+      type: 'production_demand_cancelled',
+      title: 'Production Demand Deleted',
+      message: `${req.user!.branchName || 'A branch'} deleted demand ${data.demand_number} — ${reason}`,
+      targetRole: 'production_user',
+      branchId: null,
+      relatedId: id,
+    });
+
+    res.json({ success: true });
   } catch (err) {
     next(err);
   }
