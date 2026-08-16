@@ -132,7 +132,20 @@ router.put('/:id/review', validate(ReviewProductionReturnSchema), async (req: Au
         productId: reviewed.product_id,
         productName: reviewed.product_name,
         delta: -Math.abs(Number(reviewed.qty)),
-        type: 'adjustment',
+        // 'return', not 'adjustment'. This is the same business event as a
+        // branch-initiated return (`POST /api/stock/return` -> commitBranchReturn,
+        // which has always written 'return'); only the party who recorded it
+        // differs. Typing it 'adjustment' put the units in the Stock page's
+        // Adjustment column instead of Returned, so a branch that returned stock
+        // saw Returned stay 0 and read that as "my return was never taken off".
+        //
+        // It also broke the Support Center: apply_stock_correction (migration 33)
+        // takes an ABSOLUTE target for `returned` and sizes its compensating
+        // movement against the live figure. With these units filed as
+        // 'adjustment', getProductStockFigures reported returned=0, so an admin
+        // correcting Returned to the true figure appended a SECOND 'return'
+        // movement and took the stock off twice.
+        type: 'return',
         refId: `return_${id}`,
       });
       await notify({
