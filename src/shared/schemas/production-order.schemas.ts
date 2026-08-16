@@ -19,6 +19,22 @@ export const SpecialOrderItemSchema = z.object({
   attachmentIds: optionalAttachmentIds,
 });
 
+/**
+ * 'YYYY-MM-DD', and a date that actually exists — `new Date('2026-02-31')` rolls
+ * over to March rather than failing, so the round-trip back to a string is what
+ * catches it. Kept as a plain string end to end: the column is a Postgres `date`
+ * with no time component, and parsing it into a Date would drag the Karachi
+ * offset into a value that has no time of day to offset.
+ */
+const dateOnly = z
+  .string()
+  .trim()
+  .regex(/^\d{4}-\d{2}-\d{2}$/, 'Enter a date as YYYY-MM-DD')
+  .refine((s) => {
+    const d = new Date(`${s}T00:00:00Z`);
+    return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === s;
+  }, 'That date does not exist');
+
 export const ProductionOrderItemSchema = z.object({
   productId: z.string().min(1, 'Product is required'),
   qty: z.number().int().positive('Quantity must be at least 1'),
@@ -46,6 +62,24 @@ export const CreateProductionOrderSchema = z
     packingItems: z.array(ProductionOrderPackingItemSchema).default([]),
     /** One-off items typed by hand. Absent on most demands. */
     specialItems: z.array(SpecialOrderItemSchema).default([]),
+    /**
+     * The date the branch needs this delivered by. REQUIRED — a demand with no
+     * required date is the thing this field exists to stop.
+     *
+     * Note this TIGHTENS the contract, which the attachmentIds comment below
+     * explains is the risky direction for a static-export PWA: a tab still
+     * running the previous bundle omits the key and will 400 until it reloads.
+     * That is accepted deliberately — the alternative is defaulting the date
+     * server-side, which would file a made-up commitment under the branch's
+     * name and is exactly the outcome being designed out. The update poller
+     * reloads those tabs within a couple of minutes.
+     *
+     * Not bounded here. "Not in the past" is enforced on the form, against the
+     * user's own clock; re-checking it server-side would turn ordinary
+     * client/server clock skew at the day boundary into a rejected demand, and
+     * a required date a day behind is a typo to read, not corrupt data.
+     */
+    requiredDate: dateOnly,
     /**
      * Photos of what the demand is for. OPTIONAL.
      *

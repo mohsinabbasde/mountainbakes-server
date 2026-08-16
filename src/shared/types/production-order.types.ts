@@ -82,8 +82,16 @@ export interface BranchProductionOrder {
   demandNumber: string; // human-readable DMD-######
   branchId: string;
   branchName: string;
-  date: string; // 'YYYY-MM-DD' (Karachi)
+  date: string; // 'YYYY-MM-DD' (Karachi) — the day the demand was RAISED
   time: string; // 'HH:mm' (Karachi)
+  /**
+   * 'YYYY-MM-DD' — the day the branch needs this delivered BY, chosen on the
+   * order form. Required on every demand raised since the field was added
+   * (migration 81) and absent on every one raised before it, which is why it is
+   * optional here; render a missing value as '—' rather than falling back to
+   * `date`, which would show a delivery commitment that was never made.
+   */
+  requiredDate?: string | null;
   items: BranchProductionOrderItem[];
   /**
    * Optional packing materials requested with this demand. Empty on most orders and

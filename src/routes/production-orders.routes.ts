@@ -213,11 +213,14 @@ router.post('/', requireRole(...BRANCH_ROLES), validate(CreateProductionOrderSch
     const branchId = req.user!.branchId;
     if (!branchId) { res.status(400).json({ error: 'No branch assigned to this account' }); return; }
 
-    const { items, packingItems = [], specialItems = [], attachmentIds = [] } = req.body as {
+    const { items, packingItems = [], specialItems = [], attachmentIds = [], requiredDate } = req.body as {
       items: { productId: string; qty: number; remarks: string }[];
       packingItems?: { packingMaterialId: string; qty: number }[];
       specialItems?: { name: string; qty: number; description: string; attachmentIds: string[] }[];
       attachmentIds?: string[];
+      // Validated as a real 'YYYY-MM-DD' by CreateProductionOrderSchema, so it
+      // reaches here already known-good and non-empty.
+      requiredDate: string;
     };
 
     // Resolve product names server-side — branch users never send names or
@@ -283,6 +286,9 @@ router.post('/', requireRole(...BRANCH_ROLES), validate(CreateProductionOrderSch
         branch_id: branchId,
         branch_name: req.user!.branchName || '',
         business_date: businessDateStr(now),
+        // The day the branch asked for, NOT derived from `now` — see the
+        // migration for why the two dates are kept apart.
+        required_date: requiredDate,
         submitted_time: karachiTimeStr(now),
         status: 'pending',
         created_by: req.user!.uid,
