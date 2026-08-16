@@ -452,6 +452,9 @@ async function resolveReference(
     // with the page.
     const f = await getProductionStockFigures(product.id, today);
     fields.push(
+      // Opening first, as on the branch reference — it is where the day starts,
+      // and without it the other figures have nothing to be read against.
+      { label: 'Opening Stock', value: String(f.opening) },
       { label: 'Prepared Today', value: String(f.preparedToday) },
       { label: 'Total Stock', value: String(f.totalStock) },
       { label: 'Approved Qty', value: String(f.approvedQty) },

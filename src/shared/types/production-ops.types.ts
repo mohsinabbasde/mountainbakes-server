@@ -43,6 +43,13 @@ export interface ProductionStockHistoryRow {
  * derived — balance + approved + sold — so neither is directly correctable.
  */
 export interface ProductionStockFigures {
+  /**
+   * The pool balance at the start of this business day — yesterday's closing.
+   * Derived exactly as the branch ledger derives it (StockFigures.opening):
+   * balance minus the day's net movement. Not correctable, for the same reason
+   * the branch's is not: it is a day that has already closed.
+   */
+  opening: number;
   preparedToday: number;
   approvedQty: number;
   returned: number;
@@ -63,6 +70,7 @@ export interface ProductionStockRow {
    */
   stockCode: string;
   productName: string;
+  opening: number; // pool balance at the start of the day (balance − today's net)
   preparedToday: number; // Σ prepare deltas today
   totalStock: number; // current balance + what left today (a "gross in" view)
   approvedQty: number; // Σ transferred out today

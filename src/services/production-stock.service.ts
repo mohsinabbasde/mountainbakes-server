@@ -196,6 +196,7 @@ export async function getProductionStockRows(date: string = businessDateStr()): 
       productId: p.id,
       stockCode: p.stock_code,
       productName: p.name,
+      opening: 0,
       preparedToday: 0,
       totalStock: 0,
       approvedQty: 0,
@@ -218,6 +219,7 @@ export async function getProductionStockRows(date: string = businessDateStr()): 
       productId: d.product_id,
       stockCode: codeById.get(d.product_id) ?? '—',
       productName: d.product_name,
+      opening: 0,
       preparedToday: 0,
       totalStock: 0,
       approvedQty: 0,
@@ -242,6 +244,7 @@ export async function getProductionStockRows(date: string = businessDateStr()): 
         productId: h.product_id,
         stockCode: codeById.get(h.product_id) ?? '—',
         productName: h.product_name,
+        opening: 0,
         preparedToday: 0,
         totalStock: 0,
         approvedQty: 0,
@@ -274,7 +277,18 @@ export async function getProductionStockRows(date: string = businessDateStr()): 
   // totalStock = what's on hand now + everything that already left today. Counter
   // sales leave the pool just like an approved transfer does, so they belong in
   // this sum — without them the gross view would shrink every time one is rung up.
-  for (const row of rows.values()) row.totalStock = row.balance + row.approvedQty + row.soldToday;
+  //
+  // opening = balance − the day's NET movement, the same definition
+  // computeStockRows uses for a branch. The signs are unfolded back to raw deltas
+  // first: prepare and return_in were stored positive, but approvedQty and
+  // soldToday were NEGATED above to report them positive, so they subtract here.
+  //     net = prepared − approvedQty + returned − soldToday + adjustment
+  for (const row of rows.values()) {
+    row.totalStock = row.balance + row.approvedQty + row.soldToday;
+    row.opening =
+      row.balance -
+      (row.preparedToday - row.approvedQty + row.returned - row.soldToday + row.adjustment);
+  }
 
   return [...rows.values()].sort((a, b) => b.balance - a.balance || a.productName.localeCompare(b.productName));
 }
@@ -306,6 +320,7 @@ export async function getProductionStockFigures(
   if (history.error) throw history.error;
 
   const figures: ProductionStockFigures = {
+    opening: 0,
     preparedToday: 0,
     approvedQty: 0,
     returned: 0,
@@ -325,6 +340,11 @@ export async function getProductionStockFigures(
     else if (h.type === 'adjustment') figures.adjustment += delta;
   }
   figures.totalStock = figures.balance + figures.approvedQty + figures.soldToday;
+  // Same derivation as getProductionStockRows — see the comment there for why
+  // approvedQty and soldToday subtract rather than add.
+  figures.opening =
+    figures.balance -
+    (figures.preparedToday - figures.approvedQty + figures.returned - figures.soldToday + figures.adjustment);
   return figures;
 }
 
@@ -396,6 +416,7 @@ export async function applyProductionStockCorrection(params: {
 
   // numeric(14,3) arrives as a string from PostgREST — coerce every figure.
   const figures = (raw: Record<string, unknown> = {}): ProductionStockFigures => ({
+    opening: Number(raw['opening'] ?? 0),
     preparedToday: Number(raw['preparedToday'] ?? 0),
     approvedQty: Number(raw['approvedQty'] ?? 0),
     returned: Number(raw['returned'] ?? 0),
