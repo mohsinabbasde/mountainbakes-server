@@ -75,6 +75,22 @@ export interface BranchProductionOrderItem {
   description?: string;
   /** The optional photo captured with a special item. Empty on everything else. */
   photos?: Attachment[];
+  /**
+   * This line was added by Production before review, or found in the delivery
+   * at verification — the branch never demanded it (migration 83).
+   *
+   * `qty` on such a line still carries the intended quantity and is still what
+   * the approval defaults to, so this does NOT change what ships. It exists so
+   * the screens stop reporting that quantity as branch demand: a demand column
+   * showing Production's own figure made every added line read as though the
+   * branch had asked for exactly what was sent, and inflated the demand total
+   * by goods nobody requested.
+   *
+   * Absent on lines predating the flag — read as `?? false`. Lines added by
+   * Production before migration 83 carry no marker and are indistinguishable
+   * from genuine branch demand; they read as demand, as they always have.
+   */
+  addedByProduction?: boolean;
 }
 
 export interface BranchProductionOrder {

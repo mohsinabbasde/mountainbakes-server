@@ -40,7 +40,7 @@ export const router = Router();
 const ORDER_SELECT = `
   *,
   items:production_order_items(
-    id, product_id, product_name, qty, remarks, is_special,
+    id, product_id, product_name, qty, remarks, is_special, added_by_production,
     previous_balance_qty, total_required_qty, approved_qty, remaining_balance_qty, line_no
   ),
   packingItems:production_order_packing_items(
@@ -876,7 +876,13 @@ router.post('/:id/items', requireRole('super_admin', 'production_user'), validat
       production_order_id: id,
       product_id: productId,
       product_name: product.name,
+      // `qty` is the branch's demand everywhere else, and this line is not one:
+      // Production is adding it. It still carries the intended quantity — that
+      // is what review defaults the approval to, and changing it would alter
+      // what ships — but `added_by_production` tells the screens not to report
+      // this figure as something the branch asked for (migration 83).
       qty,
+      added_by_production: true,
       remarks: remarks || '',
       line_no: nextLineNo,
     });
