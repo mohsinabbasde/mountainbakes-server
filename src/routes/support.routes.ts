@@ -21,6 +21,7 @@ import { notify } from '../services/push.service';
 import {
   applyStockCorrection,
   applyStockMovement,
+  DayClosedError,
   getProductStockFigures,
   NegativeBalanceError,
   OverdeterminedCorrectionError,
@@ -72,9 +73,15 @@ const money = (v: unknown) => `Rs.${Number(v ?? 0).toLocaleString('en-PK')}`;
  * `adjustment` is correctable as of migration 78 and is the ALTERNATIVE to
  * `balance` — they are one degree of freedom (adjustment is the residual in
  * opening + new − sold − returned + adjustment = balance), so the RPC refuses
- * both at once. `opening` is absent on purpose: it is the previous day's closing.
+ * both at once.
+ *
+ * `opening` is correctable as of migration 79, but unlike the rest its movement is
+ * dated to the PREVIOUS business day — opening IS yesterday's closing, and a
+ * movement dated today cannot shift it (balance and today's net move together).
+ * It is refused outright once that day has been formally closed.
  */
 const STOCK_FIGURE_LABELS = {
+  opening: 'Opening Stock',
   newQty: 'New Stock',
   sold: 'Sold',
   returned: 'Returned',
@@ -95,9 +102,9 @@ const PRODUCTION_FIGURE_LABELS = {
 } as const;
 
 /**
- * "Sold 10 → 12, Balance 40 → 38" — only the figures that actually moved, and only
- * the CORRECTABLE ones: `opening` / `totalStock` are derived and never move on
- * their own, and `adjustment` is the remainder already visible in Balance.
+ * "Sold 10 → 12, Balance 40 → 38" — only the figures that actually moved. Every
+ * key in STOCK_FIGURE_LABELS is correctable now, Opening and Adjustment included,
+ * so all of them are worth reporting when they change.
  */
 function describeStockChange(result: StockCorrectionResult): string {
   return (Object.keys(STOCK_FIGURE_LABELS) as (keyof typeof STOCK_FIGURE_LABELS)[])
@@ -513,6 +520,7 @@ async function resolveReference(
     // adjustment is the residual, so setting either determines the other. The
     // dialog offers one box at a time and the RPC refuses both (migration 78).
     editableFields.push(
+      { key: 'opening', label: 'Opening Stock', kind: 'number', value: f.opening },
       { key: 'newQty', label: 'New Stock', kind: 'number', value: f.newQty },
       { key: 'sold', label: 'Sold', kind: 'number', value: f.sold },
       { key: 'returned', label: 'Returned', kind: 'number', value: f.returned },
@@ -834,9 +842,11 @@ router.patch('/:id/figures', requireRole('super_admin'), validate(ChangeFiguresS
       }
 
       // Absolute targets, not deltas: the admin enters the figures as they should
-      // read. `opening` is never honoured — it is the previous day's closing.
+      // read. `opening` is honoured too (migration 79), but it is the one figure
+      // whose movement lands on the PREVIOUS business day, because that is the day
+      // it describes — the RPC refuses it if that day has been closed.
       const targets: StockCorrectionTargets = {};
-      for (const key of ['newQty', 'sold', 'returned', 'adjustment', 'balance'] as const) {
+      for (const key of ['opening', 'newQty', 'sold', 'returned', 'adjustment', 'balance'] as const) {
         const raw = edits[key];
         if (raw === undefined || raw === '') continue;
         const value = Number(raw);
@@ -887,6 +897,10 @@ router.patch('/:id/figures', requireRole('super_admin'), validate(ChangeFiguresS
       } catch (err) {
         if (err instanceof OverdeterminedCorrectionError) {
           res.status(400).json({ error: err.message });
+          return;
+        }
+        if (err instanceof DayClosedError) {
+          res.status(409).json({ error: err.message });
           return;
         }
         if (err instanceof NegativeBalanceError) {

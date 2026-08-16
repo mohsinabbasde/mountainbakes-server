@@ -57,11 +57,27 @@ export async function applyStockMovement(input: MovementInput): Promise<number> 
  * `{ adjustment: 0 }` is how a correction is cleared.
  */
 export interface StockCorrectionTargets {
+  /**
+   * Correctable as of migration 79. Its movement is dated to the PREVIOUS
+   * business day, because opening is yesterday's closing and a movement on today
+   * cannot shift it (balance and today's net move together). Refused with
+   * `day_closed` if that previous day has been formally closed.
+   */
+  opening?: number;
   newQty?: number;
   sold?: number;
   returned?: number;
   balance?: number;
   adjustment?: number;
+}
+
+/** Thrown when an Opening correction would restate an already-closed day. */
+export class DayClosedError extends Error {
+  status = 409;
+  constructor(public businessDate: string) {
+    super(`${businessDate} has been closed, so its closing balance can no longer be corrected.`);
+    this.name = 'DayClosedError';
+  }
 }
 
 /** Thrown when both `balance` and `adjustment` are targeted in one correction. */
@@ -127,8 +143,9 @@ export async function applyStockCorrection(params: {
   if (error) throw error;
 
   const result = data as {
-    status: 'ok' | 'negative_balance' | 'overdetermined';
+    status: 'ok' | 'negative_balance' | 'overdetermined' | 'day_closed';
     balance?: number;
+    businessDate?: string;
     applied?: boolean;
     before?: Record<string, unknown>;
     after?: Record<string, unknown>;
@@ -137,6 +154,9 @@ export async function applyStockCorrection(params: {
 
   if (result.status === 'overdetermined') {
     throw new OverdeterminedCorrectionError();
+  }
+  if (result.status === 'day_closed') {
+    throw new DayClosedError(String(result.businessDate ?? 'That day'));
   }
   if (result.status === 'negative_balance') {
     throw new NegativeBalanceError(Number(result.balance ?? 0));
