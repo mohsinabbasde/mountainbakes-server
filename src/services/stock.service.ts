@@ -271,20 +271,9 @@ export async function getProductStockFigures(
   return { opening: balance - net, newQty, sold, returned, adjustment, balance };
 }
 
-/** Retail sale removes stock. `qty` is positive; recorded as a negative delta. */
-export function applySaleToStock(i: { branchId: string; productId: string; productName: string; qty: number; refId: string }) {
-  return applyStockMovement({ ...i, delta: -Math.abs(i.qty), type: 'sale' });
-}
-
 /** Approved production adds stock. `qty` is positive; recorded as a positive delta. */
 export function applyProductionToStock(i: { branchId: string; productId: string; productName: string; qty: number; refId: string }) {
   return applyStockMovement({ ...i, delta: Math.abs(i.qty), type: 'production' });
-}
-
-export interface SaleLine {
-  productId: string;
-  productName: string;
-  qty: number; // positive units sold on this line
 }
 
 export interface StockShortfall {

@@ -63,8 +63,3 @@ export function toE164(raw: string | null | undefined, country = defaultCountryC
 
   return `+${digits}`;
 }
-
-/** True when `raw` can be normalised to a sendable E.164 number. */
-export function isSendableNumber(raw: string | null | undefined): boolean {
-  return toE164(raw) !== null;
-}
