@@ -682,12 +682,18 @@ router.put('/:id/review', requireRole('super_admin', 'production_user'), validat
     // counted — so this step is paperwork, and there is no window where branch
     // stock claims goods nobody has confirmed receiving.
 
-    // Notify the branch with a per-product Total Required / Approved / Pending summary.
+    // Notify the branch with a per-product Demanded / Approved summary.
+    //
+    // Pending is gone from this line (migration 74): with the carry-forward
+    // removed `remainingBalanceQty` is now always 0, so printing it told the
+    // branch nothing and read as though every line had been fully met even when
+    // Production had cut it. Demanded vs Approved is the whole story now — the
+    // difference between the two IS the shortfall, and it does not carry.
     const productSummary = result.items
-      .map((it) => `${it.productName}: Required ${it.totalRequiredQty}, Approved ${it.approvedQty}, Pending ${it.remainingBalanceQty}`)
+      .map((it) => `${it.productName}: Demanded ${it.qty}, Approved ${it.approvedQty}`)
       .join(' · ');
-    // Packing lines have no Required/Pending — there is no carry-forward — so they
-    // report just what was asked for and what was approved.
+    // Packing lines report the same pair, and always did — they never had a
+    // carry-forward to lose.
     const packingSummary = (result.packingItems ?? [])
       .map((it) => `${it.materialName}: Requested ${it.qty}, Approved ${it.approvedQty}`)
       .join(' · ');

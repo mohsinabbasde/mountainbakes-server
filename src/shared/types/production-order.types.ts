@@ -31,21 +31,32 @@ export type BranchProductionOrderStatus =
 export interface BranchProductionOrderItem {
   productId: string;
   productName: string;
-  qty: number; // requested quantity — the branch's "New Demand" for this order
+  qty: number; // the branch's demand for this order — the whole requirement
   remarks: string;
   /**
-   * Quantity Production actually approved. Defaults to `totalRequiredQty` on approval
-   * (previous balance + new demand); may be lower/higher when Production adjusts.
+   * Quantity Production actually approved. Defaults to `qty` — the fresh demand —
+   * and is lower when Production reduces a line, higher when it raises one.
    */
   approvedQty?: number;
   /**
    * Pending-balance carry-forward fields, frozen onto the item at approval time.
-   * Absent on pending orders (computed live in the print preview) and on legacy
-   * orders created before this feature — treat missing values as 0.
+   *
+   * DEAD as of server migration 74, which removed the carry-forward entirely: a
+   * demand is now the fresh demand alone. New rows are written with
+   * previousBalanceQty = 0, totalRequiredQty = qty and remainingBalanceQty = 0,
+   * and nothing computes with them.
+   *
+   * They stay readable because orders approved BEFORE that migration genuinely
+   * were approved against previous balance + new demand, and these stored figures
+   * are the only record of what was decided on the day. Absent on pending orders
+   * and on legacy orders predating the feature — treat missing values as 0.
+   *
+   * Do NOT reintroduce them into any calculation: adding previousBalanceQty back
+   * into a demand is precisely the bug migration 74 fixed.
    */
-  previousBalanceQty?: number; // outstanding balance carried in from prior orders
-  totalRequiredQty?: number; // previousBalanceQty + qty (New Demand)
-  remainingBalanceQty?: number; // max(0, totalRequiredQty - approvedQty) — carried forward
+  previousBalanceQty?: number; // historical only — balance carried in from prior orders
+  totalRequiredQty?: number; // historical: previousBalanceQty + qty. Now always qty.
+  remainingBalanceQty?: number; // historical: the shortfall carried on. Now always 0.
   /**
    * This line came from the Special Order Items section, not the product list.
    *
