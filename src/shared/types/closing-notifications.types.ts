@@ -89,10 +89,6 @@ export interface ProductionClosingReport {
     approved: number;
     pending: number;
   };
-  expenses: {
-    total: number;
-    byCategory: Record<string, number>;
-  };
   orders: {
     closed: number;
     pending: number;

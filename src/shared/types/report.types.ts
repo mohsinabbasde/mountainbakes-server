@@ -44,6 +44,10 @@ export interface ReportSummary {
   to: string;
   totalOrders: number;
   totalRevenue: number;
+  /** Discount given on non-cancelled, non-staff sales in range. Already deducted from totalRevenue. */
+  totalDiscount: number;
+  /** Value of staff (unpaid) sales in range. Excluded from totalRevenue and profit. */
+  staffTotal: number;
   totalCancelled: number;
   totalPending: number;
   averageOrderValue: number;

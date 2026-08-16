@@ -17,6 +17,15 @@ export interface Product {
   costPrice: number;
   description: string;
   isActive: boolean;
+  /**
+   * Auto-created to carry a branch Special Order Item (migration 69).
+   *
+   * Real and active, so stock and production stock work on it normally, but
+   * hidden from every catalogue a person picks from — the branch order form,
+   * the price list, the POS. `GET /api/products` filters these out unless asked
+   * for with `includeSpecial=true`, so most callers never see one.
+   */
+  isSpecial?: boolean;
   createdAt: string;
   updatedAt: string;
 }

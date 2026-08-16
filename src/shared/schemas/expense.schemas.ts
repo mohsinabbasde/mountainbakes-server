@@ -3,10 +3,10 @@ import { z } from 'zod';
 export const EXPENSE_PAYMENT_METHODS = ['cash', 'easypaisa'] as const;
 
 /**
- * One category vocabulary for BOTH expense tables (shop `expenses` and
- * `production_expenses`), so the two breakdowns are directly comparable and the
- * lists cannot drift. Previously this literal lived only in
- * ProductionExpenseForm.tsx.
+ * The category vocabulary for shop `expenses`. It covered both expense tables
+ * until `production_expenses` was dropped (migration 59); historical rows in the
+ * closing archives were categorised from this same list, so retiring a value here
+ * still changes how an old breakdown reads.
  */
 export const EXPENSE_CATEGORIES = [
   'Ingredients', 'Packaging', 'Utilities', 'Rent', 'Salaries',
@@ -16,8 +16,8 @@ export const EXPENSE_CATEGORIES = [
 export type ExpenseCategory = (typeof EXPENSE_CATEGORIES)[number];
 
 export const CreateExpenseSchema = z.object({
-  // Validated as a bounded string rather than z.enum, matching
-  // CreateProductionExpenseSchema and the plain `text` DB column: the list can
+  // Validated as a bounded string rather than z.enum, matching the plain `text`
+  // DB column rather than EXPENSE_CATEGORIES: the list can
   // grow or be renamed without a migration, and historical rows holding a
   // retired value never become un-parseable.
   category: z.string().min(1, 'Category is required').max(100),

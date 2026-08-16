@@ -1,0 +1,759 @@
+import { supabaseAdmin } from '../config/supabase';
+import {
+  businessDateStr,
+  EDITABLE_DOC_STATUSES,
+  SYSTEM_LEDGER_HEAD_CODES,
+  type CreateFinanceTransactionInput,
+  type CreatePartnerExpenseInput,
+  type FinanceDocStatus,
+  type FinancePartner,
+  type FinanceTransaction,
+  type LedgerEntry,
+  type LedgerSourceType,
+  type PartnerExpense,
+  type PartnerShareSummary,
+  type UpdateFinancePartnerInput,
+  type UpdateFinanceTransactionInput,
+  type UpdatePartnerExpenseInput,
+} from '../shared';
+import { rowToApi } from '../utils/case';
+import { bindAttachments, listAttachments, listAttachmentsFor } from './attachments.service';
+import { postEntry, requireActiveHead } from './finance-ledger.service';
+import { getLedgerHeadByCode, round2 } from './finance-settings.service';
+
+/**
+ * Manual income / expense documents and partner expenses.
+ *
+ * Both walk the same lifecycle — draft → pending_approval → approved → posted →
+ * locked, or rejected — and both post to the ledger at the moment of approval.
+ * The shared machinery for that lives in `approveDocument` at the bottom; the
+ * per-type functions above it exist because the two carry different fields, not
+ * different rules.
+ *
+ * WHY THE DOCUMENT AND THE LEDGER ENTRY ARE SEPARATE ROWS: the document holds
+ * the decision trail (who raised it, who approved it, why it was rejected, what
+ * it was edited from); the ledger entry holds the money and is immutable. Fusing
+ * them would mean either a mutable ledger or an untraceable approval, and both
+ * are disqualifying.
+ */
+
+const num = (v: unknown) => Number(v ?? 0);
+
+/**
+ * The single place that decides where a new document starts.
+ *
+ * `asDraft` is what the "Save as draft" button sends; everything else goes
+ * straight into the approval queue, because the common case is an accountant
+ * entering a real receipt they want signed off today.
+ */
+function initialStatus(asDraft: boolean): FinanceDocStatus {
+  return asDraft ? 'draft' : 'pending_approval';
+}
+
+function assertEditable(doc: { status: FinanceDocStatus }, ref: string): void {
+  if (!EDITABLE_DOC_STATUSES.includes(doc.status)) {
+    throw Object.assign(
+      new Error(
+        doc.status === 'pending_approval'
+          ? `${ref} is awaiting approval. Ask an approver to reject it first if it needs changing.`
+          : `${ref} is ${doc.status} and can no longer be edited. Post an adjustment instead.`,
+      ),
+      { status: 409 },
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Manual income / expense (finance_transactions)
+// ---------------------------------------------------------------------------
+
+export interface TransactionQuery {
+  status?: FinanceDocStatus | 'pending';
+  type?: 'income' | 'expense';
+  branchId?: string;
+  ledgerHeadId?: string;
+  from?: string;
+  to?: string;
+  search?: string;
+  limit?: number;
+}
+
+export async function listTransactions(q: TransactionQuery): Promise<FinanceTransaction[]> {
+  let query = supabaseAdmin
+    .from('finance_transactions')
+    .select('*')
+    .order('business_date', { ascending: false })
+    .order('created_at', { ascending: false })
+    .limit(Math.min(Math.max(Number(q.limit ?? 200), 1), 500));
+
+  if (q.status === 'pending') query = query.in('status', ['draft', 'pending_approval']);
+  else if (q.status) query = query.eq('status', q.status);
+  if (q.type) query = query.eq('txn_type', q.type);
+  if (q.branchId) query = query.eq('branch_id', q.branchId);
+  if (q.ledgerHeadId) query = query.eq('ledger_head_id', q.ledgerHeadId);
+  if (q.from) query = query.gte('business_date', q.from);
+  if (q.to) query = query.lte('business_date', q.to);
+  if (q.search) {
+    const term = q.search.replace(/[,()*]/g, ' ').trim();
+    if (term) {
+      query = query.or(
+        `txn_no.ilike.%${term}%,description.ilike.%${term}%,ledger_head_name.ilike.%${term}%,reference_no.ilike.%${term}%`,
+      );
+    }
+  }
+
+  const { data, error } = await query;
+  if (error) throw error;
+
+  const rows = rowToApi<FinanceTransaction[]>(data ?? []).map((t) => ({ ...t, amount: num(t.amount) }));
+  // One query and one signing call for the whole page, not one per row.
+  const photos = await listAttachmentsFor(
+    'finance_transaction',
+    rows.map((t) => t.id),
+  );
+  return rows.map((t) => ({ ...t, attachments: photos.get(t.id) ?? [] }));
+}
+
+/**
+ * Branch income posts income-type ledger entries automatically (company
+ * share / branch share — see finance-income.service.ts). A manual entry
+ * booked against the same head, for the same amount, on the same date is
+ * almost always someone re-keying money that already reached the book, not
+ * a second real transaction that happens to coincide. Rather than silently
+ * accepting the double-count, this throws a 409 with the matching entry
+ * attached; the client shows it as a warning and can resubmit with
+ * `confirmDuplicate: true` for the rare case it really is a coincidence.
+ */
+async function assertNotDuplicateIncome(
+  ledgerHeadId: string,
+  amount: number,
+  businessDate: string,
+): Promise<void> {
+  const { data: existing, error } = await supabaseAdmin
+    .from('ledger_entries')
+    .select('voucher_no, entry_date, debit, ledger_head_name')
+    .eq('ledger_head_id', ledgerHeadId)
+    .eq('entry_date', businessDate)
+    .eq('debit', round2(amount))
+    .in('source_type', ['branch_income', 'company_share', 'branch_share'])
+    .in('status', ['posted', 'locked'])
+    .limit(1)
+    .maybeSingle();
+  if (error) throw error;
+  if (!existing) return;
+
+  throw Object.assign(
+    new Error(
+      `This matches ${existing.voucher_no} — ${existing.ledger_head_name}, already posted from Branch ` +
+        `Income for ${existing.entry_date} at the same amount. If this is a genuinely separate ` +
+        `transaction that happens to coincide, confirm to create it anyway.`,
+    ),
+    {
+      status: 409,
+      details: {
+        code: 'duplicate_income',
+        existing: {
+          voucherNo: existing.voucher_no as string,
+          entryDate: existing.entry_date as string,
+          amount: num(existing.debit),
+          ledgerHeadName: existing.ledger_head_name as string,
+        },
+      },
+    },
+  );
+}
+
+export async function createTransaction(
+  input: CreateFinanceTransactionInput,
+  actor: { uid: string; name: string },
+): Promise<FinanceTransaction> {
+  // The head is read from the database and ITS type decides whether this is
+  // income or expense. Nothing the client sent gets a vote — see the schema note.
+  const head = await requireActiveHead(input.ledgerHeadId);
+  const branch = await resolveBranch(input.branchId);
+  const businessDate = input.businessDate ?? businessDateStr();
+
+  if (head.type === 'income' && !input.confirmDuplicate) {
+    await assertNotDuplicateIncome(head.id, input.amount, businessDate);
+  }
+
+  const { data, error } = await supabaseAdmin
+    .from('finance_transactions')
+    .insert({
+      txn_type: head.type,
+      ledger_head_id: head.id,
+      ledger_head_name: head.name,
+      branch_id: branch?.id ?? null,
+      branch_name: branch?.name ?? null,
+      description: input.description,
+      amount: round2(input.amount),
+      payment_method: input.paymentMethod,
+      account: input.account,
+      business_date: businessDate,
+      status: initialStatus(input.asDraft),
+      reference_no: input.referenceNo ?? null,
+      notes: input.notes ?? null,
+      created_by: actor.uid,
+      created_by_name: actor.name,
+    })
+    .select('*')
+    .single();
+  if (error) throw error;
+
+  const txn = rowToApi<FinanceTransaction>(data);
+  // Binding happens after the insert because the staged photos need this row's
+  // id. A failure here throws, leaving an entry with no photo — recoverable
+  // (it is a draft or pending, both editable) and far preferable to the
+  // alternative of swallowing the error and silently accepting an
+  // unsubstantiated voucher.
+  const attachments = await bindAttachments({
+    entity: 'finance_transaction',
+    entityId: txn.id,
+    attachmentIds: input.attachmentIds,
+    actor,
+  });
+  return { ...txn, attachments };
+}
+
+export async function updateTransaction(
+  id: string,
+  input: UpdateFinanceTransactionInput,
+): Promise<FinanceTransaction> {
+  const current = await getTransaction(id);
+  if (!current) throw Object.assign(new Error('Entry not found'), { status: 404 });
+  assertEditable(current, current.txnNo);
+
+  const row: Record<string, unknown> = {};
+  if (input.ledgerHeadId !== undefined) {
+    const head = await requireActiveHead(input.ledgerHeadId);
+    row['ledger_head_id'] = head.id;
+    row['ledger_head_name'] = head.name;
+    row['txn_type'] = head.type;
+  }
+  if (input.branchId !== undefined) {
+    const branch = await resolveBranch(input.branchId);
+    row['branch_id'] = branch?.id ?? null;
+    row['branch_name'] = branch?.name ?? null;
+  }
+  if (input.description !== undefined) row['description'] = input.description;
+  if (input.amount !== undefined) row['amount'] = round2(input.amount);
+  if (input.paymentMethod !== undefined) row['payment_method'] = input.paymentMethod;
+  if (input.account !== undefined) row['account'] = input.account;
+  if (input.businessDate !== undefined) row['business_date'] = input.businessDate;
+  if (input.referenceNo !== undefined) row['reference_no'] = input.referenceNo;
+  if (input.notes !== undefined) row['notes'] = input.notes;
+
+  // Editing a rejected document puts it back in the queue — otherwise the fix
+  // sits in limbo with nobody prompted to look at it again.
+  if (current.status === 'rejected') {
+    row['status'] = 'pending_approval';
+    row['rejection_reason'] = null;
+  }
+
+  const { data, error } = await supabaseAdmin
+    .from('finance_transactions')
+    .update(row)
+    .eq('id', id)
+    .in('status', EDITABLE_DOC_STATUSES)
+    .select('*')
+    .single();
+  if (error) throw error;
+  return rowToApi<FinanceTransaction>(data);
+}
+
+export async function getTransaction(id: string): Promise<FinanceTransaction | null> {
+  const { data, error } = await supabaseAdmin.from('finance_transactions').select('*').eq('id', id).maybeSingle();
+  if (error) throw error;
+  if (!data) return null;
+  return {
+    ...rowToApi<FinanceTransaction>(data),
+    amount: num((data as Record<string, unknown>)['amount']),
+    attachments: await listAttachments('finance_transaction', id),
+  };
+}
+
+/** Move a draft into the approval queue. */
+export async function submitTransaction(id: string): Promise<FinanceTransaction> {
+  const { data, error } = await supabaseAdmin
+    .from('finance_transactions')
+    .update({ status: 'pending_approval', rejection_reason: null })
+    .eq('id', id)
+    .in('status', ['draft', 'rejected'])
+    .select('*')
+    .single();
+  if (error) throw Object.assign(new Error('Only a draft or rejected entry can be submitted.'), { status: 409 });
+  return rowToApi<FinanceTransaction>(data);
+}
+
+export async function approveTransaction(
+  id: string,
+  actor: { uid: string; name: string },
+  notes?: string | null,
+): Promise<{ document: FinanceTransaction; entry: LedgerEntry }> {
+  const doc = await getTransaction(id);
+  if (!doc) throw Object.assign(new Error('Entry not found'), { status: 404 });
+
+  const entry = await approveDocument({
+    table: 'finance_transactions',
+    id,
+    ref: doc.txnNo,
+    status: doc.status,
+    actor,
+    notes,
+    posting: {
+      entryDate: doc.businessDate,
+      ledgerHeadId: doc.ledgerHeadId,
+      headType: doc.txnType,
+      description: `${doc.description} (${doc.txnNo})`,
+      amount: doc.amount,
+      account: doc.account,
+      paymentMethod: doc.paymentMethod,
+      branchId: doc.branchId,
+      branchName: doc.branchName,
+      sourceType: 'manual',
+    },
+  });
+
+  return { document: (await getTransaction(id))!, entry };
+}
+
+export async function rejectTransaction(
+  id: string,
+  reason: string,
+  actor: { uid: string; name: string },
+): Promise<FinanceTransaction> {
+  await rejectDocument('finance_transactions', id, reason, actor);
+  return (await getTransaction(id))!;
+}
+
+// ---------------------------------------------------------------------------
+// Partners
+// ---------------------------------------------------------------------------
+
+export async function listFinancePartners(includeInactive = false): Promise<FinancePartner[]> {
+  let query = supabaseAdmin.from('finance_partners').select('*').order('name', { ascending: true });
+  if (!includeInactive) query = query.eq('is_active', true);
+  const { data, error } = await query;
+  if (error) throw error;
+  return rowToApi<FinancePartner[]>(data ?? []).map((p) => ({ ...p, sharePct: num(p.sharePct) }));
+}
+
+async function requireActivePartner(id: string): Promise<FinancePartner> {
+  const { data, error } = await supabaseAdmin.from('finance_partners').select('*').eq('id', id).maybeSingle();
+  if (error) throw error;
+  if (!data) throw Object.assign(new Error('Partner not found'), { status: 404 });
+  const partner = { ...rowToApi<FinancePartner>(data), sharePct: num((data as Record<string, unknown>)['share_pct']) };
+  if (!partner.isActive) throw Object.assign(new Error(`${partner.name} is not an active partner.`), { status: 400 });
+  return partner;
+}
+
+/** Profile edit only — name and sharePct are fixed at seed time. */
+export async function updateFinancePartner(id: string, input: UpdateFinancePartnerInput): Promise<FinancePartner> {
+  const row: Record<string, unknown> = {};
+  if (input.fatherName !== undefined) row['father_name'] = input.fatherName;
+  if (input.dateOfBirth !== undefined) row['date_of_birth'] = input.dateOfBirth;
+  if (input.joinedOn !== undefined) row['joined_on'] = input.joinedOn;
+  if (input.partnerType !== undefined) row['partner_type'] = input.partnerType;
+  if (input.address !== undefined) row['address'] = input.address;
+  if (input.contactNumber !== undefined) row['contact_number'] = input.contactNumber;
+  if (input.emergencyNumber !== undefined) row['emergency_number'] = input.emergencyNumber;
+
+  const { data, error } = await supabaseAdmin
+    .from('finance_partners')
+    .update(row)
+    .eq('id', id)
+    .select('*')
+    .single();
+  if (error) throw error;
+  return { ...rowToApi<FinancePartner>(data), sharePct: num((data as Record<string, unknown>)['share_pct']) };
+}
+
+// ---------------------------------------------------------------------------
+// Partner advances / draws (partner_expenses)
+// ---------------------------------------------------------------------------
+
+export interface PartnerExpenseQuery {
+  status?: FinanceDocStatus | 'pending';
+  partnerId?: string;
+  partnerName?: string;
+  txnKind?: 'advance' | 'draw';
+  from?: string;
+  to?: string;
+  search?: string;
+  limit?: number;
+}
+
+export async function listPartnerExpenses(q: PartnerExpenseQuery): Promise<PartnerExpense[]> {
+  let query = supabaseAdmin
+    .from('partner_expenses')
+    .select('*')
+    .order('business_date', { ascending: false })
+    .order('created_at', { ascending: false })
+    .limit(Math.min(Math.max(Number(q.limit ?? 200), 1), 500));
+
+  if (q.status === 'pending') query = query.in('status', ['draft', 'pending_approval']);
+  else if (q.status) query = query.eq('status', q.status);
+  if (q.partnerId) query = query.eq('partner_id', q.partnerId);
+  if (q.partnerName) query = query.eq('partner_name', q.partnerName);
+  if (q.txnKind) query = query.eq('txn_kind', q.txnKind);
+  if (q.from) query = query.gte('business_date', q.from);
+  if (q.to) query = query.lte('business_date', q.to);
+  if (q.search) {
+    const term = q.search.replace(/[,()*]/g, ' ').trim();
+    if (term) {
+      query = query.or(
+        `expense_no.ilike.%${term}%,partner_name.ilike.%${term}%,description.ilike.%${term}%,ledger_head_name.ilike.%${term}%`,
+      );
+    }
+  }
+
+  const { data, error } = await query;
+  if (error) throw error;
+
+  const rows = rowToApi<PartnerExpense[]>(data ?? []).map((p) => ({ ...p, amount: num(p.amount) }));
+  const photos = await listAttachmentsFor(
+    'partner_expense',
+    rows.map((p) => p.id),
+  );
+  return rows.map((p) => ({ ...p, attachments: photos.get(p.id) ?? [] }));
+}
+
+const TXN_KIND_LABEL: Record<'advance' | 'draw', string> = { advance: 'Advance to', draw: 'Draw by' };
+
+export async function createPartnerExpense(
+  input: CreatePartnerExpenseInput,
+  actor: { uid: string; name: string },
+): Promise<PartnerExpense> {
+  const partner = await requireActivePartner(input.partnerId);
+  // Always EXP-PARTNER, resolved here rather than taken from the client — the
+  // form only asks for a partner, an amount and a reason, not a ledger head.
+  const head = await getLedgerHeadByCode(SYSTEM_LEDGER_HEAD_CODES.PARTNER_WITHDRAWAL);
+
+  const { data, error } = await supabaseAdmin
+    .from('partner_expenses')
+    .insert({
+      partner_id: partner.id,
+      partner_name: partner.name,
+      txn_kind: input.txnKind,
+      ledger_head_id: head.id,
+      ledger_head_name: head.name,
+      description: `${TXN_KIND_LABEL[input.txnKind]} ${partner.name}`,
+      amount: round2(input.amount),
+      payment_method: input.paymentMethod,
+      account: input.account,
+      business_date: input.businessDate ?? businessDateStr(),
+      status: initialStatus(input.asDraft),
+      requested_by: actor.uid,
+      requested_by_name: actor.name,
+      notes: input.notes ?? null,
+    })
+    .select('*')
+    .single();
+  if (error) throw error;
+
+  const expense = rowToApi<PartnerExpense>(data);
+  const attachments = await bindAttachments({
+    entity: 'partner_expense',
+    entityId: expense.id,
+    attachmentIds: input.attachmentIds,
+    actor,
+  });
+  return { ...expense, attachments };
+}
+
+export async function updatePartnerExpense(
+  id: string,
+  input: UpdatePartnerExpenseInput,
+): Promise<PartnerExpense> {
+  const current = await getPartnerExpense(id);
+  if (!current) throw Object.assign(new Error('Partner expense not found'), { status: 404 });
+  assertEditable(current, current.expenseNo);
+
+  const row: Record<string, unknown> = {};
+  if (input.amount !== undefined) row['amount'] = round2(input.amount);
+  if (input.paymentMethod !== undefined) row['payment_method'] = input.paymentMethod;
+  if (input.account !== undefined) row['account'] = input.account;
+  if (input.businessDate !== undefined) row['business_date'] = input.businessDate;
+  if (input.notes !== undefined) row['notes'] = input.notes;
+  if (current.status === 'rejected') {
+    row['status'] = 'pending_approval';
+    row['rejection_reason'] = null;
+  }
+
+  const { data, error } = await supabaseAdmin
+    .from('partner_expenses')
+    .update(row)
+    .eq('id', id)
+    .in('status', EDITABLE_DOC_STATUSES)
+    .select('*')
+    .single();
+  if (error) throw error;
+  return rowToApi<PartnerExpense>(data);
+}
+
+export async function getPartnerExpense(id: string): Promise<PartnerExpense | null> {
+  const { data, error } = await supabaseAdmin.from('partner_expenses').select('*').eq('id', id).maybeSingle();
+  if (error) throw error;
+  if (!data) return null;
+  return {
+    ...rowToApi<PartnerExpense>(data),
+    amount: num((data as Record<string, unknown>)['amount']),
+    attachments: await listAttachments('partner_expense', id),
+  };
+}
+
+export async function submitPartnerExpense(id: string): Promise<PartnerExpense> {
+  const { data, error } = await supabaseAdmin
+    .from('partner_expenses')
+    .update({ status: 'pending_approval', rejection_reason: null })
+    .eq('id', id)
+    .in('status', ['draft', 'rejected'])
+    .select('*')
+    .single();
+  if (error) throw Object.assign(new Error('Only a draft or rejected expense can be submitted.'), { status: 409 });
+  return rowToApi<PartnerExpense>(data);
+}
+
+export async function approvePartnerExpense(
+  id: string,
+  actor: { uid: string; name: string },
+  notes?: string | null,
+): Promise<{ document: PartnerExpense; entry: LedgerEntry }> {
+  const doc = await getPartnerExpense(id);
+  if (!doc) throw Object.assign(new Error('Partner expense not found'), { status: 404 });
+
+  const entry = await approveDocument({
+    table: 'partner_expenses',
+    id,
+    ref: doc.expenseNo,
+    status: doc.status,
+    actor,
+    notes,
+    posting: {
+      entryDate: doc.businessDate,
+      ledgerHeadId: doc.ledgerHeadId,
+      headType: 'expense',
+      description: `${doc.description} (${doc.expenseNo})`,
+      amount: doc.amount,
+      account: doc.account,
+      paymentMethod: doc.paymentMethod,
+      branchId: null,
+      branchName: null,
+      sourceType: 'partner_expense',
+    },
+  });
+
+  return { document: (await getPartnerExpense(id))!, entry };
+}
+
+export async function rejectPartnerExpense(
+  id: string,
+  reason: string,
+  actor: { uid: string; name: string },
+): Promise<PartnerExpense> {
+  await rejectDocument('partner_expenses', id, reason, actor);
+  return (await getPartnerExpense(id))!;
+}
+
+// ---------------------------------------------------------------------------
+// Partner Share Detail — computed, not stored
+// ---------------------------------------------------------------------------
+
+/**
+ * Total expenses (everything except partner advances/draws), total company
+ * share, the grand total the four partners split, and each partner's cut,
+ * advances, draws and remaining balance.
+ *
+ * Both totals come straight off `ledger_entries` rather than the source
+ * documents — a posted entry is the one thing every finance figure on this
+ * page has to agree with, and reading it directly means a reversal or an
+ * adjustment is reflected automatically instead of needing this report to
+ * know about every document type that can post one.
+ */
+export async function getPartnerShareSummary(from?: string, to?: string): Promise<PartnerShareSummary> {
+  let ledgerQuery = supabaseAdmin
+    .from('ledger_entries')
+    .select('ledger_head_type, source_type, debit, credit')
+    .in('status', ['posted', 'locked']);
+  if (from) ledgerQuery = ledgerQuery.gte('entry_date', from);
+  if (to) ledgerQuery = ledgerQuery.lte('entry_date', to);
+
+  const { data: entries, error: ledgerErr } = await ledgerQuery;
+  if (ledgerErr) throw ledgerErr;
+
+  let totalExpense = 0;
+  let totalCompanyShare = 0;
+  for (const row of entries ?? []) {
+    if (row['ledger_head_type'] === 'expense' && row['source_type'] !== 'partner_expense') {
+      totalExpense += num(row['credit']);
+    }
+    if (row['source_type'] === 'company_share') totalCompanyShare += num(row['debit']);
+  }
+
+  const grandTotal = round2(totalCompanyShare - totalExpense);
+
+  const partners = await listFinancePartners();
+
+  let txnQuery = supabaseAdmin
+    .from('partner_expenses')
+    .select('partner_id, txn_kind, amount')
+    .in('status', ['posted', 'locked'])
+    .not('partner_id', 'is', null);
+  if (from) txnQuery = txnQuery.gte('business_date', from);
+  if (to) txnQuery = txnQuery.lte('business_date', to);
+
+  const { data: txns, error: txnErr } = await txnQuery;
+  if (txnErr) throw txnErr;
+
+  const totalsByPartner = new Map<string, { advance: number; draw: number }>();
+  for (const row of txns ?? []) {
+    const partnerId = row['partner_id'] as string;
+    const bucket = totalsByPartner.get(partnerId) ?? { advance: 0, draw: 0 };
+    const amount = num(row['amount']);
+    if (row['txn_kind'] === 'advance') bucket.advance += amount;
+    else bucket.draw += amount;
+    totalsByPartner.set(partnerId, bucket);
+  }
+
+  return {
+    from: from ?? null,
+    to: to ?? null,
+    totalExpense: round2(totalExpense),
+    totalCompanyShare: round2(totalCompanyShare),
+    grandTotal,
+    partners: partners.map((p) => {
+      const bucket = totalsByPartner.get(p.id) ?? { advance: 0, draw: 0 };
+      const sharePctAmount = round2((grandTotal * p.sharePct) / 100);
+      return {
+        id: p.id,
+        name: p.name,
+        sharePct: p.sharePct,
+        sharePctAmount,
+        advancePaid: round2(bucket.advance),
+        drawPaid: round2(bucket.draw),
+        balance: round2(sharePctAmount - bucket.advance - bucket.draw),
+      };
+    }),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Shared approval machinery
+// ---------------------------------------------------------------------------
+
+export interface ApproveDocumentInput {
+  table: 'finance_transactions' | 'partner_expenses' | 'salary_payments' | 'branch_share_payments';
+  id: string;
+  ref: string;
+  status: FinanceDocStatus;
+  actor: { uid: string; name: string };
+  notes?: string | null;
+  posting: {
+    entryDate: string;
+    ledgerHeadId: string;
+    headType: 'income' | 'expense';
+    description: string;
+    amount: number;
+    account: 'cash' | 'bank';
+    paymentMethod: string;
+    branchId: string | null;
+    branchName: string | null;
+    sourceType: LedgerSourceType;
+  };
+}
+
+/**
+ * Approve a document and post it.
+ *
+ * ORDER MATTERS, and the order here is the safe one: claim the approval FIRST
+ * (a conditional update that only succeeds from a pending state), then post.
+ *
+ * Two approvers clicking at the same moment is the case this protects against.
+ * With the claim first, exactly one of them wins the update and posts; the loser
+ * gets a 409. Posting first would let both reach the ledger and book the expense
+ * twice, and the ledger is append-only — the second one could then only be
+ * removed by a reversal, which is a conversation nobody wants to have.
+ *
+ * If the posting itself then fails, the document is left `approved` but not
+ * `posted`, with no ledger entry. That state is deliberately visible (the UI
+ * shows it as approved-not-posted) rather than silently rolled back: the
+ * approval was a real human decision and should not evaporate because the
+ * ledger refused the date.
+ */
+async function approveDocument(input: ApproveDocumentInput): Promise<LedgerEntry> {
+  if (input.status === 'draft') {
+    throw Object.assign(new Error(`${input.ref} is a draft. Submit it for approval first.`), { status: 409 });
+  }
+  if (input.status !== 'pending_approval') {
+    throw Object.assign(
+      new Error(`${input.ref} is ${input.status} and cannot be approved again.`),
+      { status: 409 },
+    );
+  }
+
+  const { data: claimed, error: claimErr } = await supabaseAdmin
+    .from(input.table)
+    .update({
+      status: 'approved',
+      approved_by: input.actor.uid,
+      approved_by_name: input.actor.name,
+      approved_at: new Date().toISOString(),
+      ...(input.notes ? { notes: input.notes } : {}),
+    })
+    .eq('id', input.id)
+    .eq('status', 'pending_approval')
+    .select('id')
+    .maybeSingle();
+  if (claimErr) throw claimErr;
+  if (!claimed) {
+    throw Object.assign(new Error(`${input.ref} was just approved by someone else.`), { status: 409 });
+  }
+
+  const entry = await postEntry({ ...input.posting, sourceId: input.id, actor: input.actor });
+
+  const { error: postedErr } = await supabaseAdmin
+    .from(input.table)
+    .update({ status: 'posted', ledger_entry_id: entry.id })
+    .eq('id', input.id);
+  if (postedErr) throw postedErr;
+
+  return entry;
+}
+
+async function rejectDocument(
+  table: ApproveDocumentInput['table'],
+  id: string,
+  reason: string,
+  actor: { uid: string; name: string },
+): Promise<void> {
+  const { data, error } = await supabaseAdmin
+    .from(table)
+    .update({
+      status: 'rejected',
+      rejection_reason: reason,
+      approved_by: actor.uid,
+      approved_by_name: actor.name,
+      approved_at: new Date().toISOString(),
+    })
+    .eq('id', id)
+    .in('status', ['draft', 'pending_approval'])
+    .select('id')
+    .maybeSingle();
+  if (error) throw error;
+  if (!data) {
+    throw Object.assign(
+      new Error('Only a draft or pending document can be rejected. A posted entry needs a reversal instead.'),
+      { status: 409 },
+    );
+  }
+}
+
+async function resolveBranch(branchId?: string | null): Promise<{ id: string; name: string } | null> {
+  if (!branchId) return null;
+  const { data, error } = await supabaseAdmin.from('branches').select('id, name').eq('id', branchId).maybeSingle();
+  if (error) throw error;
+  if (!data) throw Object.assign(new Error('Branch not found'), { status: 400 });
+  return { id: data.id as string, name: data.name as string };
+}
+
+export { approveDocument, rejectDocument };

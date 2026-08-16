@@ -35,8 +35,15 @@ async function main() {
   // database and the jobs are deliberately turned back on. Re-enable each import
   // together with its call below.
   //
+  // Special Events reminders (09:00) + maintenance (02:30) are the same deal.
+  // Until they are armed, event reminders are delivered by the admin pressing
+  // "Send due reminders now" on the Special Events screen, which calls
+  // POST /api/special-events/notifications/dispatch — a manual trigger, which
+  // deliberately bypasses the eventNotificationsEnabled toggle.
+  //
   // const { startDailyClosingScheduler } = await import('./src/scheduler/daily-closing.job');
   // const { startPriceActivationScheduler } = await import('./src/scheduler/price-activation.job');
+  // const { startEventNotificationScheduler } = await import('./src/scheduler/event-notifications.job');
   // const { activateDuePrices } = await import('./src/services/price.service');
 
   // Hosts inject the port via PORT; fall back to API_PORT for local dev. Bind
@@ -45,11 +52,13 @@ async function main() {
   app.listen(PORT, '0.0.0.0', () => {
     console.log(`Mountain Bakes API listening on port ${PORT}`);
     console.log('[cors] Allowed origins:', allowedOrigins.join(', ') || '(none configured)');
-    console.warn('[scheduler] Daily closing and price activation are OFF. The 2:00 AM close will not run until re-enabled.');
+    console.warn('[scheduler] Daily closing, price activation and event reminders are OFF. The 2:00 AM close will not run until re-enabled.');
     // Arm the 2:00 AM Karachi end-of-day closing (idempotent; respects Auto Close).
     // startDailyClosingScheduler();
     // Arm 2:00 AM future-dated price activation + catch up any missed run on boot.
     // startPriceActivationScheduler();
+    // Arm 09:00 event reminders + 02:30 estimate refresh / roll-forward.
+    // startEventNotificationScheduler();
     // activateDuePrices({ trigger: 'startup' }).catch((err) => console.error('[price-activation] startup catch-up threw:', err));
     if (process.env.NODE_ENV === 'production' && !process.env.CORS_ORIGINS) {
       console.warn(

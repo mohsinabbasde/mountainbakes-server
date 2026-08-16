@@ -250,7 +250,14 @@ export async function buildPriceListRows(opts?: { groupBy?: 'category' }): Promi
       ? [{ column: 'category_name', ascending: true }, { column: 'name', ascending: true }]
       : [{ column: 'name', ascending: true }];
 
-  let productQuery = supabaseAdmin.from('products').select('id, name, sku, price, category_name, is_active, created_at');
+  // Special products carry a branch one-off and have no meaningful price
+  // (migration 69). They are excluded from the price list for the same reason
+  // they are excluded from the catalogue — nobody prices a single named cake
+  // through here, and a list padded with them is harder to read.
+  let productQuery = supabaseAdmin
+    .from('products')
+    .select('id, name, sku, price, category_name, is_active, created_at')
+    .eq('is_special', false);
   for (const o of orderBy) productQuery = productQuery.order(o.column, { ascending: o.ascending });
 
   const [{ data: products, error: prodErr }, { data: history, error: histErr }] = await Promise.all([

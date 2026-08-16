@@ -1,8 +1,6 @@
 import { z } from 'zod';
 import { PAYMENT_METHOD_VALUES } from './order.schemas';
 
-export const SUPPORT_REFERENCE_TYPES = ['sale', 'expense', 'stock'] as const;
-
 /** Help Desk → raise a query against a reference ID with an issue message. */
 export const CreateSupportTicketSchema = z.object({
   referenceId: z.string().trim().min(1, 'Reference ID is required').max(40),

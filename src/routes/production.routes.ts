@@ -32,7 +32,12 @@ router.get('/overview', async (_req, res, next) => {
     const dayFrom = businessDaysAgoStr(29); // 30-day daily/weekly window
 
     const [ordersRes, prodStockRes, prepHistRes, returnsRes, branchesRes, productsRes] = await Promise.all([
-      supabaseAdmin.from('production_orders').select(ORDER_WITH_ITEMS).gte('business_date', demandFrom),
+      // Deleted demands are excluded at the query, not per-metric: the cards
+      // below filter by status but the chart aggregations loop over every row,
+      // so a withdrawn demand would keep counting toward demand-by-day/month,
+      // branch demand and top products — the exact figures the branch deleted it
+      // to take back.
+      supabaseAdmin.from('production_orders').select(ORDER_WITH_ITEMS).gte('business_date', demandFrom).neq('status', 'cancelled'),
       supabaseAdmin.from('production_stock').select('balance'),
       supabaseAdmin.from('production_stock_history').select('type, delta, business_date').gte('business_date', historyFrom),
       supabaseAdmin.from('production_returns').select('qty, status').eq('business_date', todayStr),

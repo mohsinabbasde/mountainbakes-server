@@ -9,6 +9,7 @@ export type ProductionStockMovementType =
   | 'prepare' // Production prepared units → pool +
   | 'transfer_out' // demand approved, moved to a branch → pool −
   | 'return_in' // accepted return added back → pool +
+  | 'sale' // sold at the production counter → pool − (branch stock untouched)
   | 'adjustment';
 
 /** Running balance for the central production pool. Keyed by `productId`. */
@@ -32,15 +33,42 @@ export interface ProductionStockHistoryRow {
   createdAt: string; // ISO UTC
 }
 
+/**
+ * The derived pool figures for one product on one business date — the numeric core
+ * of a `ProductionStockRow`, without the product identity. The pool's counterpart
+ * of `StockFigures`, carried on a production stock support reference so the Support
+ * Center can render and correct them without re-deriving them from display labels.
+ *
+ * `adjustment` is SIGNED (the direction is the information) and `totalStock` is
+ * derived — balance + approved + sold — so neither is directly correctable.
+ */
+export interface ProductionStockFigures {
+  preparedToday: number;
+  approvedQty: number;
+  returned: number;
+  soldToday: number;
+  adjustment: number;
+  balance: number;
+  totalStock: number;
+}
+
 /** Computed per-product row for the Production Stock page. */
 export interface ProductionStockRow {
   productId: string;
+  /**
+   * The product's human-readable STK-###### — the same code the branch Stock page
+   * shows, because it identifies the PRODUCT, not a branch's row. It is what the
+   * Help Desk is given to raise a stock query, so the pool page has to show it or
+   * a production user has nothing to quote.
+   */
+  stockCode: string;
   productName: string;
   preparedToday: number; // Σ prepare deltas today
   totalStock: number; // current balance + what left today (a "gross in" view)
   approvedQty: number; // Σ transferred out today
   balance: number; // current pool balance
   returned: number; // Σ returns added back today
+  soldToday: number; // Σ sold at the production counter today
 }
 
 // ── Product Returns ──────────────────────────────────────────────────────────
@@ -63,23 +91,4 @@ export interface ProductionReturn {
   reviewedBy: string | null;
   reviewedByName: string | null;
   reviewedAt: string | null;
-}
-
-// ── Production Expenses ──────────────────────────────────────────────────────
-
-export type ProductionExpensePaymentMethod = 'cash' | 'easypaisa' | 'bank_account';
-
-export interface ProductionExpense {
-  id: string;
-  expenseNumber: string; // human-readable EXP-###### (unique across branch + production expenses)
-  date: string; // 'YYYY-MM-DD' (Karachi)
-  category: string;
-  description: string;
-  amount: number;
-  paymentMethod: ProductionExpensePaymentMethod;
-  supplier: string;
-  notes: string;
-  createdBy: string;
-  createdByName: string;
-  createdAt: string; // ISO UTC
 }

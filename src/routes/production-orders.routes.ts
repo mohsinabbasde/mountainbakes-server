@@ -6,18 +6,26 @@ import { validate } from '../middleware/validate';
 import {
   CreateProductionOrderSchema,
   ReviewProductionOrderSchema,
+  AddProductionOrderItemSchema,
+  VerifyProductionOrderSchema,
+  CancelProductionOrderSchema,
   businessDateStr,
   businessDaysAgoStr,
   karachiTimeStr,
   karachiMinutesOfDay,
   isWithinOrderWindow,
+  BRANCH_ROLES,
+  isBranchRole,
+  resolveShareSplit,
 } from '../shared';
+import { bindAttachments, listAttachmentsFor } from '../services/attachments.service';
 import { notify } from '../services/push.service';
 import { applyProductionToStock } from '../services/stock.service';
 import { transferOutOnApproval } from '../services/production-stock.service';
 import { getAppSettings, orderWindowMinutes } from '../services/settings.service';
 import { assertBusinessDayOpen } from '../middleware/assertBusinessDayOpen';
 import { rowToApi } from '../utils/case';
+import { invalidate } from '../utils/cache';
 
 export const router = Router();
 
@@ -32,17 +40,166 @@ export const router = Router();
 const ORDER_SELECT = `
   *,
   items:production_order_items(
-    product_id, product_name, qty, remarks,
+    id, product_id, product_name, qty, remarks, is_special,
     previous_balance_qty, total_required_qty, approved_qty, remaining_balance_qty, line_no
+  ),
+  packingItems:production_order_packing_items(
+    packing_material_id, material_name, qty, approved_qty, line_no
   )
 `;
 
 const ITEMS_ORDER = { referencedTable: 'production_order_items', ascending: true } as const;
 
+/** Packing lines need their own ordering clause — see the ORDER_SELECT note above. */
+const PACKING_ITEMS_ORDER = { referencedTable: 'production_order_packing_items', ascending: true } as const;
+
+/**
+ * Hang the demand and verification photos off a page of orders.
+ *
+ * Two queries and two signing calls for the whole page rather than per order —
+ * an order list runs to a week of demands across every branch, and per-row
+ * signing would dominate the response time. Photos are NOT part of ORDER_SELECT
+ * because `attachments` has no foreign key to `production_orders` (the parent
+ * table is chosen by `entity`), so PostgREST cannot embed it.
+ */
+async function withPhotos(orders: Record<string, unknown>[]): Promise<Record<string, unknown>[]> {
+  const ids = orders.map((o) => String(o['id']));
+
+  // A special item's photo hangs off the ITEM row, not the order, so its ids
+  // come from the embedded lines. Collected across the whole page and fetched in
+  // the same batch as the other two — a week of demands would otherwise be one
+  // query per special line.
+  const specialItemIds = orders.flatMap((o) =>
+    ((o['items'] ?? []) as Record<string, unknown>[])
+      .filter((i) => i['is_special'])
+      .map((i) => String(i['id'])),
+  );
+
+  const [demand, verification, specialPhotos] = await Promise.all([
+    listAttachmentsFor('production_order_demand', ids),
+    listAttachmentsFor('production_order_verification', ids),
+    specialItemIds.length > 0
+      ? listAttachmentsFor('production_order_special_item', specialItemIds)
+      : Promise.resolve(new Map()),
+  ]);
+
+  return orders.map((o) => ({
+    ...o,
+    items: ((o['items'] ?? []) as Record<string, unknown>[]).map((i) =>
+      i['is_special']
+        ? {
+            ...i,
+            // `description` mirrors `remarks` so a screen rendering a special
+            // item does not have to know which column it landed in.
+            description: i['remarks'] ?? '',
+            photos: specialPhotos.get(String(i['id'])) ?? [],
+          }
+        : i,
+    ),
+    demandPhotos: demand.get(String(o['id'])) ?? [],
+    verificationPhotos: verification.get(String(o['id'])) ?? [],
+  }));
+}
+
+/** One special line, resolved onto the hidden product that will carry its stock. */
+interface ResolvedSpecialItem {
+  productId: string;
+  productName: string;
+  qty: number;
+  description: string;
+  attachmentIds: string[];
+}
+
+/**
+ * Turn each typed special item into a hidden `is_special` product and return the
+ * line to write against it.
+ *
+ * FIND-or-create, matched on the trimmed lower-cased name against the partial
+ * unique index in migration 69. A branch that asks for "Name Cake" every week
+ * must accumulate ONE product with a running stock balance, not fifty-two
+ * products with one movement each — the balance carry-forward and every stock
+ * report are keyed by product, so a fresh product per demand would make the
+ * stock this feature exists to track meaningless.
+ *
+ * The insert races: two branches can submit the same new special name in the
+ * same moment. The partial unique index is what actually decides it — the loser
+ * gets a 23505 and re-reads the winner's row rather than failing the demand,
+ * the same posture the concurrent-import path takes in finance-income.service.ts.
+ */
+async function resolveSpecialItems(
+  specialItems: { name: string; qty: number; description: string; attachmentIds: string[] }[],
+): Promise<ResolvedSpecialItem[]> {
+  if (specialItems.length === 0) return [];
+
+  const names = specialItems.map((s) => s.name.trim());
+  const keys = names.map((n) => n.toLowerCase());
+
+  // Existing special products for these names. Fetched in one query; the
+  // lower(trim()) match is redone in JS because PostgREST cannot filter on a
+  // functional expression.
+  const { data: existing, error: findErr } = await supabaseAdmin
+    .from('products')
+    .select('id, name')
+    .eq('is_special', true);
+  if (findErr) throw findErr;
+
+  const idByKey = new Map(
+    ((existing ?? []) as { id: string; name: string }[]).map((p) => [p.name.trim().toLowerCase(), p.id]),
+  );
+
+  const missing = names.filter((n, i) => !idByKey.has(keys[i]!));
+  if (missing.length > 0) {
+    // price 0 and no category: a special item is priced (if ever) by whoever
+    // handles the customer, not through the catalogue. is_active stays TRUE so
+    // the stock and production-stock queries, which read active products only,
+    // can see it.
+    const { data: created, error: createErr } = await supabaseAdmin
+      .from('products')
+      .insert(missing.map((name) => ({ name, price: 0, is_active: true, is_special: true })))
+      .select('id, name');
+
+    if (createErr && createErr.code !== '23505') throw createErr;
+    for (const p of ((created ?? []) as { id: string; name: string }[])) {
+      idByKey.set(p.name.trim().toLowerCase(), p.id);
+    }
+
+    // Lost the race (or part of it): re-read so the rows the other request
+    // created are picked up instead of failing a demand over a name that now
+    // exists.
+    if (createErr) {
+      const { data: reread, error: rereadErr } = await supabaseAdmin
+        .from('products')
+        .select('id, name')
+        .eq('is_special', true);
+      if (rereadErr) throw rereadErr;
+      for (const p of ((reread ?? []) as { id: string; name: string }[])) {
+        idByKey.set(p.name.trim().toLowerCase(), p.id);
+      }
+    }
+
+    // A new product changes what the catalogue endpoint would return.
+    invalidate('products');
+  }
+
+  return specialItems.map((s, i) => {
+    const productId = idByKey.get(keys[i]!);
+    if (!productId) {
+      throw Object.assign(new Error(`Could not create the special item "${s.name}"`), { status: 500 });
+    }
+    return {
+      productId,
+      productName: names[i]!,
+      qty: s.qty,
+      description: s.description ?? '',
+      attachmentIds: s.attachmentIds ?? [],
+    };
+  });
+}
+
 router.use(authenticate);
 
 // POST /api/production-orders — branch submits a daily production request
-router.post('/', requireRole('branch_manager'), validate(CreateProductionOrderSchema), async (req: AuthRequest, res, next) => {
+router.post('/', requireRole(...BRANCH_ROLES), validate(CreateProductionOrderSchema), async (req: AuthRequest, res, next) => {
   try {
     // Branch production requests are only accepted inside the configured order
     // window (default 8:00 AM–2:00 AM Karachi, which wraps past midnight).
@@ -56,7 +213,12 @@ router.post('/', requireRole('branch_manager'), validate(CreateProductionOrderSc
     const branchId = req.user!.branchId;
     if (!branchId) { res.status(400).json({ error: 'No branch assigned to this account' }); return; }
 
-    const { items } = req.body as { items: { productId: string; qty: number; remarks: string }[] };
+    const { items, packingItems = [], specialItems = [], attachmentIds = [] } = req.body as {
+      items: { productId: string; qty: number; remarks: string }[];
+      packingItems?: { packingMaterialId: string; qty: number }[];
+      specialItems?: { name: string; qty: number; description: string; attachmentIds: string[] }[];
+      attachmentIds?: string[];
+    };
 
     // Resolve product names server-side — branch users never send names or
     // prices, those are Admin-controlled. One query rather than N point reads.
@@ -73,6 +235,43 @@ router.post('/', requireRole('branch_manager'), validate(CreateProductionOrderSc
       if (!name) throw Object.assign(new Error(`Product ${i.productId} not found`), { status: 400 });
       return { productId: i.productId, productName: name, qty: i.qty, remarks: i.remarks || '' };
     });
+
+    // Same treatment for packing materials, with one extra condition: the query
+    // filters on is_active, so an inactive material fails the name lookup below and
+    // is rejected. The client's list can be stale (a material disabled while the
+    // form was open), so "only active materials can be selected" has to be decided
+    // here, not in the dropdown.
+    let resolvedPacking: { packingMaterialId: string; materialName: string; qty: number }[] = [];
+    if (packingItems.length > 0) {
+      const materialIds = [...new Set(packingItems.map((i) => i.packingMaterialId))];
+      const { data: materials, error: matErr } = await supabaseAdmin
+        .from('packing_materials')
+        .select('id, material_name')
+        .eq('is_active', true)
+        .in('id', materialIds);
+      if (matErr) throw matErr;
+
+      const materialNameById = new Map(
+        (materials ?? []).map((m) => [m.id as string, m.material_name as string]),
+      );
+      resolvedPacking = packingItems.map((i) => {
+        const name = materialNameById.get(i.packingMaterialId);
+        if (!name) {
+          throw Object.assign(
+            new Error('One of the selected packing materials is no longer available. Please refresh and try again.'),
+            { status: 400 },
+          );
+        }
+        return { packingMaterialId: i.packingMaterialId, materialName: name, qty: i.qty };
+      });
+    }
+
+    // Special order items become hidden `is_special` products and then ride as
+    // ordinary lines — see migration 69 for why that shape and not a second
+    // items table. Resolved before the order row is written so a name that
+    // cannot be created fails the whole request rather than leaving a demand
+    // missing the line the branch asked for.
+    const resolvedSpecial = await resolveSpecialItems(specialItems);
 
     const now = new Date();
     await assertBusinessDayOpen(businessDateStr(now), req.user!.role);
@@ -94,17 +293,81 @@ router.post('/', requireRole('branch_manager'), validate(CreateProductionOrderSc
     if (orderErr) throw orderErr;
 
     // Review-only columns stay null until approval.
-    const { error: itemsErr } = await supabaseAdmin.from('production_order_items').insert(
-      resolvedItems.map((it, idx) => ({
-        production_order_id: order.id,
-        product_id: it.productId,
-        product_name: it.productName,
-        qty: it.qty,
-        remarks: it.remarks,
-        line_no: idx + 1,
-      })),
-    );
+    //
+    // Special lines are appended AFTER the product lines and numbered on from
+    // them, so `line_no` stays a single sequence over the whole demand and the
+    // special items read last — which is where the branch entered them.
+    const { data: insertedItems, error: itemsErr } = await supabaseAdmin
+      .from('production_order_items')
+      .insert([
+        ...resolvedItems.map((it, idx) => ({
+          production_order_id: order.id,
+          product_id: it.productId,
+          product_name: it.productName,
+          qty: it.qty,
+          remarks: it.remarks,
+          is_special: false,
+          line_no: idx + 1,
+        })),
+        ...resolvedSpecial.map((it, idx) => ({
+          production_order_id: order.id,
+          product_id: it.productId,
+          product_name: it.productName,
+          // The typed description lives in `remarks` — the column that already
+          // exists for "what the branch wants doing with this line".
+          qty: it.qty,
+          remarks: it.description,
+          is_special: true,
+          line_no: resolvedItems.length + idx + 1,
+        })),
+      ])
+      .select('id, line_no');
     if (itemsErr) throw itemsErr;
+
+    // Claim each special item's optional photo against its own line. Keyed by
+    // line_no rather than by array position: the insert above returns rows in
+    // no guaranteed order, and binding one item's photo to another's line is
+    // exactly the kind of silent mix-up that is impossible to notice later.
+    const itemIdByLineNo = new Map(
+      ((insertedItems ?? []) as { id: string; line_no: number }[]).map((r) => [r.line_no, r.id]),
+    );
+    for (const [idx, special] of resolvedSpecial.entries()) {
+      if (special.attachmentIds.length === 0) continue;
+      const itemId = itemIdByLineNo.get(resolvedItems.length + idx + 1);
+      if (!itemId) continue;
+      await bindAttachments({
+        entity: 'production_order_special_item',
+        entityId: itemId,
+        attachmentIds: special.attachmentIds,
+        actor: { uid: req.user!.uid },
+      });
+    }
+
+    // Packing lines ride on the same order. approved_qty stays null until review,
+    // exactly like the product lines' review-only columns.
+    if (resolvedPacking.length > 0) {
+      const { error: packErr } = await supabaseAdmin.from('production_order_packing_items').insert(
+        resolvedPacking.map((it, idx) => ({
+          production_order_id: order.id,
+          packing_material_id: it.packingMaterialId,
+          material_name: it.materialName,
+          qty: it.qty,
+          line_no: idx + 1,
+        })),
+      );
+      if (packErr) throw packErr;
+    }
+
+    // Claim the photos the branch captured while filling the form. Done before
+    // the notification so Production is never told about a demand whose photo
+    // failed to bind — the whole point of the notification is "come and look at
+    // this", and there would be nothing to look at.
+    await bindAttachments({
+      entity: 'production_order_demand',
+      entityId: order.id,
+      attachmentIds,
+      actor: { uid: req.user!.uid },
+    });
 
     // NOTE: branchId is deliberately null here. Production users are a central
     // role with no branch claim (only branch_manager carries a branchId), and the
@@ -115,7 +378,17 @@ router.post('/', requireRole('branch_manager'), validate(CreateProductionOrderSc
     await notify({
       type: 'production_demand',
       title: 'New Production Demand Received',
-      message: `${req.user!.branchName || 'A branch'} submitted ${resolvedItems.length} item${resolvedItems.length === 1 ? '' : 's'}`,
+      message:
+        `${req.user!.branchName || 'A branch'} submitted ${resolvedItems.length} item${resolvedItems.length === 1 ? '' : 's'}` +
+        (resolvedPacking.length > 0
+          ? `, ${resolvedPacking.length} packing material${resolvedPacking.length === 1 ? '' : 's'}`
+          : '') +
+        // Called out by name rather than folded into the item count: a special
+        // item is the one line on a demand that Production cannot fulfil from
+        // the shelf, so it is the reason to open this notification promptly.
+        (resolvedSpecial.length > 0
+          ? ` and ${resolvedSpecial.length} SPECIAL item${resolvedSpecial.length === 1 ? '' : 's'}`
+          : ''),
       targetRole: 'production_user',
       branchId: null,
       relatedId: order.id,
@@ -137,9 +410,10 @@ router.get('/', async (req: AuthRequest, res, next) => {
       .select(ORDER_SELECT)
       .gte('business_date', businessDaysAgoStr(6)) // inclusive last 7 business days
       .order('submitted_at', { ascending: false })
-      .order('line_no', ITEMS_ORDER);
+      .order('line_no', ITEMS_ORDER)
+      .order('line_no', PACKING_ITEMS_ORDER);
 
-    if (req.user!.role === 'branch_manager' && req.user!.branchId) {
+    if (isBranchRole(req.user!.role) && req.user!.branchId) {
       query = query.eq('branch_id', req.user!.branchId);
     } else if (req.query['branchId']) {
       query = query.eq('branch_id', req.query['branchId']);
@@ -153,11 +427,13 @@ router.get('/', async (req: AuthRequest, res, next) => {
     // camelCases keys, so remap those two here — otherwise the client's
     // date/time are undefined (blank columns, and slipReference → "PO--").
     const rows = rowToApi<Record<string, unknown>[]>(data ?? []);
-    const orders = rows.map(({ businessDate, submittedTime, ...rest }) => ({
-      ...rest,
-      date: businessDate,
-      time: submittedTime,
-    }));
+    const orders = await withPhotos(
+      rows.map(({ businessDate, submittedTime, ...rest }) => ({
+        ...rest,
+        date: businessDate,
+        time: submittedTime,
+      })),
+    );
     res.json({ orders, total: orders.length });
   } catch (err) {
     next(err);
@@ -172,7 +448,7 @@ router.get('/balances', async (req: AuthRequest, res, next) => {
     // pending_qty > 0 is served by production_balances_outstanding_idx.
     let query = supabaseAdmin.from('production_balances').select('*').gt('pending_qty', 0);
 
-    if (req.user!.role === 'branch_manager' && req.user!.branchId) {
+    if (isBranchRole(req.user!.role) && req.user!.branchId) {
       query = query.eq('branch_id', req.user!.branchId);
     } else if (req.query['branchId']) {
       query = query.eq('branch_id', req.query['branchId']);
@@ -182,6 +458,149 @@ router.get('/balances', async (req: AuthRequest, res, next) => {
     if (error) throw error;
 
     res.json({ balances: rowToApi(data ?? []) });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// GET /api/production-orders/:id/previous-balance — what the branch owes for its
+// PREVIOUS delivery, for the company copy of this order's slip.
+//
+// Deliberately NOT production_balances: that table is unmet demand (goods the
+// branch asked for and Production could not supply), i.e. value owed TO the
+// branch — the opposite direction from a receivable.
+//
+// Bills the IMMEDIATELY PRECEDING delivered order, not the previous business
+// day's total, and that distinction is load-bearing: branches routinely take
+// several deliveries in one day (four on 2026-08-09 for one branch). Billing a
+// day's total would reprint the same figure on every slip that day and invite
+// collecting it more than once, whereas chaining slip→previous order bills each
+// delivery exactly once. The tradeoff accepted here is that a slip can bill
+// goods delivered only hours earlier rather than strictly "yesterday".
+//
+// Computed server-side because the company share lives in finance_settings (and
+// per branch on branches.company_share_pct), and production users have no access
+// to the finance module at any layer — only the service-role client can read it.
+// The money maths stays server-side with it.
+//
+// NOTE: nothing records whether a previous order was actually settled, so this
+// reports the same figure on every reprint. It is a "what this order was worth"
+// statement, not a live outstanding balance.
+router.get('/:id/previous-balance', requireRole('super_admin', 'production_user'), async (req, res, next) => {
+  try {
+    const id = req.params['id']!;
+
+    const { data: order, error: orderErr } = await supabaseAdmin
+      .from('production_orders')
+      .select('id, branch_id, business_date, submitted_at')
+      .eq('id', id)
+      .maybeSingle();
+    if (orderErr) throw orderErr;
+    if (!order) { res.status(404).json({ error: 'Production order not found' }); return; }
+
+    // Only a DELIVERED order can be owed for. 'pending' shipped nothing yet and
+    // 'rejected' never will, so both are skipped when walking back.
+    const { data: prev, error: prevErr } = await supabaseAdmin
+      .from('production_orders')
+      .select('id, demand_number, business_date, submitted_at, items:production_order_items(product_id, approved_qty)')
+      .eq('branch_id', order.branch_id)
+      .in('status', ['awaiting_verification', 'approved'])
+      .lt('submitted_at', order.submitted_at)
+      .order('submitted_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (prevErr) throw prevErr;
+
+    // The branch's own percentage where it has one, the global finance setting
+    // where it does not (migration 68) — the same resolution branch-income
+    // approval uses, so the slip bills at the terms the branch is actually on.
+    const [{ data: fin, error: finErr }, { data: branchRow, error: branchErr }] = await Promise.all([
+      supabaseAdmin.from('finance_settings').select('company_share_pct').maybeSingle(),
+      supabaseAdmin.from('branches').select('company_share_pct').eq('id', order.branch_id).maybeSingle(),
+    ]);
+    if (finErr) throw finErr;
+    if (branchErr) throw branchErr;
+    const { companySharePct } = resolveShareSplit(
+      (branchRow?.company_share_pct ?? null) as number | null,
+      Number(fin?.company_share_pct ?? 75),
+    );
+
+    if (!prev) {
+      res.json({
+        previous: null, deliveredValue: 0, companySharePct,
+        companyShareValue: 0, returnsValue: 0, returnItems: [], amountToCollect: 0,
+      });
+      return;
+    }
+
+    const prevItems = (prev.items ?? []) as { product_id: string | null; approved_qty: number | string | null }[];
+    const productIds = [...new Set(prevItems.map((i) => i.product_id).filter((p): p is string => !!p))];
+
+    let deliveredValue = 0;
+    if (productIds.length > 0) {
+      const { data: products, error: prodErr } = await supabaseAdmin
+        .from('products')
+        .select('id, price')
+        .in('id', productIds);
+      if (prodErr) throw prodErr;
+      const priceById = new Map((products ?? []).map((p) => [p.id as string, Number(p.price ?? 0)]));
+      deliveredValue = prevItems.reduce(
+        (a, i) => a + Number(i.approved_qty ?? 0) * (i.product_id ? (priceById.get(i.product_id) ?? 0) : 0),
+        0,
+      );
+    }
+
+    // Returns that came back during the period this slip bills for: after the
+    // previous order was placed, up to and including this one.
+    //
+    // Windowed on the billing period rather than on "the previous calendar day",
+    // which is what this did first and which was wrong twice over. Branches take
+    // several deliveries a day, so a day-based rule (a) credited returns against
+    // an order they had nothing to do with, and worse (b) re-credited the SAME
+    // returns on every slip of that day — four orders, one return deducted four
+    // times. Bounding by the two orders' timestamps partitions returns exactly:
+    // each falls in one window, so it is deducted once and never lost.
+    const { data: returns, error: retErr } = await supabaseAdmin
+      .from('production_returns')
+      .select('product_id, product_name, qty')
+      .eq('branch_id', order.branch_id)
+      .eq('status', 'accepted')
+      .gt('created_at', prev.submitted_at)
+      .lte('created_at', order.submitted_at);
+    if (retErr) throw retErr;
+
+    let returnsValue = 0;
+    let returnItems: { productName: string; qty: number; amount: number }[] = [];
+    const returnRows = (returns ?? []) as { product_id: string; product_name: string; qty: number | string }[];
+    if (returnRows.length > 0) {
+      const retIds = [...new Set(returnRows.map((r) => r.product_id))];
+      const { data: retProducts, error: retProdErr } = await supabaseAdmin
+        .from('products')
+        .select('id, price')
+        .in('id', retIds);
+      if (retProdErr) throw retProdErr;
+      const retPriceById = new Map((retProducts ?? []).map((p) => [p.id as string, Number(p.price ?? 0)]));
+      // Itemised here rather than re-derived on the client, so the lines the slip
+      // prints are by construction the ones the total was built from.
+      returnItems = returnRows.map((r) => ({
+        productName: r.product_name,
+        qty: Number(r.qty ?? 0),
+        amount: Number(r.qty ?? 0) * (retPriceById.get(r.product_id) ?? 0),
+      }));
+      returnsValue = returnItems.reduce((a, r) => a + r.amount, 0);
+    }
+
+    const companyShareValue = (deliveredValue * companySharePct) / 100;
+
+    res.json({
+      previous: { demandNumber: prev.demand_number, date: prev.business_date },
+      deliveredValue,
+      companySharePct,
+      companyShareValue,
+      returnsValue,
+      returnItems,
+      amountToCollect: companyShareValue - returnsValue,
+    });
   } catch (err) {
     next(err);
   }
@@ -197,15 +616,32 @@ interface ReviewedItem {
   remainingBalanceQty: number;
 }
 
-// PUT /api/production-orders/:id/review — production/admin approves or rejects
+/** No balance fields: packing materials carry nothing forward (migration 39). */
+interface ReviewedPackingItem {
+  packingMaterialId: string;
+  materialName: string;
+  qty: number;
+  approvedQty: number;
+}
+
+// PUT /api/production-orders/:id/review — production/admin submits for
+// verification, or rejects. 'awaiting_verification' still transfers stock to
+// the branch immediately (unchanged) — the branch's own /verify step is what
+// finally moves the order to 'approved'.
 router.put('/:id/review', requireRole('super_admin', 'production_user'), validate(ReviewProductionOrderSchema), async (req: AuthRequest, res, next) => {
   try {
-    const { status, approvedItems, reason } = req.body as {
-      status: 'approved' | 'rejected';
+    const { status: rawStatus, approvedItems, approvedPackingItems, reason } = req.body as {
+      status: 'awaiting_verification' | 'approved' | 'rejected';
       approvedItems?: { productId: string; approvedQty: number }[];
+      approvedPackingItems?: { packingMaterialId: string; approvedQty: number }[];
       reason?: string;
     };
     const id = req.params['id']!;
+
+    // Legacy alias: a still-cached old web bundle sends 'approved' for what is
+    // now 'awaiting_verification'. Normalise it so those clients keep working
+    // until they reload — see ReviewProductionOrderSchema.
+    const status = rawStatus === 'approved' ? 'awaiting_verification' : rawStatus;
 
     // Status check-and-set, balance carry-forward and the item rewrite all happen
     // inside review_production_order (migration 16) — they must be one
@@ -217,11 +653,18 @@ router.put('/:id/review', requireRole('super_admin', 'production_user'), validat
       p_reason: reason ?? null,
       p_reviewed_by: req.user!.uid,
       p_reviewed_by_name: req.user!.email,
+      p_packing_overrides: approvedPackingItems ?? [],
     });
     if (error) throw error;
 
     const result = data as
-      | { status: 'ok'; branchId: string; branchName: string | null; items: ReviewedItem[] }
+      | {
+          status: 'ok';
+          branchId: string;
+          branchName: string | null;
+          items: ReviewedItem[];
+          packingItems: ReviewedPackingItem[];
+        }
       | { status: 'not_found' }
       | { status: 'already_reviewed' };
 
@@ -234,38 +677,37 @@ router.put('/:id/review', requireRole('super_admin', 'production_user'), validat
       return;
     }
 
-    // On approval, move approved units OUT of the production pool and INTO branch
-    // stock (both idempotent by order id, kept as separate retry-safe units).
-    if (status === 'approved') {
-      const moves = result.items
-        .map((it) => ({ productId: it.productId, productName: it.productName, qty: Number(it.approvedQty) }))
-        .filter((m) => m.qty > 0);
+    // NO stock movement here any more (migration 58). The pool is debited when
+    // the branch verifies what physically arrived, for the quantity it actually
+    // counted — so this step is paperwork, and there is no window where branch
+    // stock claims goods nobody has confirmed receiving.
 
-      await transferOutOnApproval(id, moves);
-      await Promise.all(
-        moves.map((m) =>
-          applyProductionToStock({
-            branchId: result.branchId,
-            productId: m.productId,
-            productName: m.productName,
-            qty: m.qty,
-            refId: id,
-          }),
-        ),
-      );
-    }
+    // Notify the branch with a per-product Demanded / Approved summary.
+    //
+    // Pending is gone from this line (migration 74): with the carry-forward
+    // removed `remainingBalanceQty` is now always 0, so printing it told the
+    // branch nothing and read as though every line had been fully met even when
+    // Production had cut it. Demanded vs Approved is the whole story now — the
+    // difference between the two IS the shortfall, and it does not carry.
+    const productSummary = result.items
+      .map((it) => `${it.productName}: Demanded ${it.qty}, Approved ${it.approvedQty}`)
+      .join(' · ');
+    // Packing lines report the same pair, and always did — they never had a
+    // carry-forward to lose.
+    const packingSummary = (result.packingItems ?? [])
+      .map((it) => `${it.materialName}: Requested ${it.qty}, Approved ${it.approvedQty}`)
+      .join(' · ');
 
-    // Notify the branch with a per-product Total Required / Approved / Pending summary.
     const message =
-      status === 'approved'
-        ? result.items
-            .map((it) => `${it.productName}: Required ${it.totalRequiredQty}, Approved ${it.approvedQty}, Pending ${it.remainingBalanceQty}`)
-            .join(' · ')
+      status === 'awaiting_verification'
+        ? [productSummary, packingSummary && `Packing — ${packingSummary}`, 'Please check items received and verify.']
+            .filter(Boolean)
+            .join(' | ')
         : 'Your production order was rejected';
 
     await notify({
       type: 'production_reviewed',
-      title: status === 'approved' ? 'Production Order Approved' : 'Production Order Rejected',
+      title: status === 'awaiting_verification' ? 'Production Order Sent — Please Verify' : 'Production Order Rejected',
       message,
       targetRole: 'branch_manager',
       branchId: result.branchId,
@@ -273,6 +715,92 @@ router.put('/:id/review', requireRole('super_admin', 'production_user'), validat
     });
 
     res.json({ success: true, status });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// PUT /api/production-orders/:id/cancel — the branch deletes a demand it has
+// just sent, giving a reason. Soft delete (migration 73): the row stays and
+// keeps its items, so both the branch history and Production's order list can
+// show WHAT was withdrawn and WHY, while it drops out of everything that treats
+// a demand as work to do.
+//
+// Two guards, and both matter:
+//
+//  - Branch scope. A branch may only withdraw its OWN demand. Checked against
+//    the JWT's branchId, never a body field — `branch_user` carries its
+//    manager's branchId, so a shift account can delete its shop's demand and
+//    nobody else's.
+//  - Status. Only 'pending' — before Production reviewed it. Enforced as a
+//    check-and-set (`.eq('status', 'pending')`) rather than a read-then-write,
+//    because Production reviewing at the same moment is a real race: a
+//    read-then-write would cancel an order whose goods had already gone out,
+//    and past verification stock has moved, leaving branch inventory holding
+//    goods against a demand that no longer exists.
+router.put('/:id/cancel', requireRole(...BRANCH_ROLES), validate(CancelProductionOrderSchema), async (req: AuthRequest, res, next) => {
+  try {
+    const id = req.params['id']!;
+    const { reason } = req.body as { reason: string };
+
+    // Guarded rather than defaulted: `branch_id` is a uuid column, so passing an
+    // empty string for a branchless account is a 22P02 from Postgres — a 500
+    // where this is plainly a bad request.
+    const branchId = req.user!.branchId;
+    if (!branchId) { res.status(400).json({ error: 'No branch assigned to this account' }); return; }
+
+    const { data, error } = await supabaseAdmin
+      .from('production_orders')
+      .update({
+        status: 'cancelled',
+        cancel_reason: reason,
+        cancelled_by: req.user!.uid,
+        cancelled_by_name: req.user!.email,
+        cancelled_at: new Date().toISOString(),
+      })
+      .eq('id', id)
+      .eq('branch_id', branchId)
+      .eq('status', 'pending')
+      .select('id, demand_number')
+      .maybeSingle();
+    if (error) throw error;
+
+    // Nothing matched — work out which of the three predicates failed, so the
+    // branch is told what actually happened rather than a bare 404.
+    if (!data) {
+      const { data: exists, error: exErr } = await supabaseAdmin
+        .from('production_orders')
+        .select('id, status, branch_id')
+        .eq('id', id)
+        .maybeSingle();
+      if (exErr) throw exErr;
+      if (!exists) { res.status(404).json({ error: 'Production order not found' }); return; }
+      if (exists.branch_id !== branchId) {
+        res.status(403).json({ error: 'This demand belongs to a different branch' });
+        return;
+      }
+      res.status(409).json({
+        error:
+          exists.status === 'cancelled'
+            ? 'This demand has already been deleted'
+            : 'Production has already started on this demand — it can no longer be deleted',
+      });
+      return;
+    }
+
+    // branchId stays null for the same reason it does on submission: production
+    // users carry no branch claim, and the RLS narrowing would filter a
+    // branch-stamped role broadcast out for every one of them.
+    await notify({
+      type: 'production_demand_cancelled',
+      title: 'Production Demand Deleted',
+      message: `${req.user!.branchName || 'A branch'} deleted demand ${data.demand_number} — ${reason}`,
+      targetRole: 'production_user',
+      branchId: null,
+      relatedId: id,
+    });
+
+    res.json({ success: true });
   } catch (err) {
     next(err);
   }
@@ -291,6 +819,244 @@ router.put('/:id/printed', requireRole('super_admin', 'production_user'), async 
       .maybeSingle();
     if (error) throw error;
     if (!data) { res.status(404).json({ error: 'Production order not found' }); return; }
+
+    res.json({ success: true });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// POST /api/production-orders/:id/items — Production adds an extra line to a
+// still-'pending' order before submitting it for verification. Once submitted
+// the order's items are frozen by review_production_order; this only inserts,
+// it never touches stock (that happens for every item, old and new, in the
+// same /review transfer once the order is submitted).
+router.post('/:id/items', requireRole('super_admin', 'production_user'), validate(AddProductionOrderItemSchema), async (req: AuthRequest, res, next) => {
+  try {
+    const id = req.params['id']!;
+    const { productId, qty, remarks } = req.body as { productId: string; qty: number; remarks: string };
+
+    const { data: order, error: orderErr } = await supabaseAdmin
+      .from('production_orders')
+      .select('id, status')
+      .eq('id', id)
+      .maybeSingle();
+    if (orderErr) throw orderErr;
+    if (!order) { res.status(404).json({ error: 'Production order not found' }); return; }
+    if (order.status !== 'pending') {
+      res.status(409).json({ error: 'This order has already been submitted — items can no longer be added' });
+      return;
+    }
+
+    const { data: product, error: prodErr } = await supabaseAdmin
+      .from('products')
+      .select('name')
+      .eq('id', productId)
+      .maybeSingle();
+    if (prodErr) throw prodErr;
+    if (!product) { res.status(400).json({ error: 'Product not found' }); return; }
+
+    const { data: maxRow, error: maxErr } = await supabaseAdmin
+      .from('production_order_items')
+      .select('line_no')
+      .eq('production_order_id', id)
+      .order('line_no', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (maxErr) throw maxErr;
+    const nextLineNo = (maxRow?.line_no ?? 0) + 1;
+
+    const { error: insErr } = await supabaseAdmin.from('production_order_items').insert({
+      production_order_id: id,
+      product_id: productId,
+      product_name: product.name,
+      qty,
+      remarks: remarks || '',
+      line_no: nextLineNo,
+    });
+    if (insErr) throw insErr;
+
+    res.status(201).json({ success: true });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// PUT /api/production-orders/:id/verify — the branch confirms what it
+// physically received against an 'awaiting_verification' demand, correcting
+// any shortage/overage and/or adding lines that arrived unrequested. Moves the
+// order to 'approved'. Scoped to the branch that owns the order — a branch
+// manager can only verify their own branch's demands.
+router.put('/:id/verify', requireRole(...BRANCH_ROLES), validate(VerifyProductionOrderSchema), async (req: AuthRequest, res, next) => {
+  try {
+    const id = req.params['id']!;
+    const { verifiedItems, newItems, attachmentIds } = req.body as {
+      verifiedItems: { productId: string; verifiedQty: number }[];
+      newItems: { productId: string; qty: number }[];
+      attachmentIds: string[];
+    };
+
+    const { data: order, error: orderErr } = await supabaseAdmin
+      .from('production_orders')
+      .select('id, branch_id, status')
+      .eq('id', id)
+      .maybeSingle();
+    if (orderErr) throw orderErr;
+    if (!order) { res.status(404).json({ error: 'Production order not found' }); return; }
+    if (order.branch_id !== req.user!.branchId) {
+      res.status(403).json({ error: 'This demand belongs to a different branch' });
+      return;
+    }
+
+    // newItems only carry a productId from the client — resolve names the same
+    // way order creation and /items do, so a stale/tampered name can never land.
+    let resolvedNewItems: { productId: string; productName: string; qty: number }[] = [];
+    if (newItems.length > 0) {
+      const productIds = [...new Set(newItems.map((i) => i.productId))];
+      const { data: products, error: prodErr } = await supabaseAdmin
+        .from('products')
+        .select('id, name')
+        .in('id', productIds);
+      if (prodErr) throw prodErr;
+      const nameById = new Map((products ?? []).map((p) => [p.id as string, p.name as string]));
+      resolvedNewItems = newItems.map((i) => {
+        const name = nameById.get(i.productId);
+        if (!name) throw Object.assign(new Error(`Product ${i.productId} not found`), { status: 400 });
+        return { productId: i.productId, productName: name, qty: i.qty };
+      });
+    }
+
+    // Bound BEFORE the RPC, unlike the demand photos on create.
+    //
+    // Verification is the step that moves stock. If binding ran after it and
+    // failed, the goods would already be in branch inventory with no photo of
+    // what arrived — the exact gap this feature exists to close, and
+    // unrecoverable because the order is no longer 'awaiting_verification'.
+    // Running it first means a binding failure aborts with nothing done.
+    //
+    // The cost is that a caller who loses the race — the RPC then answers
+    // 'already_reviewed' — leaves its photos attached to an order someone else
+    // verified. They are photos of the same delivery, so they belong there
+    // anyway; the alternative is the failure mode above.
+    await bindAttachments({
+      entity: 'production_order_verification',
+      entityId: id,
+      attachmentIds,
+      actor: { uid: req.user!.uid },
+    });
+
+    const { data, error } = await supabaseAdmin.rpc('verify_production_order', {
+      p_order_id: id,
+      p_verified_items: verifiedItems.map((v) => ({ productId: v.productId, verifiedQty: v.verifiedQty })),
+      p_new_items: resolvedNewItems,
+      p_verified_by: req.user!.uid,
+      p_verified_by_name: req.user!.email,
+    });
+    if (error) throw error;
+
+    const result = data as
+      | { status: 'ok'; branchId: string; branchName: string | null; items: { productId: string; productName: string; qty: number }[] }
+      | { status: 'not_found' }
+      | { status: 'already_reviewed' };
+
+    if (result.status === 'not_found') {
+      res.status(404).json({ error: 'Production order not found' });
+      return;
+    }
+    if (result.status === 'already_reviewed') {
+      res.status(409).json({ error: 'This order is not awaiting verification (already verified, or not yet submitted)' });
+      return;
+    }
+
+    // THE stock movement for this order — not a correction on top of an earlier
+    // one. /review no longer moves anything, so the pool is debited once here,
+    // for the quantity the branch actually counted.
+    //
+    // Both helpers are idempotent on (refId, productId, type). That also makes
+    // this safe for any order left mid-flight by the previous behaviour: those
+    // already carry a transfer_out under this same order id, so re-running is a
+    // no-op rather than a second debit.
+    //
+    // Packing materials stay absent: not stock-tracked yet (migration 38).
+    const moves = result.items
+      .map((it) => ({ productId: it.productId, productName: it.productName, qty: Number(it.qty) }))
+      .filter((m) => m.qty > 0);
+
+    await transferOutOnApproval(id, moves);
+    await Promise.all(
+      moves.map((m) =>
+        applyProductionToStock({
+          branchId: order.branch_id,
+          productId: m.productId,
+          productName: m.productName,
+          qty: m.qty,
+          refId: id,
+        }),
+      ),
+    );
+
+    const correctionSummary = moves.map((m) => `${m.productName}: ${m.qty}`).join(' · ');
+
+    await notify({
+      type: 'production_order_verified',
+      title: 'Production Order Verified — Awaiting Final Approval',
+      message: `${req.user!.branchName || 'A branch'} verified receipt${correctionSummary ? ` — ${correctionSummary}` : ''}`,
+      targetRole: 'production_user',
+      branchId: null,
+      relatedId: id,
+    });
+
+    res.json({ success: true, items: moves });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// PUT /api/production-orders/:id/final-approve — Production's closing sign-off
+// on a demand the branch has verified. Status only: stock already moved at
+// verification, which is also why there is no reject counterpart here — undoing
+// it would mean clawing goods back out of branch inventory.
+//
+// The `.eq('status', 'verified')` predicate is the check-and-set: a second call
+// matches no row and 409s rather than re-stamping the approval.
+router.put('/:id/final-approve', requireRole('super_admin', 'production_user'), async (req: AuthRequest, res, next) => {
+  try {
+    const id = req.params['id']!;
+
+    const { data, error } = await supabaseAdmin
+      .from('production_orders')
+      .update({
+        status: 'approved',
+        approved_by: req.user!.uid,
+        approved_by_name: req.user!.email,
+        approved_at: new Date().toISOString(),
+      })
+      .eq('id', id)
+      .eq('status', 'verified')
+      .select('id, branch_id')
+      .maybeSingle();
+    if (error) throw error;
+
+    if (!data) {
+      const { data: exists, error: exErr } = await supabaseAdmin
+        .from('production_orders')
+        .select('id, status')
+        .eq('id', id)
+        .maybeSingle();
+      if (exErr) throw exErr;
+      if (!exists) { res.status(404).json({ error: 'Production order not found' }); return; }
+      res.status(409).json({ error: `Cannot approve an order that is ${exists.status} — it must be verified by the branch first` });
+      return;
+    }
+
+    await notify({
+      type: 'production_reviewed',
+      title: 'Production Order Approved',
+      message: 'Your verified demand has been approved by Production.',
+      targetRole: 'branch_manager',
+      branchId: data.branch_id,
+      relatedId: id,
+    });
 
     res.json({ success: true });
   } catch (err) {

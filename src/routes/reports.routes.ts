@@ -24,7 +24,7 @@ router.use(authenticate, requireRole('super_admin', 'branch_manager'));
  * reports do not depend on an unapplied migration.
  */
 const ORDER_SELECT = `
-  id, status, grand_total, branch_id, branch_name, payment_method,
+  id, status, grand_total, discount_total, branch_id, branch_name, payment_method,
   business_date, created_at,
   items:order_items(product_id, product_name, category_name, qty, line_total)
 `;
@@ -33,6 +33,7 @@ interface OrderRow {
   id: string;
   status: string;
   grand_total: number | string;
+  discount_total: number | string;
   branch_id: string;
   branch_name: string | null;
   payment_method: string | null;
@@ -76,9 +77,21 @@ router.get('/summary', async (req: AuthRequest, res, next) => {
     // numeric(14,2) can arrive as a string over PostgREST; normalise once.
     const total = (v: number | string | null | undefined) => Number(v ?? 0);
     const live = orders.filter((o) => o.status !== 'cancelled');
+    // A 'staff' sale is exempt from payment: the goods left the production counter
+    // but no money came in. It is a real order (it moved stock, and it carries the
+    // required comment saying who took what), so it stays in the order counts and
+    // in the payment-method breakdown — but every MONEY figure below is computed
+    // from `paid`, or profit would be overstated by whatever staff consumed.
+    const paid = live.filter((o) => o.payment_method !== 'staff');
+    const staffTotal = live
+      .filter((o) => o.payment_method === 'staff')
+      .reduce((s, o) => s + total(o.grand_total), 0);
 
     const totalOrders = orders.length;
-    const totalRevenue = live.reduce((s, o) => s + total(o.grand_total), 0);
+    const totalRevenue = paid.reduce((s, o) => s + total(o.grand_total), 0);
+    // Discount given away, over the same `paid` set as totalRevenue — a cancelled
+    // or staff order's discount never cost the branch anything.
+    const totalDiscount = paid.reduce((s, o) => s + total(o.discount_total), 0);
     const totalCancelled = orders.filter((o) => o.status === 'cancelled').length;
     const totalPending = orders.filter((o) => o.status === 'pending').length;
 
@@ -93,13 +106,13 @@ router.get('/summary', async (req: AuthRequest, res, next) => {
       const day = o.business_date;
       if (!dayMap[day]) dayMap[day] = { totalOrders: 0, totalRevenue: 0, totalCancelled: 0 };
       dayMap[day]!.totalOrders++;
-      if (o.status !== 'cancelled') dayMap[day]!.totalRevenue += total(o.grand_total);
+      if (o.status !== 'cancelled' && o.payment_method !== 'staff') dayMap[day]!.totalRevenue += total(o.grand_total);
       if (o.status === 'cancelled') dayMap[day]!.totalCancelled++;
     }
 
     // Branch aggregation (admin only)
     const branchMap: Record<string, { branchId: string; branchName: string; totalOrders: number; totalRevenue: number }> = {};
-    for (const o of live) {
+    for (const o of paid) {
       if (!branchMap[o.branch_id]) {
         branchMap[o.branch_id] = { branchId: o.branch_id, branchName: o.branch_name ?? '', totalOrders: 0, totalRevenue: 0 };
       }
@@ -109,7 +122,7 @@ router.get('/summary', async (req: AuthRequest, res, next) => {
 
     // Top products — reads the embedded order_items rows.
     const productMap: Record<string, { productId: string; productName: string; categoryName: string; totalQty: number; totalRevenue: number }> = {};
-    for (const o of live) {
+    for (const o of paid) {
       for (const item of o.items ?? []) {
         // product_id is nullable (ON DELETE SET NULL); fall back to the name
         // snapshot so a deleted product still aggregates instead of collapsing
@@ -193,6 +206,8 @@ router.get('/summary', async (req: AuthRequest, res, next) => {
       period, from, to,
       totalOrders,
       totalRevenue,
+      totalDiscount,
+      staffTotal,
       totalCancelled,
       totalPending,
       averageOrderValue: totalOrders ? totalRevenue / (totalOrders - totalCancelled || 1) : 0,
@@ -204,6 +219,113 @@ router.get('/summary', async (req: AuthRequest, res, next) => {
       paymentMethodBreakdown: Object.values(pmMap),
       budget,
     });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * GET /api/reports/packing-usage — Daily Packing Material Usage.
+ *
+ * One row per (business date, branch, material), aggregated across however many
+ * demands that branch submitted that day.
+ *
+ * `deliveredQty` is DERIVED, not stored. There is no delivery step separate from
+ * approval in this workflow — approving a demand is what sends it — so delivered
+ * equals approved on an approved order and 0 on a pending or rejected one. If a
+ * real delivery confirmation is ever added, this is the single place that changes.
+ *
+ * Filters: from / to (business dates), branchId, packingMaterialId.
+ */
+router.get('/packing-usage', async (req: AuthRequest, res, next) => {
+  try {
+    const from = String(req.query['from'] || format(startOfMonth(new Date()), 'yyyy-MM-dd'));
+    const to = String(req.query['to'] || format(endOfMonth(new Date()), 'yyyy-MM-dd'));
+
+    let query = supabaseAdmin
+      .from('production_orders')
+      .select(`
+        business_date, branch_id, branch_name, status,
+        packingItems:production_order_packing_items(packing_material_id, material_name, qty, approved_qty)
+      `)
+      .gte('business_date', from)
+      .lte('business_date', to)
+      // requestedQty is summed across every status, so a demand the branch
+      // deleted would still read as packing material somebody asked for.
+      .neq('status', 'cancelled')
+      .order('business_date', { ascending: false });
+
+    // Branch managers are scoped to their own branch, same rule as every other
+    // handler in this router.
+    if (req.user!.role === 'branch_manager' && req.user!.branchId) {
+      query = query.eq('branch_id', req.user!.branchId);
+    } else if (req.query['branchId']) {
+      query = query.eq('branch_id', String(req.query['branchId']));
+    }
+
+    const { data, error } = await query;
+    if (error) throw error;
+
+    const materialFilter = req.query['packingMaterialId'] ? String(req.query['packingMaterialId']) : null;
+    const num = (v: unknown) => Number(v ?? 0);
+
+    type OrderRow = {
+      business_date: string;
+      branch_id: string;
+      branch_name: string | null;
+      status: string;
+      packingItems: {
+        packing_material_id: string | null;
+        material_name: string;
+        qty: number | string;
+        approved_qty: number | string | null;
+      }[] | null;
+    };
+
+    const rows = new Map<string, {
+      date: string; branchId: string; branchName: string;
+      packingMaterialId: string | null; materialName: string;
+      requestedQty: number; approvedQty: number; deliveredQty: number;
+    }>();
+
+    for (const o of (data ?? []) as unknown as OrderRow[]) {
+      for (const it of o.packingItems ?? []) {
+        if (materialFilter && it.packing_material_id !== materialFilter) continue;
+
+        // A deleted material leaves packing_material_id null but keeps the name
+        // snapshot, so key on the name in that case rather than collapsing every
+        // deleted material into one row.
+        const key = `${o.business_date}|${o.branch_id}|${it.packing_material_id ?? `name:${it.material_name}`}`;
+        let row = rows.get(key);
+        if (!row) {
+          row = {
+            date: o.business_date,
+            branchId: o.branch_id,
+            branchName: o.branch_name ?? '',
+            packingMaterialId: it.packing_material_id,
+            materialName: it.material_name,
+            requestedQty: 0,
+            approvedQty: 0,
+            deliveredQty: 0,
+          };
+          rows.set(key, row);
+        }
+
+        const approved = num(it.approved_qty);
+        row.requestedQty += num(it.qty);
+        // Only an approved order has meaningful approved/delivered quantities; a
+        // pending one has approved_qty null and a rejected one sent nothing.
+        if (o.status === 'approved') {
+          row.approvedQty += approved;
+          row.deliveredQty += approved;
+        }
+      }
+    }
+
+    const usage = [...rows.values()].sort(
+      (a, b) => b.date.localeCompare(a.date) || a.materialName.localeCompare(b.materialName),
+    );
+    res.json({ usage, from, to, total: usage.length });
   } catch (err) {
     next(err);
   }
@@ -221,7 +343,9 @@ router.get('/branch-comparison', requireRole('super_admin'), async (req: AuthReq
       .select('branch_id, branch_name, grand_total')
       .gte('created_at', from)
       .lte('created_at', to)
-      .neq('status', 'cancelled');
+      .neq('status', 'cancelled')
+      // Staff sales take no money, so they are not revenue to compare branches on.
+      .neq('payment_method', 'staff');
     if (error) throw error;
 
     const orders = (data ?? []) as { branch_id: string; branch_name: string | null; grand_total: number | string }[];

@@ -67,7 +67,7 @@ export async function buildBranchReport(
   }
 
   // ── Sales + payment split (cancelled orders never count) ──
-  const payments = { cash: 0, easypaisa: 0, foodpanda: 0, bank: 0, other: 0, total: 0 };
+  const payments = { cash: 0, easypaisa: 0, foodpanda: 0, bank: 0, staff: 0, other: 0, total: 0 };
   const sales = { total: 0, transactions: 0, average: 0, discount: 0, tax: 0, net: 0 };
 
   for (const o of (orders.data ?? []) as {
@@ -76,6 +76,14 @@ export async function buildBranchReport(
     if (o.status === 'cancelled') continue;
     const total = num(o.grand_total);
     sales.transactions += 1;
+
+    // A staff sale is exempt from payment, so it is broken out but never added to
+    // the sales total — this figure is what the day took, and staff hand over nothing.
+    if (o.payment_method === 'staff') {
+      payments.staff += total;
+      continue;
+    }
+
     sales.total += total;
     sales.discount += num(o.discount_total);
     sales.tax += num(o.tax_amount);
@@ -89,6 +97,7 @@ export async function buildBranchReport(
       default: payments.other += total; break;
     }
   }
+  // payments.total stays the money actually collected — staff is deliberately absent.
   payments.total = payments.cash + payments.easypaisa + payments.foodpanda + payments.bank + payments.other;
   sales.net = sales.total - sales.discount - sales.tax;
   sales.average = sales.transactions > 0 ? sales.total / sales.transactions : 0;
@@ -161,7 +170,7 @@ export async function buildBranchReport(
 // Production
 // ---------------------------------------------------------------------------
 export async function buildProductionReport(businessDate: string): Promise<ProductionClosingReport> {
-  const [movements, pool, demandOrders, prodExpenses] = await Promise.all([
+  const [movements, pool, demandOrders] = await Promise.all([
     supabaseAdmin
       .from('production_stock_history')
       .select('type, delta')
@@ -171,12 +180,8 @@ export async function buildProductionReport(businessDate: string): Promise<Produ
       .from('production_orders')
       .select('status, items:production_order_items(qty, approved_qty)')
       .eq('business_date', businessDate),
-    supabaseAdmin
-      .from('production_expenses')
-      .select('amount, category')
-      .eq('business_date', businessDate),
   ]);
-  for (const r of [movements, pool, demandOrders, prodExpenses]) {
+  for (const r of [movements, pool, demandOrders]) {
     if (r.error) throw r.error;
   }
 
@@ -200,15 +205,6 @@ export async function buildProductionReport(businessDate: string): Promise<Produ
     }
   }
 
-  const byCategory: Record<string, number> = {};
-  let expTotal = 0;
-  for (const e of (prodExpenses.data ?? []) as { amount: number; category?: string }[]) {
-    const amt = num(e.amount);
-    expTotal += amt;
-    const cat = e.category || 'Uncategorised';
-    byCategory[cat] = (byCategory[cat] || 0) + amt;
-  }
-
   return {
     scope: 'production',
     businessDate,
@@ -221,7 +217,6 @@ export async function buildProductionReport(businessDate: string): Promise<Produ
       approved: round2(demandApproved),
       pending: round2(Math.max(0, demandTotal - demandApproved)),
     },
-    expenses: { total: round2(expTotal), byCategory },
     orders: { closed: ordersClosed, pending: ordersPending },
   };
 }
@@ -235,8 +230,9 @@ export function buildCompanyReport(
   production: ProductionClosingReport,
 ): CompanyClosingReport {
   const totalSales = branchReports.reduce((s, b) => s + b.sales.total, 0);
-  const branchExpenses = branchReports.reduce((s, b) => s + b.expenses.total, 0);
-  const totalExpenses = branchExpenses + production.expenses.total;
+  // Branch shop expenses are the whole of it since production_expenses was dropped
+  // (migration 59) — the production report no longer carries an expense figure.
+  const totalExpenses = branchReports.reduce((s, b) => s + b.expenses.total, 0);
 
   return {
     scope: 'company',
@@ -334,8 +330,6 @@ export function formatProductionMessage(r: ProductionClosingReport, companyName 
     'Closing Stock', `${r.production.remaining} Items`,
     '',
     'Pending Demand', `${r.demand.pending} Items`,
-    '',
-    'Production Expense', money(r.expenses.total, symbol),
     '',
     'Business Date', formatBusinessDate(r.businessDate),
   );

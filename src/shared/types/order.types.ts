@@ -1,5 +1,10 @@
 export type OrderStatus = 'pending' | 'preparing' | 'ready' | 'delivered' | 'cancelled';
-export type PaymentMethod = 'cash' | 'easypaisa' | 'foodpanda' | 'bank_account';
+// 'staff' is production-counter only and takes no money — it is exempt from
+// payment and excluded from every revenue total. It is in this union because an
+// order can carry it, not because it is offered alongside the others: the branch
+// UI and /api/orders/pos both validate against the narrower
+// PAYMENT_METHOD_VALUES, which does not include it.
+export type PaymentMethod = 'cash' | 'easypaisa' | 'foodpanda' | 'bank_account' | 'staff';
 
 export interface OrderItem {
   productId: string;

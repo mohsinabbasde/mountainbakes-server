@@ -1,6 +1,7 @@
 import { supabaseAdmin } from '../config/supabase';
 import {
   DEFAULT_BUSINESS_HOURS,
+  DEFAULT_GEOFENCE_SETTINGS,
   hhmmToMinutes,
   ORDER_WINDOW_OPEN_MINUTES,
   ORDER_WINDOW_CLOSE_MINUTES,
@@ -22,6 +23,8 @@ const FULL_DEFAULTS: AppSettings = {
   ...DEFAULT_BUSINESS_HOURS,
   closingNotificationsEnabled: false,
   orderConfirmationsEnabled: false,
+  eventNotificationsEnabled: false,
+  ...DEFAULT_GEOFENCE_SETTINGS,
   updatedAt: '',
   updatedBy: '',
 };
@@ -45,6 +48,13 @@ const COLUMN_TO_FIELD: Record<string, keyof AppSettings> = {
   auto_stock_closing: 'autoStockClosing',
   closing_notifications_enabled: 'closingNotificationsEnabled',
   order_confirmations_enabled: 'orderConfirmationsEnabled',
+  event_notifications_enabled: 'eventNotificationsEnabled',
+  geofencing_enabled: 'geofencingEnabled',
+  geofence_default_radius_km: 'geofenceDefaultRadiusKm',
+  geofence_verify_interval_min: 'geofenceVerifyIntervalMin',
+  geofence_require_high_accuracy: 'geofenceRequireHighAccuracy',
+  geofence_gps_timeout_sec: 'geofenceGpsTimeoutSec',
+  geofence_max_position_age_sec: 'geofenceMaxPositionAgeSec',
   updated_at: 'updatedAt',
   updated_by: 'updatedBy',
 };
@@ -67,6 +77,9 @@ export const FIELD_TO_COLUMN = Object.fromEntries(
  * returns unset fields as null, which would otherwise clobber a default with
  * null and hand callers a settings object that fails its own type; skipping them
  * lets the defaults fill in instead.
+ *
+ * `numeric` columns are coerced back to numbers on the way through — see
+ * coerceToDefaultType. Every numeric setting arrives as a STRING otherwise.
  */
 export async function getAppSettings(): Promise<AppSettings> {
   const hit = getCached<AppSettings>('settings');
@@ -79,12 +92,38 @@ export async function getAppSettings(): Promise<AppSettings> {
   for (const [column, value] of Object.entries(data ?? {})) {
     const field = COLUMN_TO_FIELD[column];
     if (field && value !== null && value !== undefined) {
-      (settings as unknown as Record<string, unknown>)[field] = value;
+      (settings as unknown as Record<string, unknown>)[field] = coerceToDefaultType(field, value);
     }
   }
 
   setCached('settings', settings);
   return settings;
+}
+
+/**
+ * Restore a value's declared type, using FULL_DEFAULTS as the schema.
+ *
+ * supabase-js hands back every `numeric` column as a STRING — Postgres numerics
+ * have no lossless JavaScript representation, so PostgREST serialises them as text
+ * rather than risk a silent rounding. `gst_rate` and `geofence_default_radius_km`
+ * are both numeric, so without this an AppSettings claiming `gstRate: number`
+ * actually carries `"0.000"`.
+ *
+ * That is worse than a cosmetic type lie. Loose comparison hides it in some places
+ * ("50" > 0 is true) and not in others: the geofence rule tests `typeof === 'number'`
+ * before trusting a radius, so a string one is discarded and the branch silently
+ * falls back to the built-in 50 km — an admin's configured 25 km would simply not
+ * apply, with nothing logged to say so.
+ *
+ * Driven off the default's runtime type rather than a hand-kept list of numeric
+ * fields, so a numeric setting added later is covered without anyone remembering.
+ */
+function coerceToDefaultType(field: keyof AppSettings, value: unknown): unknown {
+  if (typeof FULL_DEFAULTS[field] === 'number' && typeof value === 'string') {
+    const n = Number(value);
+    return Number.isFinite(n) ? n : FULL_DEFAULTS[field];
+  }
+  return value;
 }
 
 /** Order-window bounds in Karachi minutes-of-day, from settings (with safe fallbacks). */

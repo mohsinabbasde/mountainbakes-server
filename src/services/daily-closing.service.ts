@@ -99,7 +99,7 @@ export async function runDailyClosing(opts: CloseOptions): Promise<CloseResult> 
 
   // ── Compute the archive (with a small retry for transient DB errors) ──
   try {
-    const { salesSummary, expenseSummary, productionExpenseSummary, productionSummary, stockSnapshot } =
+    const { salesSummary, expenseSummary, productionSummary, stockSnapshot } =
       await withRetry(() => buildArchive(businessDate, autoStockClosing), 3);
 
     const closedAt = new Date().toISOString();
@@ -109,7 +109,10 @@ export async function runDailyClosing(opts: CloseOptions): Promise<CloseResult> 
         status: 'success',
         sales_summary: salesSummary,
         expense_summary: expenseSummary,
-        production_expense_summary: productionExpenseSummary,
+        // Always null now: production_expenses was dropped (migration 59). The
+        // column stays — closures archived before the drop keep their summary,
+        // and rowToClosure still reads it — but there is nothing left to compute.
+        production_expense_summary: null,
         production_summary: productionSummary,
         stock_snapshot: stockSnapshot,
         error: null,
@@ -139,13 +142,12 @@ export async function runDailyClosing(opts: CloseOptions): Promise<CloseResult> 
 async function buildArchive(businessDate: string, autoStockClosing: boolean): Promise<{
   salesSummary: SalesSummary;
   expenseSummary: ExpenseSummary;
-  productionExpenseSummary: ExpenseSummary;
   productionSummary: ProductionSummary;
   stockSnapshot: StockSnapshotBranch[] | null;
 }> {
   const { fromISO, toISO } = businessDayBounds(businessDate);
 
-  const [orders, expenses, prodExpenses, prodOrders, returns, balances, branches] = await Promise.all([
+  const [orders, expenses, prodOrders, returns, balances, branches] = await Promise.all([
     // Orders are dated by created_at with INCLUSIVE bounds — see migration 03.
     supabaseAdmin
       .from('orders')
@@ -153,7 +155,6 @@ async function buildArchive(businessDate: string, autoStockClosing: boolean): Pr
       .gte('created_at', fromISO)
       .lte('created_at', toISO),
     supabaseAdmin.from('expenses').select('amount, payment_method, category').eq('business_date', businessDate),
-    supabaseAdmin.from('production_expenses').select('amount, payment_method, category').eq('business_date', businessDate),
     supabaseAdmin
       .from('production_orders')
       .select('status, items:production_order_items(qty, approved_qty)')
@@ -163,37 +164,39 @@ async function buildArchive(businessDate: string, autoStockClosing: boolean): Pr
     supabaseAdmin.from('branches').select('id, name').eq('is_active', true),
   ]);
 
-  for (const r of [orders, expenses, prodExpenses, prodOrders, returns, balances, branches]) {
+  for (const r of [orders, expenses, prodOrders, returns, balances, branches]) {
     if (r.error) throw r.error;
   }
 
   // ── Sales (non-cancelled) ──
-  const emptyPm: Record<PaymentMethod, number> = { cash: 0, easypaisa: 0, foodpanda: 0, bank_account: 0 };
+  const emptyPm: Record<PaymentMethod, number> = { cash: 0, easypaisa: 0, foodpanda: 0, bank_account: 0, staff: 0 };
   const sales: SalesSummary = {
-    totalSales: 0, totalOrders: 0, byPaymentMethod: { ...emptyPm }, totalDiscounts: 0, governmentTax: 0, netSales: 0,
+    totalSales: 0, staffSales: 0, totalOrders: 0, byPaymentMethod: { ...emptyPm }, totalDiscounts: 0, governmentTax: 0, netSales: 0,
   };
   for (const o of (orders.data ?? []) as {
     status: string; grand_total: number; discount_total: number; tax_amount: number; payment_method: PaymentMethod;
   }[]) {
     if (o.status === 'cancelled') continue;
-    sales.totalOrders += 1;
-    sales.totalSales += Number(o.grand_total || 0);
-    sales.totalDiscounts += Number(o.discount_total || 0);
-    sales.governmentTax += Number(o.tax_amount || 0);
     const pm = (o.payment_method || 'cash') as PaymentMethod;
-    sales.byPaymentMethod[pm] = (sales.byPaymentMethod[pm] || 0) + Number(o.grand_total || 0);
+    const amount = Number(o.grand_total || 0);
+    sales.totalOrders += 1;
+    // The closing figure is what the day actually took, so a staff sale is
+    // counted and broken out but kept out of totalSales — otherwise the summary
+    // sent to staff at 2 AM would report money nobody can hand over.
+    if (pm === 'staff') {
+      sales.staffSales += amount;
+    } else {
+      sales.totalSales += amount;
+      sales.totalDiscounts += Number(o.discount_total || 0);
+      sales.governmentTax += Number(o.tax_amount || 0);
+    }
+    sales.byPaymentMethod[pm] = (sales.byPaymentMethod[pm] || 0) + amount;
   }
   sales.netSales = sales.totalSales - sales.totalDiscounts - sales.governmentTax;
 
   // ── Shop expenses (real category column since migration 29) ──
   const expenseSummary = summariseExpenses(
     (expenses.data ?? []) as { amount: number; payment_method: string; category?: string }[],
-    (e) => e.category || 'Uncategorised',
-  );
-
-  // ── Production expenses (have a category) ──
-  const productionExpenseSummary = summariseExpenses(
-    (prodExpenses.data ?? []) as { amount: number; payment_method: string; category?: string }[],
     (e) => e.category || 'Uncategorised',
   );
 
@@ -226,7 +229,7 @@ async function buildArchive(businessDate: string, autoStockClosing: boolean): Pr
     );
   }
 
-  return { salesSummary: sales, expenseSummary, productionExpenseSummary, productionSummary: production, stockSnapshot };
+  return { salesSummary: sales, expenseSummary, productionSummary: production, stockSnapshot };
 }
 
 /** Roll up a set of expense rows into total + by-category + by-payment-method. */

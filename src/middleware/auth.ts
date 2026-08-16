@@ -1,8 +1,15 @@
 import { Request, Response, NextFunction } from 'express';
 import { supabaseAdmin } from '../config/supabase';
-import type { UserRole } from '../shared';
+import { USER_ROLES, type UserRole } from '../shared';
 
-const VALID_ROLES = new Set<UserRole>(['super_admin', 'branch_manager', 'production_user']);
+/**
+ * Driven off the shared USER_ROLES list rather than a literal copy. The literal
+ * version had to be remembered when the four Finance Ledger roles were added in
+ * migration 51 — and forgetting it fails CLOSED but silently: a correctly
+ * provisioned finance account gets "Account has no role assigned" and nothing in
+ * the logs points at this line.
+ */
+const VALID_ROLES = new Set<UserRole>(USER_ROLES);
 
 export interface AuthRequest extends Request {
   user?: {

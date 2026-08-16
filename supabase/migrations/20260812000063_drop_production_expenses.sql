@@ -1,0 +1,41 @@
+-- 63: drop production_expenses.
+--
+-- The central kitchen's own expense book is retired. The code that read this
+-- table went out first (server af028ac "Remove Production Expenses", Heroku
+-- v31), so nothing in production queries it by the time this runs — that
+-- ordering is deliberate and is the reverse of the usual migrate-first rule:
+-- taking the table before the deploy would have 500'd the closing report,
+-- daily closing and the support lookup.
+--
+-- THIS DESTROYS DATA. The table held three rows at the drop, PKR 11,490.00
+-- total, two of them real purchases entered on 2026-08-11. They are preserved
+-- as an executable restore script at
+-- `archive/production_expenses_final_20260812.sql`, which is now the only
+-- record of them. Read it before assuming this migration was cost-free.
+--
+-- It also closes a gap in the history: the code comments written alongside the
+-- removal refer to "migration 59", which never existed — the numbering ran
+-- 58 → 60. This is that migration, arriving late and under its real number.
+--
+-- What goes with the table, and what does not:
+--
+--   * Its indexes and its RLS policies (from migration 9) drop with it. No
+--     separate statements needed, and none are written here.
+--   * Nothing foreign-keys INTO this table, so the drop needs no cascade and
+--     cannot take another table's rows with it. `restrict` says so explicitly
+--     rather than trusting it: if some dependency exists that this comment has
+--     not accounted for, the migration fails instead of quietly widening.
+--   * The shared EXP-###### counter is untouched. The branch `expenses` and
+--     `production_expenses` tables deliberately shared one sequence so the
+--     number was unique across both; migration 46 seeded `counters` from the
+--     max across the two ONCE, and next_expense_number() has read from
+--     `counters` ever since, never from this table. Branch expense numbering
+--     therefore continues unbroken, and the retired EXP-000011/16/17 are simply
+--     never reissued.
+--   * The `production_expense_payment_method` enum is intentionally LEFT IN
+--     PLACE. Nothing else uses it, so it is now dead, but dropping a type is
+--     the kind of change that is annoying to undo and it is not what this
+--     migration is for. Remove it separately if it ever matters.
+-- ---------------------------------------------------------------------------
+
+drop table if exists production_expenses restrict;

@@ -44,6 +44,16 @@ export const TYPE_URL: Record<string, string> = {
   production_demand: '/production-orders',
   production_reviewed: '/branch-new-orders',
   production_return: '/production-returns',
+  // Special Events. NOTE this map is role-blind — the admin, branch and
+  // production event screens live at three different paths, so these entries can
+  // only ever be right for one role. Whoever reimplements push has to key the
+  // lookup on the recipient's role before using them.
+  event_created: '/special-events',
+  event_reminder: '/special-events',
+  event_demand_due: '/branch-events',
+  event_demand_submitted: '/production-events',
+  event_demand_reviewed: '/branch-events',
+  event_production_updated: '/special-events',
 };
 
 /**

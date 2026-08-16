@@ -1,0 +1,17 @@
+-- 36: 'staff' payment method.
+--
+-- Staff consumption rung up at the production counter. It is a payment method in
+-- the sense that it occupies the same column, but no money changes hands — the
+-- sale is EXEMPT from payment, and every revenue aggregate excludes it (see
+-- reports.routes.ts, daily-closing.service.ts, closing-report.service.ts). What
+-- makes it auditable instead of a hole in the numbers is the comment: the
+-- production sale schema requires a non-empty `notes` whenever this method is
+-- used.
+--
+-- Deliberately NOT offered on branch sales — CreatePosSaleSchema keeps the
+-- original PAYMENT_METHOD_VALUES, so /api/orders/pos still rejects 'staff'. Only
+-- /api/orders/production-sale accepts it.
+--
+-- Its own migration: Postgres cannot use a new enum value in the transaction that
+-- adds it.
+alter type payment_method add value if not exists 'staff';
