@@ -80,6 +80,35 @@ export const EditDemandItemsSchema = z.object({
 });
 export type EditDemandItemsInput = z.infer<typeof EditDemandItemsSchema>;
 
+/**
+ * Deleting a demand outright — the escalation from the line editor above, for a
+ * demand that was verified when it should never have been. There is no set of
+ * corrected lines that says "this delivery did not happen".
+ *
+ * The reason is REQUIRED and, unlike the edit's, cannot be blank. The order row
+ * is physically destroyed; the surviving ledger rows and the audit_logs snapshot
+ * are the only account of it that remains, and a deletion that says nothing
+ * leaves a reversed balance nobody can explain. `.trim()` before `.min(5)` so a
+ * box of spaces cannot satisfy it.
+ *
+ * `confirmDemandNumber` must echo the demand's own DMD-###### number. This is
+ * the one destructive, irreversible action in the Support Center, and it is
+ * reached from a list where every row looks alike — typing the number is what
+ * separates "delete this demand" from "delete the demand I happened to have
+ * open". The server re-checks it against the ticket's linked order rather than
+ * trusting the client to have compared them.
+ */
+export const DeleteDemandSchema = z.object({
+  reason: z
+    .string()
+    .trim()
+    .min(5, 'Please give a reason for deleting this demand')
+    .max(500, 'Reason is too long'),
+  confirmDemandNumber: z.string().trim().min(1, 'Type the demand number to confirm'),
+  note: z.string().trim().max(2000).optional().default(''),
+});
+export type DeleteDemandInput = z.infer<typeof DeleteDemandSchema>;
+
 export const EditSaleItemsSchema = z.object({
   items: z.array(SaleItemEditSchema).min(1, 'A sale must have at least one item'),
   /**

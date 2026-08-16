@@ -10,6 +10,7 @@ import {
   ChangeFiguresSchema,
   EditSaleItemsSchema,
   EditDemandItemsSchema,
+  DeleteDemandSchema,
   businessDateStr,
   karachiTimeStr,
   type PaymentMethod,
@@ -1240,6 +1241,139 @@ router.patch('/:id/demand-items', requireRole('super_admin'), validate(EditDeman
     } catch { /* best-effort */ }
 
     res.json({ ticket: rowToApi(data), applied: true, stockMoved: deltas.length > 0, deltas });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * DELETE /api/support/:id/demand — destroy the demand this query was raised
+ * against, reversing whatever it delivered.
+ *
+ * The escalation from PATCH /:id/demand-items above. That editor answers "these
+ * quantities are wrong"; this answers "this demand was verified and it should
+ * never have been", which no set of corrected lines can express — the editor
+ * refuses an empty line list, and a line left at zero still leaves a document
+ * asserting a delivery that did not happen.
+ *
+ * Unlike the line editor this does NOT refuse a rejected or cancelled demand.
+ * That gate exists there because editing such a demand's lines would produce a
+ * document claiming a commitment that was never made; deleting one makes no
+ * claim at all, and those demands moved no stock, so the reversal simply comes
+ * back empty.
+ *
+ * Everything destructive happens inside delete_production_order (migration 82),
+ * in one transaction: reverse both ledgers, snapshot to audit_logs, drop the
+ * row. The reversal is NOT applied here the way the correction route applies
+ * its deltas — see that migration's header for why a delete cannot use the
+ * retryable split.
+ */
+router.delete('/:id/demand', requireRole('super_admin'), validate(DeleteDemandSchema), async (req: AuthRequest, res, next) => {
+  try {
+    const ticket = await getTicket(req.params.id);
+    if (!ticket) { res.status(404).json({ error: 'Ticket not found' }); return; }
+    if (refusedAsArchived(ticket, res)) return;
+    if (ticket.reference_type !== 'demand') {
+      res.status(400).json({ error: 'Only demand queries can delete a demand' });
+      return;
+    }
+
+    const snapshot = (ticket.reference_snapshot ?? null) as SupportReference | null;
+    const orderId = snapshot?.entityId;
+    if (!orderId) { res.status(400).json({ error: 'This ticket has no linked demand to delete' }); return; }
+
+    const { reason, confirmDemandNumber, note } = req.body as {
+      reason: string;
+      confirmDemandNumber: string;
+      note: string;
+    };
+
+    // Re-checked here rather than trusted to the client: this is the only
+    // irreversible action in the Support Center, and the confirmation is
+    // worthless if the thing being confirmed is whatever the browser chose to
+    // send. Compared against the ticket's own reference, which is the number the
+    // admin is looking at.
+    if (confirmDemandNumber.trim().toUpperCase() !== String(ticket.reference_id ?? '').trim().toUpperCase()) {
+      res.status(400).json({ error: `Type ${ticket.reference_id} exactly to confirm the deletion.` });
+      return;
+    }
+
+    // Distinct from the correction's ':fix:' family so it can never collide with
+    // the original delivery or with an earlier correction — both ledgers are
+    // idempotent on (ref_id, product_id, type), and a reused ref would silently
+    // no-op the whole reversal. Keyed on the ticket so the audit row, the
+    // ledger entries and the query that authorised them all agree.
+    const refId = `${orderId}:del:${ticket.id}`;
+
+    const { data: result, error } = await supabaseAdmin.rpc('delete_production_order', {
+      p_order_id: orderId,
+      p_reason: reason,
+      p_ref_id: refId,
+      p_actor_id: req.user!.uid,
+      p_actor_name: req.user!.email ?? '',
+    });
+    if (error) throw error;
+
+    const outcome = (result ?? {}) as {
+      status?: string;
+      demandNumber?: string;
+      branchName?: string | null;
+      orderStatus?: string;
+      stockMoved?: boolean;
+      branchReversals?: { productId: string; productName: string; delta: number | string }[];
+      poolReversals?: { productId: string; productName: string; delta: number | string }[];
+    };
+
+    // Already gone — a double submit, or a demand deleted from another tab. Not
+    // an error worth a 500, but the admin must not be told it just happened.
+    if (outcome.status === 'not_found') {
+      res.status(404).json({ error: 'That demand no longer exists — it may already have been deleted.' });
+      return;
+    }
+
+    const branchRev = (outcome.branchReversals ?? []).map((d) => ({ ...d, delta: Number(d.delta) }));
+    const reversed = branchRev.map((d) => `${d.productName} ${d.delta > 0 ? '+' : ''}${d.delta}`).join(' · ');
+    const resolutionNote = [
+      note,
+      `Demand ${outcome.demandNumber ?? ticket.reference_id} DELETED — ${reason}`,
+      branchRev.length ? `stock reversed — ${reversed}` : 'no stock to reverse (this demand had not delivered)',
+    ].filter(Boolean).join(' — ');
+
+    const { data, error: updErr } = await supabaseAdmin
+      .from('support_tickets')
+      .update({
+        status: 'resolved',
+        resolution_note: resolutionNote,
+        resolved_by: req.user!.uid,
+        resolved_by_name: req.user!.email,
+        resolved_at: new Date().toISOString(),
+      })
+      .eq('id', req.params.id)
+      .select('*')
+      .single();
+    if (updErr) throw updErr;
+
+    try {
+      if (data.raised_by) {
+        await notify({
+          type: 'support_resolved',
+          title: `Demand ${outcome.demandNumber ?? ticket.reference_id} deleted`,
+          message: resolutionNote,
+          targetUserId: data.raised_by,
+          branchId: data.branch_id,
+          relatedId: data.id,
+        });
+      }
+    } catch { /* best-effort */ }
+
+    res.json({
+      ticket: rowToApi(data),
+      deleted: true,
+      demandNumber: outcome.demandNumber ?? null,
+      stockMoved: outcome.stockMoved === true,
+      branchReversals: branchRev,
+      poolReversals: (outcome.poolReversals ?? []).map((d) => ({ ...d, delta: Number(d.delta) })),
+    });
   } catch (err) {
     next(err);
   }
