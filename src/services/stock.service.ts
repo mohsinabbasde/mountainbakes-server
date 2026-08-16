@@ -45,12 +45,32 @@ export async function applyStockMovement(input: MovementInput): Promise<number> 
   return Number(data ?? 0);
 }
 
-/** The absolute figures an admin correction may target. Omitted = leave alone. */
+/**
+ * The absolute figures an admin correction may target. Omitted = leave alone.
+ *
+ * `balance` and `adjustment` are the SAME degree of freedom seen from two ends —
+ * adjustment is the residual in `opening + new − sold − returned + adjustment =
+ * balance`, so fixing one fixes the other. Send one or the other, never both;
+ * apply_stock_correction returns `overdetermined` if you do (migration 78).
+ *
+ * `adjustment` is the only signed target: a correction can go either way, and
+ * `{ adjustment: 0 }` is how a correction is cleared.
+ */
 export interface StockCorrectionTargets {
   newQty?: number;
   sold?: number;
   returned?: number;
   balance?: number;
+  adjustment?: number;
+}
+
+/** Thrown when both `balance` and `adjustment` are targeted in one correction. */
+export class OverdeterminedCorrectionError extends Error {
+  status = 400;
+  constructor() {
+    super('Set either Balance or Adjustment, not both — each one determines the other.');
+    this.name = 'OverdeterminedCorrectionError';
+  }
 }
 
 export interface StockCorrectionResult {
@@ -107,7 +127,7 @@ export async function applyStockCorrection(params: {
   if (error) throw error;
 
   const result = data as {
-    status: 'ok' | 'negative_balance';
+    status: 'ok' | 'negative_balance' | 'overdetermined';
     balance?: number;
     applied?: boolean;
     before?: Record<string, unknown>;
@@ -115,6 +135,9 @@ export async function applyStockCorrection(params: {
     movements?: { type: StockMovementType; delta: number | string }[];
   };
 
+  if (result.status === 'overdetermined') {
+    throw new OverdeterminedCorrectionError();
+  }
   if (result.status === 'negative_balance') {
     throw new NegativeBalanceError(Number(result.balance ?? 0));
   }

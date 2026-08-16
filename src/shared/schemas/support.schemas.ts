@@ -54,6 +54,32 @@ export const SaleItemEditSchema = z.object({
 });
 export type SaleItemEditInput = z.infer<typeof SaleItemEditSchema>;
 
+/**
+ * Support Center → admin edits a demand's product lines (change requested /
+ * approved qty, add or remove a product). Applied live via
+ * correct_production_order (migration 77), which rewrites the lines and returns
+ * the per-product change in APPROVED quantity; the route then reconciles branch
+ * stock and the production pool, but only for an order that already delivered.
+ *
+ * `qty` is what the branch asked for and may be 0 on a line Production added.
+ * `approvedQty` is what Production granted — the figure that moves stock — so it
+ * is the one a correction reconciles against.
+ */
+export const DemandItemEditSchema = z.object({
+  productId: z.string().uuid(),
+  productName: z.string().trim().min(1, 'Product is required').max(200),
+  qty: z.number().min(0, 'Requested quantity cannot be negative'),
+  approvedQty: z.number().min(0, 'Approved quantity cannot be negative'),
+});
+export type DemandItemEditInput = z.infer<typeof DemandItemEditSchema>;
+
+export const EditDemandItemsSchema = z.object({
+  items: z.array(DemandItemEditSchema).min(1, 'A demand must have at least one product'),
+  reason: z.string().trim().max(500).optional().default(''),
+  note: z.string().trim().max(2000).optional().default(''),
+});
+export type EditDemandItemsInput = z.infer<typeof EditDemandItemsSchema>;
+
 export const EditSaleItemsSchema = z.object({
   items: z.array(SaleItemEditSchema).min(1, 'A sale must have at least one item'),
   /**

@@ -202,6 +202,7 @@ export async function getProductionStockRows(date: string = businessDateStr()): 
       balance: 0,
       returned: 0,
       soldToday: 0,
+      adjustment: 0,
     });
   }
 
@@ -223,6 +224,7 @@ export async function getProductionStockRows(date: string = businessDateStr()): 
       balance: Number(d.balance ?? 0),
       returned: 0,
       soldToday: 0,
+      adjustment: 0,
     });
   }
 
@@ -246,6 +248,7 @@ export async function getProductionStockRows(date: string = businessDateStr()): 
         balance: 0,
         returned: 0,
         soldToday: 0,
+        adjustment: 0,
       };
       rows.set(h.product_id, row);
     }
@@ -261,8 +264,11 @@ export async function getProductionStockRows(date: string = businessDateStr()): 
     else if (h.type === 'transfer_out') row.approvedQty -= delta;
     else if (h.type === 'return_in') row.returned += delta;
     else if (h.type === 'sale') row.soldToday -= delta;
-    // 'adjustment' deliberately folds into none of them: it is the remainder the
-    // four figures do not explain, and it is already in `balance`.
+    // 'adjustment' folds into none of the four above — it is the remainder they do
+    // not explain — but it is no longer dropped: it is reported on its own,
+    // SIGNED, so the page can show what an admin corrected today rather than
+    // leaving an unexplained gap between the four figures and the balance.
+    else if (h.type === 'adjustment') row.adjustment += delta;
   }
 
   // totalStock = what's on hand now + everything that already left today. Counter

@@ -1,4 +1,4 @@
-import { Router } from 'express';
+import { Router, type Response } from 'express';
 import { supabaseAdmin } from '../config/supabase';
 import { authenticate, type AuthRequest } from '../middleware/auth';
 import { requireRole } from '../middleware/requireRole';
@@ -9,6 +9,7 @@ import {
   ResolveSupportTicketSchema,
   ChangeFiguresSchema,
   EditSaleItemsSchema,
+  EditDemandItemsSchema,
   businessDateStr,
   karachiTimeStr,
   type PaymentMethod,
@@ -19,13 +20,16 @@ import {
 import { notify } from '../services/push.service';
 import {
   applyStockCorrection,
+  applyStockMovement,
   getProductStockFigures,
   NegativeBalanceError,
+  OverdeterminedCorrectionError,
   type StockCorrectionResult,
   type StockCorrectionTargets,
 } from '../services/stock.service';
 import {
   applyProductionStockCorrection,
+  applyProductionStockMovement,
   CorrectionUnavailableError,
   getProductionStockFigures,
   type ProductionStockCorrectionTargets,
@@ -62,13 +66,24 @@ class LookupError extends Error {
 
 const money = (v: unknown) => `Rs.${Number(v ?? 0).toLocaleString('en-PK')}`;
 
-/** The stock figures an admin may correct, labelled as the Stock page shows them. */
+/**
+ * The stock figures an admin may correct, labelled as the Stock page shows them.
+ *
+ * `adjustment` is correctable as of migration 78 and is the ALTERNATIVE to
+ * `balance` — they are one degree of freedom (adjustment is the residual in
+ * opening + new − sold − returned + adjustment = balance), so the RPC refuses
+ * both at once. `opening` is absent on purpose: it is the previous day's closing.
+ */
 const STOCK_FIGURE_LABELS = {
   newQty: 'New Stock',
   sold: 'Sold',
   returned: 'Returned',
+  adjustment: 'Adjustment',
   balance: 'Balance',
 } as const;
+
+/** The only signed correctable figure — a correction can go either way. */
+const SIGNED_STOCK_FIGURES = new Set(['adjustment']);
 
 /** The pool figures an admin may correct, labelled as the Production Stock page shows them. */
 const PRODUCTION_FIGURE_LABELS = {
@@ -253,20 +268,22 @@ async function resolveReference(
   }
 
   // --- DEMAND (production_orders.demand_number) ----------------------------
-  // READ-ONLY by nature: a demand is a workflow document, not a ledger. Correcting
-  // one means re-reviewing it on the Production Orders page, where
-  // review_production_order moves the approved quantities and the pool atomically.
-  // Patching columns from here would desynchronise the two.
+  // Corrected through PATCH /:id/demand-items, not /figures: a demand line carries
+  // both a requested and an approved quantity, and only the latter moves stock —
+  // and only then if the order actually delivered. correct_production_order
+  // (migration 77) owns that decision; see its header for why `status` cannot make
+  // it. A rejected or cancelled demand stays read-only (below).
   if (type === 'demand') {
     // An explicit column list rather than production-orders.routes.ts's `*`: this
     // snapshot is frozen into the ticket as jsonb forever, so it should not carry
-    // legacy ids, print flags or audit uuids.
+    // legacy ids, print flags or audit uuids. product_id/product_name join the
+    // list because the correction editor addresses lines by product.
     let q = supabaseAdmin
       .from('production_orders')
       .select(`
         id, demand_number, branch_id, branch_name, business_date, submitted_time,
         status, was_changed, change_reason, created_by_name, approved_by_name,
-        items:production_order_items(qty, approved_qty),
+        items:production_order_items(product_id, product_name, qty, approved_qty, line_no),
         packingItems:production_order_packing_items(qty, approved_qty)
       `)
       .eq('demand_number', referenceId)
@@ -282,6 +299,13 @@ async function resolveReference(
     if (error) throw error;
     if (!data) throw new LookupError(`No demand found for ${referenceId}.`, 404);
 
+    type DemandRow = {
+      product_id: string;
+      product_name: string;
+      qty: number | string;
+      approved_qty: number | string | null;
+      line_no: number | null;
+    };
     type QtyRow = { qty: number | string; approved_qty: number | string | null };
     const items = (data.items ?? []) as QtyRow[];
     const packing = (data.packingItems ?? []) as QtyRow[];
@@ -293,13 +317,31 @@ async function resolveReference(
     // approved nothing" rather than "not looked at yet".
     const reviewed = items.some((i) => i.approved_qty != null);
 
+    // Has this order already credited units to the branch? Asked of the LEDGER,
+    // because `status` cannot answer it: verification sets 'verified', then
+    // Production's final approval flips it back to 'approved', so a delivered
+    // order and a never-delivered one look identical. Migration 77's header has
+    // the live evidence. Advisory here — correct_production_order recomputes it
+    // under a row lock before moving anything.
+    const { count: movedCount, error: movedErr } = await supabaseAdmin
+      .from('stock_history')
+      .select('id', { count: 'exact', head: true })
+      .eq('ref_id', data.id)
+      .eq('type', 'production');
+    if (movedErr) throw movedErr;
+
+    // Refused demands committed to nothing and moved nothing; editing their lines
+    // would produce a document claiming otherwise. correct_production_order
+    // refuses them too — this just keeps the editor from being offered.
+    const demandReadOnly = data.status === 'rejected' || data.status === 'cancelled';
+
     return {
       type,
       referenceId,
       entityId: data.id,
       // No entityTable: `entityTable` + a non-empty `allowed` set is exactly what
-      // drives the blind UPDATE in PATCH /:id/figures. Omitting it is a second,
-      // independent guard behind the readOnly flag.
+      // drives the blind UPDATE in PATCH /:id/figures. Omitting it keeps demands
+      // out of that path — they are corrected through /demand-items instead.
       title: `Demand ${referenceId} — ${data.branch_name ?? '—'} · ${data.business_date}`,
       fields: [
         { label: 'Branch', value: data.branch_name ?? '—' },
@@ -314,8 +356,22 @@ async function resolveReference(
         { label: 'Reviewed By', value: data.approved_by_name ?? '—' },
         { label: 'Changed', value: data.was_changed ? (data.change_reason || 'Yes') : 'No' },
       ],
+      // Empty on purpose: a demand has no scalar figure to patch. Its correction
+      // surface is the line editor below.
       editableFields: [],
-      readOnly: true,
+      branchId: data.branch_id ?? null,
+      businessDate: String(data.business_date),
+      demandItems: (data.items ?? [] as DemandRow[])
+        .slice()
+        .sort((a: DemandRow, b: DemandRow) => (a.line_no ?? 0) - (b.line_no ?? 0))
+        .map((i: DemandRow) => ({
+          productId: i.product_id,
+          productName: i.product_name,
+          qty: Number(i.qty ?? 0),
+          approvedQty: Number(i.approved_qty ?? 0),
+        })),
+      demandStockMoved: (movedCount ?? 0) > 0,
+      ...(demandReadOnly ? { readOnly: true } : {}),
     };
   }
 
@@ -449,10 +505,15 @@ async function resolveReference(
     );
     // Opening is deliberately absent: it is the previous day's closing, so
     // correcting it would mean rewriting a day that has already been closed.
+    //
+    // Adjustment and Balance are both here but are ONE degree of freedom —
+    // adjustment is the residual, so setting either determines the other. The
+    // dialog offers one box at a time and the RPC refuses both (migration 78).
     editableFields.push(
       { key: 'newQty', label: 'New Stock', kind: 'number', value: f.newQty },
       { key: 'sold', label: 'Sold', kind: 'number', value: f.sold },
       { key: 'returned', label: 'Returned', kind: 'number', value: f.returned },
+      { key: 'adjustment', label: 'Adjustment', kind: 'number', value: f.adjustment },
       { key: 'balance', label: 'Balance', kind: 'number', value: f.balance },
     );
     stockFigures = f;
@@ -497,15 +558,24 @@ router.get('/lookup', async (req: AuthRequest, res, next) => {
   }
 });
 
-// GET /api/support — admin sees the whole queue; a raiser sees only their own tickets
+// GET /api/support — admin sees the whole queue; a raiser sees only their own tickets.
+//
+// Archived tickets are hidden by default so the Archive button still clears the
+// queue, which is what it was being used for. `?includeArchived=1` brings them
+// back (admin only — a raiser has no archive view), which is how anyone answers
+// "what was the query behind this correction?" after the fact.
 router.get('/', async (req: AuthRequest, res, next) => {
   try {
+    const isAdmin = req.user!.role === 'super_admin';
+    const includeArchived = isAdmin && ['1', 'true'].includes(String(req.query['includeArchived'] ?? ''));
+
     let query = supabaseAdmin
       .from('support_tickets')
       .select('*')
       .order('created_at', { ascending: false })
       .limit(500);
-    if (req.user!.role !== 'super_admin') {
+    if (!includeArchived) query = query.is('archived_at', null);
+    if (!isAdmin) {
       query = query.eq('raised_by', req.user!.uid);
     } else if (req.query['status']) {
       query = query.eq('status', String(req.query['status']));
@@ -570,6 +640,17 @@ async function getTicket(id: string) {
   const { data, error } = await supabaseAdmin.from('support_tickets').select('*').eq('id', id).maybeSingle();
   if (error) throw error;
   return data;
+}
+
+/**
+ * Archived tickets are readable (that is the whole point of keeping them) but
+ * never writable — un-archive first. Returns true when the caller has already
+ * been answered and the handler must stop.
+ */
+function refusedAsArchived(ticket: { archived_at?: string | null } | null, res: Response): boolean {
+  if (!ticket?.archived_at) return false;
+  res.status(409).json({ error: 'This query is archived. Restore it before making changes.' });
+  return true;
 }
 
 // PATCH /api/support/:id — admin edits the ticket text (Edit button)
@@ -645,6 +726,7 @@ router.patch('/:id/figures', requireRole('super_admin'), validate(ChangeFiguresS
   try {
     const ticket = await getTicket(req.params.id);
     if (!ticket) { res.status(404).json({ error: 'Ticket not found' }); return; }
+    if (refusedAsArchived(ticket, res)) return;
 
     const snapshot = (ticket.reference_snapshot ?? null) as SupportReference | null;
 
@@ -749,18 +831,30 @@ router.patch('/:id/figures', requireRole('super_admin'), validate(ChangeFiguresS
       }
 
       // Absolute targets, not deltas: the admin enters the figures as they should
-      // read. Only the four correctable keys are honoured — `opening` is the
-      // previous day's closing and is not correctable from here.
+      // read. `opening` is never honoured — it is the previous day's closing.
       const targets: StockCorrectionTargets = {};
-      for (const key of ['newQty', 'sold', 'returned', 'balance'] as const) {
+      for (const key of ['newQty', 'sold', 'returned', 'adjustment', 'balance'] as const) {
         const raw = edits[key];
         if (raw === undefined || raw === '') continue;
         const value = Number(raw);
-        if (!Number.isFinite(value) || value < 0) {
-          res.status(400).json({ error: `${STOCK_FIGURE_LABELS[key]} must be a number of 0 or more.` });
+        // Adjustment is signed — a correction can take stock away as well as add
+        // it, and 0 is how one is cleared. The rest are counts and cannot be < 0.
+        const signed = SIGNED_STOCK_FIGURES.has(key);
+        if (!Number.isFinite(value) || (!signed && value < 0)) {
+          res.status(400).json({
+            error: signed
+              ? `${STOCK_FIGURE_LABELS[key]} must be a number.`
+              : `${STOCK_FIGURE_LABELS[key]} must be a number of 0 or more.`,
+          });
           return;
         }
         targets[key] = value;
+      }
+      // Caught here as well as in the RPC so the admin gets the message without a
+      // round trip that writes nothing.
+      if (targets.balance !== undefined && targets.adjustment !== undefined) {
+        res.status(400).json({ error: 'Set either Balance or Adjustment, not both — each one determines the other.' });
+        return;
       }
       if (Object.keys(targets).length === 0) {
         res.status(400).json({ error: 'Enter at least one stock figure to correct.' });
@@ -788,6 +882,10 @@ router.patch('/:id/figures', requireRole('super_admin'), validate(ChangeFiguresS
         stockResult = { ...result, productName: product.name as string };
         applied = result.applied;
       } catch (err) {
+        if (err instanceof OverdeterminedCorrectionError) {
+          res.status(400).json({ error: err.message });
+          return;
+        }
         if (err instanceof NegativeBalanceError) {
           res.status(409).json({ error: `${err.message} A branch balance cannot go below zero.` });
           return;
@@ -869,6 +967,7 @@ router.patch('/:id/sale-items', requireRole('super_admin'), validate(EditSaleIte
   try {
     const ticket = await getTicket(req.params.id);
     if (!ticket) { res.status(404).json({ error: 'Ticket not found' }); return; }
+    if (refusedAsArchived(ticket, res)) return;
     if (ticket.reference_type !== 'sale') { res.status(400).json({ error: 'Only sale queries support line-item edits' }); return; }
 
     const snapshot = (ticket.reference_snapshot ?? null) as SupportReference | null;
@@ -972,12 +1071,199 @@ router.patch('/:id/sale-items', requireRole('super_admin'), validate(EditSaleIte
   }
 });
 
-// DELETE /api/support/:id — admin removes a ticket (Delete button)
+// PATCH /api/support/:id/demand-items — admin "Change" for a DEMAND query.
+// Rewrites the demand's product lines (add / remove / change requested and
+// approved qty) via correct_production_order, reconciles stock if the order
+// already delivered, then resolves the ticket.
+router.patch('/:id/demand-items', requireRole('super_admin'), validate(EditDemandItemsSchema), async (req: AuthRequest, res, next) => {
+  try {
+    const ticket = await getTicket(req.params.id);
+    if (!ticket) { res.status(404).json({ error: 'Ticket not found' }); return; }
+    if (refusedAsArchived(ticket, res)) return;
+    if (ticket.reference_type !== 'demand') {
+      res.status(400).json({ error: 'Only demand queries support line edits here' });
+      return;
+    }
+
+    const snapshot = (ticket.reference_snapshot ?? null) as SupportReference | null;
+    if (snapshot?.readOnly) {
+      res.status(400).json({ error: 'This demand was rejected or cancelled, so its lines cannot be corrected. Reply to the query and resolve it instead.' });
+      return;
+    }
+
+    // Already-resolved tickets are refused, and that is what makes the retry story
+    // below sound. The compensating movements are keyed on THIS TICKET's id, so
+    // they are idempotent on (ref_id, product_id, type):
+    //
+    //   · a run that dies halfway leaves the ticket 'open' (the resolve is the last
+    //     write), so retrying re-applies the same ref, completes the products that
+    //     never moved and no-ops the ones that did.
+    //   · a run that succeeds flips it to 'resolved', and a SECOND correction from
+    //     the same ticket would compute fresh deltas but reuse that ref — every
+    //     movement would silently no-op and the admin would see figures that did
+    //     not change. Refusing here is what stops that.
+    //
+    // Correcting the same demand twice is legitimate; it just needs its own query,
+    // which gives it its own ref.
+    if (ticket.status === 'resolved') {
+      res.status(409).json({ error: 'This query has already been corrected. Raise a new query to correct this demand again.' });
+      return;
+    }
+
+    const orderId = snapshot?.entityId;
+    if (!orderId) { res.status(400).json({ error: 'This ticket has no linked demand to edit' }); return; }
+
+    const { items, reason, note } = req.body as {
+      items: { productId: string; productName: string; qty: number; approvedQty: number }[];
+      reason: string;
+      note: string;
+    };
+
+    // Guard the caller's own input before the RPC: two lines for the same product
+    // would make "the final state" ambiguous, and the function would apply
+    // whichever the update happened to see last.
+    const ids = items.map((i) => i.productId);
+    if (new Set(ids).size !== ids.length) {
+      res.status(400).json({ error: 'The same product appears more than once. Combine those lines into one.' });
+      return;
+    }
+
+    const { data: result, error } = await supabaseAdmin.rpc('correct_production_order', {
+      p_order_id: orderId,
+      p_lines: items,
+      p_reason: reason || '',
+      p_actor_name: req.user!.email ?? '',
+    });
+    if (error) throw error;
+
+    const outcome = (result ?? {}) as {
+      status?: string;
+      orderStatus?: string;
+      branchId?: string;
+      branchName?: string | null;
+      stockMoved?: boolean;
+      deltas?: { productId: string; productName: string; delta: number | string }[];
+    };
+    if (outcome.status === 'not_found') { res.status(404).json({ error: 'The linked demand no longer exists' }); return; }
+    if (outcome.status === 'empty') { res.status(400).json({ error: 'A demand must keep at least one product' }); return; }
+    if (outcome.status === 'not_correctable') {
+      res.status(400).json({ error: `This demand is ${outcome.orderStatus} — it committed to nothing and moved no stock, so there is nothing to correct.` });
+      return;
+    }
+
+    // ── Reconcile, but only if this order actually delivered ─────────────────
+    // The RPC returns deltas ONLY when the ledger shows units were credited for
+    // this order; otherwise the line edit is the whole correction, because
+    // verification has not run yet and will move whatever approved_qty now says.
+    //
+    // The ref_id must differ from the order id — both ledgers are idempotent on
+    // (ref_id, product_id, type) and the original delivery is keyed on the bare
+    // order id, so reusing it would silently no-op every correction. It must also
+    // be STABLE across a retry, which is why it is the ticket's id and not a fresh
+    // uuid: see the already-resolved guard above for the full argument.
+    const deltas = (outcome.deltas ?? [])
+      .map((d) => ({ ...d, delta: Number(d.delta) }))
+      .filter((d) => d.delta !== 0);
+
+    if (deltas.length && outcome.branchId) {
+      const refId = `${orderId}:fix:${ticket.id}`;
+      for (const d of deltas) {
+        // Branch gains what the pool loses. 'adjustment' on both sides: this is an
+        // admin correction, not a fresh production run or a return.
+        await applyStockMovement({
+          branchId: outcome.branchId,
+          productId: d.productId,
+          productName: d.productName,
+          delta: d.delta,
+          type: 'adjustment',
+          refId,
+        });
+        await applyProductionStockMovement({
+          productId: d.productId,
+          productName: d.productName,
+          delta: -d.delta,
+          type: 'adjustment',
+          refId,
+        });
+      }
+    }
+
+    const moved = deltas.map((d) => `${d.productName} ${d.delta > 0 ? '+' : ''}${d.delta}`).join(' · ');
+    const resolutionNote = [
+      note,
+      `Demand lines updated (${items.length} product${items.length === 1 ? '' : 's'})`,
+      deltas.length ? `stock reconciled — ${moved}` : 'no stock movement (this demand had not delivered)',
+    ].filter(Boolean).join(' — ');
+
+    const { data, error: updErr } = await supabaseAdmin
+      .from('support_tickets')
+      .update({
+        status: 'resolved',
+        resolution_note: resolutionNote,
+        resolved_by: req.user!.uid,
+        resolved_by_name: req.user!.email,
+        resolved_at: new Date().toISOString(),
+      })
+      .eq('id', req.params.id)
+      .select('*')
+      .single();
+    if (updErr) throw updErr;
+
+    try {
+      if (data.raised_by) {
+        await notify({
+          type: 'support_resolved',
+          title: `Query ${data.ticket_number} resolved`,
+          message: resolutionNote || `Your query on ${data.reference_id} was resolved.`,
+          targetUserId: data.raised_by,
+          branchId: data.branch_id,
+          relatedId: data.id,
+        });
+      }
+    } catch { /* best-effort */ }
+
+    res.json({ ticket: rowToApi(data), applied: true, stockMoved: deltas.length > 0, deltas });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// DELETE /api/support/:id — admin clears a query off the queue (Archive button).
+//
+// ARCHIVES, it does not delete (migration 76). The verb stays DELETE so the
+// existing client keeps working, but the row survives: a resolved query is the
+// only record of what was asked and how it was answered, and it is the audit
+// anchor for anything applied from it — apply_stock_correction stamps
+// '<ticket_id>:stock:<uuid>' into stock_history.ref_id, which dangles the moment
+// the ticket disappears. Hard-deleting is why support_tickets was empty despite
+// 35 corrections having been applied on 2026-08-16 alone.
+//
+// Archiving an already-archived ticket is a no-op rather than an error: the
+// `.is('archived_at', null)` predicate simply matches nothing, and a second click
+// should not 500.
 router.delete('/:id', requireRole('super_admin'), async (req: AuthRequest, res, next) => {
   try {
-    const { error } = await supabaseAdmin.from('support_tickets').delete().eq('id', req.params.id);
+    const { data, error } = await supabaseAdmin
+      .from('support_tickets')
+      .update({
+        archived_at: new Date().toISOString(),
+        archived_by: req.user!.uid,
+        archived_by_name: req.user!.email,
+      })
+      .eq('id', req.params.id)
+      .is('archived_at', null)
+      .select('id')
+      .maybeSingle();
     if (error) throw error;
-    res.json({ success: true });
+
+    if (!data) {
+      const { data: exists, error: exErr } = await supabaseAdmin
+        .from('support_tickets').select('id').eq('id', req.params.id).maybeSingle();
+      if (exErr) throw exErr;
+      if (!exists) { res.status(404).json({ error: 'Ticket not found' }); return; }
+    }
+
+    res.json({ success: true, archived: true });
   } catch (err) {
     next(err);
   }

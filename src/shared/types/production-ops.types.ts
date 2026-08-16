@@ -69,6 +69,14 @@ export interface ProductionStockRow {
   balance: number; // current pool balance
   returned: number; // Σ returns added back today
   soldToday: number; // Σ sold at the production counter today
+  /**
+   * Σ signed 'adjustment' deltas today — admin corrections and nothing else.
+   * Shown as its own column rather than folded into the four figures above: it is
+   * the remainder they do not explain, and folding it would report a correction
+   * as production or a return. Day-scoped like every other figure here, so it
+   * reads 0 tomorrow with its effect already inside the balance.
+   */
+  adjustment: number;
 }
 
 // ── Product Returns ──────────────────────────────────────────────────────────

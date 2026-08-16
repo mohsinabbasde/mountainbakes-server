@@ -8,10 +8,13 @@ import type { PaymentMethod } from './order.types';
 import type { StockFigures } from './stock.types';
 import type { ProductionStockFigures } from './production-ops.types';
 
-// 'demand' is a branch's production request (production_orders.demand_number). It
-// is a workflow document rather than a ledger — correcting one means re-reviewing
-// it on the Production Orders page, which moves the pool atomically — so a demand
-// reference is always `readOnly` (below).
+// 'demand' is a branch's production request (production_orders.demand_number).
+// It is corrected through its own editor — PATCH /api/support/:id/demand-items,
+// backed by correct_production_order (migration 77) — because a demand is a
+// workflow document rather than a ledger row: its lines carry BOTH a requested
+// qty and an approved qty, and whether a change to the latter owes anyone stock
+// depends on whether the order was ever delivered. A rejected or cancelled
+// demand stays uncorrectable; see `readOnly` below.
 //
 // 'system' is not raised by a human against a lookupable ID — it is opened
 // automatically when an unattended job fails (e.g. the 2 AM closing summary could
@@ -71,6 +74,19 @@ export interface SupportSaleTotals {
 }
 
 /**
+ * One editable line of a demand (production_order_items row). `qty` is what the
+ * branch asked for; `approvedQty` is what Production granted, and it is the
+ * figure that actually moves stock at verification — so it is the one a
+ * correction reconciles against.
+ */
+export interface SupportDemandItem {
+  productId: string;
+  productName: string;
+  qty: number;
+  approvedQty: number;
+}
+
+/**
  * The resolved detail for a reference ID. Rendered auto-adjusted in both the
  * Help Desk (before submit) and the Support Center (on the ticket), and stored
  * on the ticket as `referenceSnapshot`.
@@ -92,17 +108,18 @@ export interface SupportReference {
   editableFields: SupportEditableField[];
   /**
    * True when the reference is INFORMATIONAL ONLY: nothing here may be written
-   * back, so the Support Center offers no "Change figures" editor and both
-   * PATCH /figures and PATCH /sale-items refuse it outright.
+   * back, so the Support Center offers no editor and PATCH /figures,
+   * /sale-items and /demand-items all refuse it outright.
    *
-   * Set for the two remaining Production shapes, each for the same underlying
-   * reason — the correction machinery is branch-ledger machinery and Production has
-   * no branch ledger:
-   *   · demands            — a workflow document; re-review it, don't patch it.
+   * Set for:
    *   · counter sales      — their units left `production_stock`, but
    *                          edit_sale_items reconciles branch `stock`. Applying
    *                          one would invent branch inventory (the sentinel
    *                          branch has no stock rows) and leave the pool wrong.
+   *   · rejected/cancelled — a demand that was refused committed to nothing and
+   *     demands             moved nothing; editing its lines would produce a
+   *                          document claiming otherwise. correct_production_order
+   *                          refuses these independently (migration 77).
    *
    * Opt-in and absent-means-false ON PURPOSE: every snapshot written before this
    * field existed keeps its current behaviour, including legacy stock tickets that
@@ -140,6 +157,27 @@ export interface SupportReference {
    * the day's payment-method totals without touching stock or the grand total.
    */
   paymentMethod?: PaymentMethod;
+  /**
+   * For demand references: the order's current product lines, editable in the
+   * Support Center and applied live (add / remove / change qty and approved qty)
+   * via correct_production_order.
+   */
+  demandItems?: SupportDemandItem[];
+  /**
+   * For demand references: whether this order has ALREADY credited units to the
+   * branch — i.e. whether a change to `approvedQty` owes a compensating stock
+   * movement on both the branch ledger and the production pool.
+   *
+   * Derived from stock_history, NOT from `status`. The status column cannot
+   * answer this: verification sets 'verified', but Production's final approval
+   * then flips it back to 'approved', so a delivered order and a never-delivered
+   * one both read 'approved'. See migration 77's header.
+   *
+   * Advisory only — the snapshot may be hours old, so the server recomputes it
+   * inside correct_production_order before moving anything. It is carried so the
+   * Support Center can warn the admin that an edit will move real stock.
+   */
+  demandStockMoved?: boolean;
   /** Internal uuid of the underlying row, used when applying a figure edit. */
   entityId: string;
   /** For expenses: which table the row lives in, so the figure edit hits the right one. */
