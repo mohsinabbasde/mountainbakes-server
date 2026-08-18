@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { optionalAttachmentIds, requiredAttachmentIds } from './attachment.schemas';
+import { optionalBusinessDate } from './business-date.schemas';
 
 /**
  * A one-off the branch needs that is not in the catalogue — a named cake, a
@@ -98,6 +99,12 @@ export const CreateProductionOrderSchema = z
      * photo, which is still accepted.
      */
     attachmentIds: optionalAttachmentIds,
+    /**
+     * The day the demand was RAISED, as captured on the device — distinct from
+     * `requiredDate`, which is the day the branch wants it delivered. Sent by
+     * the mobile app only; see business-date.schemas.ts.
+     */
+    businessDate: optionalBusinessDate,
   })
   .superRefine((val, ctx) => {
     // A demand has to ask for something. Checked across all three kinds rather

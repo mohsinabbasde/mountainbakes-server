@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { optionalBusinessDate } from './business-date.schemas';
 
 // ── Today's Prepared Products ────────────────────────────────────────────────
 export const PrepareProductionItemSchema = z.object({
@@ -59,6 +60,8 @@ export const CreateBranchReturnSchema = z.object({
       });
     }),
   reason: z.string().max(500).optional().default(''),
+  // Sent by the mobile app only; see business-date.schemas.ts.
+  businessDate: optionalBusinessDate,
 });
 
 export type PrepareProductionInput = z.infer<typeof PrepareProductionSchema>;

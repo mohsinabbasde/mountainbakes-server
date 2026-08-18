@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { optionalBusinessDate } from './business-date.schemas';
 
 // Branch-facing payment methods (retail sales). Replaces the legacy cash/card/online set.
 export const PAYMENT_METHOD_VALUES = ['cash', 'easypaisa', 'foodpanda', 'bank_account'] as const;
@@ -16,6 +17,8 @@ export const CreateOrderSchema = z.object({
   paymentMethod: z.enum(PAYMENT_METHOD_VALUES),
   deliveryCharges: z.number().min(0).default(0),
   notes: z.string().default(''),
+  // Sent by the mobile app only; see business-date.schemas.ts.
+  businessDate: optionalBusinessDate,
 });
 
 // Retail POS sale: free-text customer (no customers-collection lookup), immediate completion.
@@ -29,6 +32,7 @@ export const CreatePosSaleSchema = z.object({
   // validates it covers the grand total and derives the change to return.
   receivedCash: z.number().min(0).optional(),
   notes: z.string().default(''),
+  businessDate: optionalBusinessDate,
 });
 
 /**

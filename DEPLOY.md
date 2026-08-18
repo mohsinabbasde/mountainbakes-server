@@ -84,6 +84,11 @@ because `src/app.ts` deliberately omits the headers rather than throwing.
 - **Database migrations** live in `supabase/migrations/*.sql` and are applied with
   the Supabase CLI (`supabase db push`), not by the dyno at boot. Apply pending
   migrations before or alongside a deploy that depends on them.
+- **Migration 84 (`idempotency_keys`) must be applied before this code is
+  deployed.** Every guarded write claims a key through it, so the five
+  offline-capable endpoints would 503 on any request carrying an
+  `Idempotency-Key` header until the table exists. It is additive and reads
+  nothing, so applying it ahead of the deploy is safe and is the right order.
 - **Scheduled jobs** (2 AM Karachi closing + price activation) run in this dyno via
   `node-cron`. They only fire while the dyno is awake — avoid a sleeping tier if you
   rely on the exact 2 AM run. This dyno sees less traffic than the web app, so it is

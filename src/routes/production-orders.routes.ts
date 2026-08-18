@@ -24,6 +24,8 @@ import { applyProductionToStock } from '../services/stock.service';
 import { transferOutOnApproval } from '../services/production-stock.service';
 import { getAppSettings, orderWindowMinutes } from '../services/settings.service';
 import { assertBusinessDayOpen } from '../middleware/assertBusinessDayOpen';
+import { idempotent } from '../middleware/idempotency';
+import { resolveClientBusinessDate } from '../utils/clientBusinessDate';
 import { rowToApi } from '../utils/case';
 import { invalidate } from '../utils/cache';
 
@@ -199,7 +201,7 @@ async function resolveSpecialItems(
 router.use(authenticate);
 
 // POST /api/production-orders — branch submits a daily production request
-router.post('/', requireRole(...BRANCH_ROLES), validate(CreateProductionOrderSchema), async (req: AuthRequest, res, next) => {
+router.post('/', requireRole(...BRANCH_ROLES), idempotent('production_order.create'), validate(CreateProductionOrderSchema), async (req: AuthRequest, res, next) => {
   try {
     // Branch production requests are only accepted inside the configured order
     // window (default 8:00 AM–2:00 AM Karachi, which wraps past midnight).
@@ -213,7 +215,7 @@ router.post('/', requireRole(...BRANCH_ROLES), validate(CreateProductionOrderSch
     const branchId = req.user!.branchId;
     if (!branchId) { res.status(400).json({ error: 'No branch assigned to this account' }); return; }
 
-    const { items, packingItems = [], specialItems = [], attachmentIds = [], requiredDate } = req.body as {
+    const { items, packingItems = [], specialItems = [], attachmentIds = [], requiredDate, businessDate: claimedDate } = req.body as {
       items: { productId: string; qty: number; remarks: string }[];
       packingItems?: { packingMaterialId: string; qty: number }[];
       specialItems?: { name: string; qty: number; description: string; attachmentIds: string[] }[];
@@ -221,6 +223,9 @@ router.post('/', requireRole(...BRANCH_ROLES), validate(CreateProductionOrderSch
       // Validated as a real 'YYYY-MM-DD' by CreateProductionOrderSchema, so it
       // reaches here already known-good and non-empty.
       requiredDate: string;
+      // The day the demand was RAISED, as captured on the device. Distinct from
+      // requiredDate, which is the day the branch wants it delivered.
+      businessDate?: string;
     };
 
     // Resolve product names server-side — branch users never send names or
@@ -277,7 +282,7 @@ router.post('/', requireRole(...BRANCH_ROLES), validate(CreateProductionOrderSch
     const resolvedSpecial = await resolveSpecialItems(specialItems);
 
     const now = new Date();
-    await assertBusinessDayOpen(businessDateStr(now), req.user!.role);
+    const businessDate = await resolveClientBusinessDate(claimedDate, req.user!.role, now);
 
     // submitted_at / created_at come from column defaults.
     const { data: order, error: orderErr } = await supabaseAdmin
@@ -285,7 +290,7 @@ router.post('/', requireRole(...BRANCH_ROLES), validate(CreateProductionOrderSch
       .insert({
         branch_id: branchId,
         branch_name: req.user!.branchName || '',
-        business_date: businessDateStr(now),
+        business_date: businessDate,
         // The day the branch asked for, NOT derived from `now` — see the
         // migration for why the two dates are kept apart.
         required_date: requiredDate,

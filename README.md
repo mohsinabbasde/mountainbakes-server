@@ -61,6 +61,43 @@ localhost and 127.0.0.1 are always permitted. A mismatch fails **silently** in t
 API logs — the browser blocks it — so compare the request's `Origin` header against
 the `[cors] Allowed origins:` line printed at boot.
 
+## Idempotency (offline-capable writes)
+
+The mobile client writes to its own database first and sends afterwards, so any
+send can be retried — after a timeout, after a dyno restart, after the app is
+killed mid-request. Five endpoints therefore accept an **`Idempotency-Key`**
+header and will not apply the same request twice:
+
+```
+POST /api/orders          POST /api/orders/pos        POST /api/expenses
+POST /api/production-orders                           POST /api/stock/return
+```
+
+| Repeat of… | Answer |
+|---|---|
+| a request that succeeded | the original response, with `Idempotency-Replayed: true`. Nothing runs again. It is stored as `jsonb`, so the fields and values are the original ones and only key order may differ |
+| a request still in flight | `503` + `Retry-After: 5` |
+| a request whose earlier attempt died mid-flight (>5 min) | `409` — a person has to check whether it went through |
+| the same key with a different body | `422` |
+| a request that failed without changing anything | the key is released, so a later retry is a real attempt |
+
+**No header, no change.** The web app sends none and is unaffected.
+
+The same five endpoints accept an optional **`businessDate`** (`date` on
+expenses) — the day the device captured, for a transaction created offline and
+synced later. It is bounded and closure-checked by
+`src/utils/clientBusinessDate.ts`, never trusted: no future dates, nothing older
+than seven business days, and a closed day is refused exactly as it is for a
+back-dated write from the web app.
+
+Storage and the claim decision are migration 84 (`idempotency_keys`); the HTTP
+layer is `src/middleware/idempotency.ts`. Both files carry the reasoning.
+
+`pnpm verify:idempotency` exercises the whole claim/replay/release/stale set
+against the linked database and prints what it found. It is safe to run against
+production — it touches `idempotency_keys` only, under synthetic user ids, and
+deletes its own rows even when a check fails.
+
 ## Database schema
 
 The Postgres schema lives in `supabase/migrations/*.sql` and is applied with the
@@ -82,6 +119,8 @@ a single instance.
 ```bash
 pnpm purge:price-history              # dry run — counts, deletes nothing
 pnpm purge:price-history -- --confirm # permanently delete
+pnpm purge:idempotency-keys           # dry run — expired replay keys (30d default)
+pnpm purge:idempotency-keys -- --confirm
 node scripts/seed.js                  # seed baseline data + super admin
 node scripts/enable-email-auth.mjs    # toggle email/password sign-in
 ```

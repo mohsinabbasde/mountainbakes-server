@@ -8,7 +8,8 @@ import { businessDateStr, CreateBranchReturnSchema, type StockAuditLog, BRANCH_R
 import { notify } from '../services/push.service';
 import { returnIntoPool } from '../services/production-stock.service';
 import { commitBranchReturn, computeStockRows, InsufficientStockError } from '../services/stock.service';
-import { assertBusinessDayOpen } from '../middleware/assertBusinessDayOpen';
+import { idempotent, persistIfCommitted } from '../middleware/idempotency';
+import { resolveClientBusinessDate } from '../utils/clientBusinessDate';
 import { requireInsideGeofence } from '../middleware/requireInsideGeofence';
 import { rowToApi } from '../utils/case';
 
@@ -81,16 +82,24 @@ router.get('/', async (req: AuthRequest, res, next) => {
 // branch negative, and the 409 names what did commit. Those stay committed:
 // they are real stock movements, and silently reversing them would be worse.
 // True all-or-nothing needs a commit_branch_return_batch(p_items jsonb) function.
-router.post('/return', requireRole('super_admin', ...BRANCH_ROLES), validate(CreateBranchReturnSchema), requireInsideGeofence('stock.return'), async (req: AuthRequest, res, next) => {
+// `persistIfCommitted` rather than the default: this route commits product by
+// product and its 409 reports what already moved before a shortfall stopped it.
+// Releasing that key would let a retry return those units a second time.
+router.post('/return', requireRole('super_admin', ...BRANCH_ROLES), idempotent('stock.return', { persistOn: persistIfCommitted }), validate(CreateBranchReturnSchema), requireInsideGeofence('stock.return'), async (req: AuthRequest, res, next) => {
   try {
     const branchId = isBranchRole(req.user!.role)
       ? req.user!.branchId
       : ((req.body as { branchId?: string }).branchId ?? null);
     if (!branchId) { res.status(400).json({ error: 'Branch context required' }); return; }
 
-    const { items, reason } = req.body as { items: { productId: string; qty: number }[]; reason: string };
+    const { items, reason, businessDate: claimedDate } = req.body as {
+      items: { productId: string; qty: number }[];
+      reason: string;
+      // The day the return was made, as captured on the device.
+      businessDate?: string;
+    };
 
-    await assertBusinessDayOpen(businessDateStr(), req.user!.role);
+    const businessDate = await resolveClientBusinessDate(claimedDate, req.user!.role);
 
     // One query per entity rather than a pair per product: the product names come
     // back in a single `in` lookup however many rows the return carries.
@@ -143,7 +152,7 @@ router.post('/return', requireRole('super_admin', ...BRANCH_ROLES), validate(Cre
 
       // 1) Decrement branch stock (validates qty <= balance atomically).
       try {
-        await commitBranchReturn({ branchId, productId: it.productId, productName, qty: it.qty, refId: returnId });
+        await commitBranchReturn({ branchId, productId: it.productId, productName, qty: it.qty, refId: returnId, businessDate });
       } catch (err) {
         if (err instanceof InsufficientStockError) {
           // Lost a race with a sale after the pre-check above. Report precisely
@@ -159,7 +168,7 @@ router.post('/return', requireRole('super_admin', ...BRANCH_ROLES), validate(Cre
       }
 
       // 2) Add the units back into the central production pool (feeds "Returned").
-      await returnIntoPool(returnId, { productId: it.productId, productName, qty: it.qty });
+      await returnIntoPool(returnId, { productId: it.productId, productName, qty: it.qty }, businessDate);
 
       committed.push({ id: returnId, productId: it.productId, productName, qty: it.qty });
     }
@@ -178,7 +187,7 @@ router.post('/return', requireRole('super_admin', ...BRANCH_ROLES), validate(Cre
         reason: reason || '',
         status: 'accepted',
         source: 'branch',
-        business_date: businessDateStr(),
+        business_date: businessDate,
         created_by: req.user!.uid,
         created_by_name: req.user!.email,
         reviewed_by: req.user!.uid,

@@ -3,8 +3,9 @@ import { supabaseAdmin } from '../config/supabase';
 import { authenticate, type AuthRequest } from '../middleware/auth';
 import { requireRole } from '../middleware/requireRole';
 import { validate } from '../middleware/validate';
-import { CreateExpenseSchema, businessDateStr, businessDaysAgoStr, BRANCH_ROLES, isBranchRole } from '../shared';
-import { assertBusinessDayOpen } from '../middleware/assertBusinessDayOpen';
+import { CreateExpenseSchema, businessDaysAgoStr, BRANCH_ROLES, isBranchRole } from '../shared';
+import { idempotent } from '../middleware/idempotency';
+import { resolveClientBusinessDate } from '../utils/clientBusinessDate';
 import { rowToApi } from '../utils/case';
 
 export const router = Router();
@@ -43,14 +44,17 @@ router.get('/', async (req: AuthRequest, res, next) => {
 });
 
 // POST /api/expenses — record a shop expense for the acting branch
-router.post('/', requireRole('super_admin', ...BRANCH_ROLES), validate(CreateExpenseSchema), async (req: AuthRequest, res, next) => {
+// `idempotent` sits after the role check and before validation: authorization is
+// re-decided on every attempt, but a replay must not need the body re-parsed.
+router.post('/', requireRole('super_admin', ...BRANCH_ROLES), idempotent('expense.create'), validate(CreateExpenseSchema), async (req: AuthRequest, res, next) => {
   try {
     const branchId = req.user!.branchId;
     if (!branchId) { res.status(400).json({ error: 'No branch assigned to this account' }); return; }
 
     const { category, description, paymentMethod, amount, remarks, date } = req.body;
-    const businessDate = date || businessDateStr();
-    await assertBusinessDayOpen(businessDate, req.user!.role);
+    // `date` is the day the expense was incurred as captured by the client —
+    // bounded and closure-checked here rather than trusted.
+    const businessDate = await resolveClientBusinessDate(date, req.user!.role);
 
     // created_at comes from the column default — do not set it here.
     const { data, error } = await supabaseAdmin

@@ -11,6 +11,8 @@ import { sendOrderConfirmation } from '../services/order-notifications.service';
 import { commitSaleTransaction, logBlockedSale, InsufficientStockError, type SaleBalance, type SaleItem } from '../services/stock.service';
 import { commitProductionSaleTransaction } from '../services/production-stock.service';
 import { assertBusinessDayOpen } from '../middleware/assertBusinessDayOpen';
+import { idempotent } from '../middleware/idempotency';
+import { resolveClientBusinessDate } from '../utils/clientBusinessDate';
 import { requireInsideGeofence } from '../middleware/requireInsideGeofence';
 import { getAppSettings } from '../services/settings.service';
 import { rowToApi } from '../utils/case';
@@ -201,9 +203,12 @@ router.get('/:id', async (req: AuthRequest, res, next) => {
 
 // Geofence AFTER validate: the branch the order is for is read out of the body, so
 // the body has to be known-good first. Super admins are exempt inside the middleware.
-router.post('/', requireRole('super_admin', ...BRANCH_ROLES), validate(CreateOrderSchema), requireInsideGeofence('order.create'), async (req: AuthRequest, res, next) => {
+// `idempotent` sits after the role check and before validation: authorization is
+// re-decided on every attempt, but a replay returns the first request's answer
+// without re-running anything below it.
+router.post('/', requireRole('super_admin', ...BRANCH_ROLES), idempotent('order.create'), validate(CreateOrderSchema), requireInsideGeofence('order.create'), async (req: AuthRequest, res, next) => {
   try {
-    const { branchId, customerId, items, paymentMethod, deliveryCharges, notes } = req.body;
+    const { branchId, customerId, items, paymentMethod, deliveryCharges, notes, businessDate: claimedDate } = req.body;
 
     // Scope check for branch managers
     if (isBranchRole(req.user!.role) && branchId !== req.user!.branchId) {
@@ -211,7 +216,9 @@ router.post('/', requireRole('super_admin', ...BRANCH_ROLES), validate(CreateOrd
       return;
     }
 
-    await assertBusinessDayOpen(businessDateStr(), req.user!.role);
+    // The day the order was PLACED, which for an offline client is not the day
+    // it arrived. Bounded and closure-checked; never taken as given.
+    const businessDate = await resolveClientBusinessDate(claimedDate, req.user!.role);
 
     const [branchRes, customerRes, taxRate] = await Promise.all([
       supabaseAdmin.from('branches').select('name').eq('id', branchId).maybeSingle(),
@@ -257,7 +264,7 @@ router.post('/', requireRole('super_admin', ...BRANCH_ROLES), validate(CreateOrd
         notes: notes || '',
         created_by: req.user!.uid,
         created_by_name: req.user!.email,
-        business_date: businessDateStr(),
+        business_date: businessDate,
       })
       .select('id')
       .single();
@@ -327,16 +334,18 @@ router.post('/', requireRole('super_admin', ...BRANCH_ROLES), validate(CreateOrd
 });
 
 // POST /api/orders/pos — retail POS sale (completed immediately, decrements stock)
-router.post('/pos', requireRole('super_admin', ...BRANCH_ROLES), validate(CreatePosSaleSchema), requireInsideGeofence('sale.create'), async (req: AuthRequest, res, next) => {
+router.post('/pos', requireRole('super_admin', ...BRANCH_ROLES), idempotent('sale.create'), validate(CreatePosSaleSchema), requireInsideGeofence('sale.create'), async (req: AuthRequest, res, next) => {
   try {
-    const { branchId, customerName, customerPhone, items, paymentMethod, receivedCash, notes } = req.body;
+    const { branchId, customerName, customerPhone, items, paymentMethod, receivedCash, notes, businessDate: claimedDate } = req.body;
 
     if (isBranchRole(req.user!.role) && branchId !== req.user!.branchId) {
       res.status(403).json({ error: 'Cannot create sales for other branches' });
       return;
     }
 
-    await assertBusinessDayOpen(businessDateStr(), req.user!.role);
+    // A sale rung up at 9pm with no signal and synced at 7am belongs to the
+    // evening it was made. Bounded and closure-checked; never taken as given.
+    const businessDate = await resolveClientBusinessDate(claimedDate, req.user!.role);
 
     const [branchRes, taxRate] = await Promise.all([
       supabaseAdmin.from('branches').select('name').eq('id', branchId).maybeSingle(),
@@ -373,6 +382,7 @@ router.post('/pos', requireRole('super_admin', ...BRANCH_ROLES), validate(Create
     try {
       ({ orderId, balances } = await commitSaleTransaction({
         branchId,
+        businessDate,
         items: orderItems,
         order: {
           orderNumber,

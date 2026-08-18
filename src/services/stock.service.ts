@@ -310,6 +310,13 @@ export async function commitBranchReturn(params: {
   productName: string;
   qty: number;
   refId: string;
+  /**
+   * The day the movement belongs to. Defaults to the day the request arrived,
+   * which is right for a browser at the counter; the mobile app passes the day
+   * it captured, already bounded and closure-checked by
+   * `resolveClientBusinessDate`.
+   */
+  businessDate?: string;
 }): Promise<{ before: number; after: number }> {
   const { data, error } = await supabaseAdmin.rpc('commit_branch_return', {
     p_branch_id: params.branchId,
@@ -317,7 +324,7 @@ export async function commitBranchReturn(params: {
     p_product_name: params.productName,
     p_qty: params.qty,
     p_ref_id: params.refId,
-    p_business_date: businessDateStr(),
+    p_business_date: params.businessDate ?? businessDateStr(),
   });
   if (error) throw error;
 
@@ -370,12 +377,19 @@ export async function commitSaleTransaction(params: {
   order: Record<string, unknown>;
   items: SaleItem[];
   branchId: string;
+  /**
+   * The day the sale belongs to. Defaults to the day the request arrived — the
+   * mobile app passes the day it was rung up, so a sale made at 9pm offline and
+   * synced at 7am is not filed against the following morning. Already bounded
+   * and closure-checked by `resolveClientBusinessDate` before it reaches here.
+   */
+  businessDate?: string;
 }): Promise<{ orderId: string; balances: Map<string, SaleBalance> }> {
   const { data, error } = await supabaseAdmin.rpc('commit_sale', {
     p_order: params.order,
     p_items: params.items,
     p_branch_id: params.branchId,
-    p_business_date: businessDateStr(),
+    p_business_date: params.businessDate ?? businessDateStr(),
   });
   if (error) throw error;
 

@@ -33,6 +33,8 @@ interface ProductionMovementInput {
   delta: number; // signed
   type: ProductionStockMovementType;
   refId: string;
+  /** Defaults to the day the request arrived; see commitBranchReturn. */
+  businessDate?: string;
 }
 
 /** Apply one signed movement to the pool. Returns the post-movement balance. */
@@ -43,7 +45,7 @@ export async function applyProductionStockMovement(input: ProductionMovementInpu
     p_delta: input.delta,
     p_type: input.type,
     p_ref_id: input.refId,
-    p_business_date: businessDateStr(),
+    p_business_date: input.businessDate ?? businessDateStr(),
   });
   if (error) throw error;
   return Number(data ?? 0);
@@ -91,6 +93,7 @@ export function transferOutOnApproval(
 export function returnIntoPool(
   returnId: string,
   item: { productId: string; productName: string; qty: number },
+  businessDate?: string,
 ): Promise<number> {
   return applyProductionStockMovement({
     productId: item.productId,
@@ -98,6 +101,7 @@ export function returnIntoPool(
     delta: Math.abs(item.qty),
     type: 'return_in',
     refId: returnId,
+    ...(businessDate ? { businessDate } : {}),
   });
 }
 
