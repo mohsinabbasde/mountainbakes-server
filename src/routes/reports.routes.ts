@@ -3,7 +3,7 @@ import { supabaseAdmin } from '../config/supabase';
 import { authenticate, type AuthRequest } from '../middleware/auth';
 import { requireRole } from '../middleware/requireRole';
 import { exportToPDF, exportToExcel, exportToCSV } from '../services/export.service';
-import { businessRange, type PaymentMethodBreakdown } from '../shared';
+import { businessRange, type CategoryBreakdown, type PaymentMethodBreakdown } from '../shared';
 import { startOfMonth, endOfMonth, format } from 'date-fns';
 import { rowToApi } from '../utils/case';
 
@@ -142,6 +142,28 @@ router.get('/summary', async (req: AuthRequest, res, next) => {
       }
     }
 
+    // Category rollup.
+    //
+    // Over EVERY line in range, not over `topProducts`. Folding the top ten
+    // products into categories would report a slice of each category's revenue
+    // under the category's own name — a wrong number that reads like a right
+    // one. Same `paid` set as the product rollup, so the two agree.
+    //
+    // The name comes from the snapshot on the line, so a renamed or deleted
+    // category still reports under what it was sold as. An empty snapshot is
+    // bucketed rather than skipped: the parts have to sum to the whole.
+    const categoryMap: Record<string, CategoryBreakdown> = {};
+    for (const o of paid) {
+      for (const item of o.items ?? []) {
+        const name = item.category_name?.trim() || 'Uncategorised';
+        if (!categoryMap[name]) {
+          categoryMap[name] = { categoryName: name, totalQty: 0, totalRevenue: 0 };
+        }
+        categoryMap[name]!.totalQty += total(item.qty);
+        categoryMap[name]!.totalRevenue += total(item.line_total);
+      }
+    }
+
     // Payment-method breakdown (non-cancelled sales)
     const pmMap: Record<string, PaymentMethodBreakdown> = {};
     for (const o of live) {
@@ -216,6 +238,10 @@ router.get('/summary', async (req: AuthRequest, res, next) => {
       dailyData,
       branchData: Object.values(branchMap).map(b => ({ ...b, averageOrderValue: b.totalOrders ? b.totalRevenue / b.totalOrders : 0 })),
       topProducts: Object.values(productMap).sort((a, b) => b.totalRevenue - a.totalRevenue).slice(0, 10),
+      // Not truncated: a category list is short by nature (one row per category
+      // the branch actually sold from), and a "top N categories" would leave a
+      // rest bucket nobody can name.
+      categoryBreakdown: Object.values(categoryMap).sort((a, b) => b.totalRevenue - a.totalRevenue),
       paymentMethodBreakdown: Object.values(pmMap),
       budget,
     });

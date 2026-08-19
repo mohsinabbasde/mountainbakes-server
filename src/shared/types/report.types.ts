@@ -30,6 +30,25 @@ export interface BranchSalesData {
   averageOrderValue: number;
 }
 
+/**
+ * Revenue grouped by the category snapshot on the sold line.
+ *
+ * Deliberately NOT derivable from `topProducts`: that array is capped at the ten
+ * best sellers, so folding it into categories would report a fraction of each
+ * category's revenue under the category's own name — a wrong number that reads
+ * exactly like a right one. This is computed over every line in range.
+ *
+ * `categoryName` is the snapshot stored on `order_items`, not a join to the live
+ * category, so a renamed or deleted category still reports under the name it was
+ * sold as. Lines whose snapshot is empty are grouped as `Uncategorised` rather
+ * than dropped, or the parts will not sum to the total.
+ */
+export interface CategoryBreakdown {
+  categoryName: string;
+  totalQty: number;
+  totalRevenue: number;
+}
+
 export interface TopProduct {
   productId: string;
   productName: string;
@@ -56,6 +75,13 @@ export interface ReportSummary {
   dailyData: DailySalesData[];
   branchData: BranchSalesData[];
   topProducts: TopProduct[];
+  /**
+   * Optional because a client can be newer than the API it is talking to — the
+   * mobile app ships on its own cycle and this field arrived after some builds
+   * were already in shops. A screen must treat "absent" as "this server does not
+   * report it" and say so, never as zero.
+   */
+  categoryBreakdown?: CategoryBreakdown[];
   paymentMethodBreakdown: PaymentMethodBreakdown[];
   budget?: BudgetSummary;
 }
