@@ -29,7 +29,12 @@ router.get('/', async (_req, res, next) => {
       .order('created_at', { ascending: false });
     if (error) throw error;
 
-    const returns = rowToApi<Record<string, unknown>[]>(data ?? []);
+    // The DB column is business_date; the API contract (ProductionReturn) exposes
+    // it as date. rowToApi only camelCases keys, so remap it here — same fix as
+    // GET /api/production-orders. Without it every row's date is undefined and
+    // the Return Date column renders formatDate's "—" placeholder on all of them.
+    const rows = rowToApi<Record<string, unknown>[]>(data ?? []);
+    const returns = rows.map(({ businessDate, ...rest }) => ({ ...rest, date: businessDate }));
     res.json({ returns, total: returns.length });
   } catch (err) {
     next(err);
