@@ -2,6 +2,8 @@ import { supabaseAdmin } from '../config/supabase';
 import {
   businessDateStr,
   type BranchStockHistoryRow,
+  type BranchStockSummaryResult,
+  type BranchStockSummaryRow,
   type StockFigures,
   type StockMovementType,
   type StockRow,
@@ -407,6 +409,59 @@ export async function computeBranchStockHistory(
   return { branchId, from, to: today, rows: out, capped };
 }
 
+/** Thrown when a stock-history day is asked for outside the range that can be derived. */
+export class UnreachableStockDateError extends Error {
+  status = 400;
+  constructor(message: string) {
+    super(message);
+    this.name = 'UnreachableStockDateError';
+  }
+}
+
+/**
+ * ONE business day of a branch's stock ledger — the Branch Daily Stock statement.
+ *
+ * A thin pick off `computeBranchStockHistory`, not a cheaper query: the opening
+ * balance for any past day can only be reached by walking today's live balance
+ * backwards through every day since, so asking for the 3rd costs the same read as
+ * asking for the last N days. Exposed anyway so the page states a date rather
+ * than computing a span, and so the 365-day limit is refused here with a reason
+ * instead of silently answering about the wrong day.
+ */
+export async function computeBranchStockDay(
+  branchId: string,
+  date: string,
+  today: string = businessDateStr(),
+): Promise<BranchStockHistoryRow> {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+    throw new UnreachableStockDateError(`"${date}" is not a YYYY-MM-DD business date.`);
+  }
+  if (date > today) {
+    throw new UnreachableStockDateError(`${date} has not happened yet — the ledger only reaches ${today}.`);
+  }
+
+  // Inclusive span from the requested day to today, which is exactly how many
+  // days the backwards walk has to cover.
+  const span = Math.round((Date.parse(`${today}T00:00:00Z`) - Date.parse(`${date}T00:00:00Z`)) / 86_400_000) + 1;
+  if (span > 365) {
+    throw new UnreachableStockDateError(
+      `${date} is more than a year back; stock history is derived from today's balance and only reaches 365 days.`,
+    );
+  }
+
+  const { rows, from, capped } = await computeBranchStockHistory(branchId, span, today);
+  // The walk emits today first and the requested day last.
+  const row = rows[rows.length - 1];
+  if (!row || row.date !== date) {
+    throw new UnreachableStockDateError(
+      capped
+        ? `Too much stock history to reach ${date} in one read; it currently reaches back to ${from}.`
+        : `No stock ledger available for ${date}.`,
+    );
+  }
+  return row;
+}
+
 /**
  * HARD-DELETE one product's stock in one branch: the `stock` row and every
  * `stock_history` row behind it.
@@ -668,4 +723,87 @@ export async function logBlockedSale(input: {
     })),
   );
   if (error) throw error;
+}
+
+/**
+ * Every branch's stock movement over one window, one row per branch — the
+ * "All branches" view on Admin → Branch Stock.
+ *
+ * Deliberately built ON TOP of `computeBranchStockHistory` rather than as a
+ * second query that groups by branch_id. The arithmetic behind these figures is
+ * genuinely fiddly — opening is derived by walking the balance backwards through
+ * the day's movements, sales and returns are stored negative but reported
+ * positive, corrections stay signed, and the row-cap has to shorten the window
+ * rather than publish a partial day. A second implementation would drift from
+ * the first, and the two views would disagree about the same branch on the same
+ * day with no way to tell which was right.
+ *
+ * The cost is one ledger read per branch instead of one overall. That is the
+ * right trade at this scale — a bakery has a handful of shops, not thousands —
+ * and the reads run concurrently. If the branch count ever grows enough for this
+ * to hurt, the fix is a single grouped query feeding BOTH functions, not a
+ * divergent copy of the maths.
+ *
+ * Inactive branches are excluded: a closed shop's last balance is history, and
+ * listing it beside trading shops invites reading it as stock on a shelf.
+ */
+export async function computeAllBranchesStockSummary(
+  days: number,
+  today: string = businessDateStr(),
+): Promise<BranchStockSummaryResult> {
+  const { data, error } = await supabaseAdmin
+    .from('branches')
+    .select('id, name')
+    .eq('is_active', true)
+    .order('name');
+  if (error) throw error;
+
+  const branches = (data ?? []) as { id: string; name: string }[];
+  if (branches.length === 0) return { from: today, to: today, rows: [], capped: false };
+
+  const histories = await Promise.all(
+    branches.map((b) => computeBranchStockHistory(b.id, days, today)),
+  );
+
+  const rows: BranchStockSummaryRow[] = branches.map((branch, i) => {
+    const history = histories[i]!;
+    // Newest first (computeBranchStockHistory walks today → from), so today is
+    // the head and the window's first day is the tail.
+    const newest = history.rows[0];
+    const oldest = history.rows[history.rows.length - 1];
+
+    const summed = history.rows.reduce(
+      (acc, r) => ({
+        newQty: acc.newQty + r.newQty,
+        newAmount: acc.newAmount + r.newAmount,
+        soldQty: acc.soldQty + r.soldQty,
+        soldAmount: acc.soldAmount + r.soldAmount,
+        returnedQty: acc.returnedQty + r.returnedQty,
+        returnedAmount: acc.returnedAmount + r.returnedAmount,
+        adjustmentQty: acc.adjustmentQty + r.adjustmentQty,
+        adjustmentAmount: acc.adjustmentAmount + r.adjustmentAmount,
+      }),
+      { newQty: 0, newAmount: 0, soldQty: 0, soldAmount: 0, returnedQty: 0, returnedAmount: 0, adjustmentQty: 0, adjustmentAmount: 0 },
+    );
+
+    return {
+      branchId: branch.id,
+      branchName: branch.name,
+      // The window's opening, not a sum of daily openings — see the type's note.
+      openingQty: oldest?.openingQty ?? 0,
+      openingAmount: oldest?.openingAmount ?? 0,
+      ...summed,
+      balanceQty: newest?.balanceQty ?? 0,
+      balanceAmount: newest?.balanceAmount ?? 0,
+      from: history.from,
+      capped: history.capped,
+    };
+  });
+
+  // The widest window every row shares. A capped branch shortens its own row
+  // only, so this reports the latest start among them — the date from which
+  // every figure on screen is comparable.
+  const from = rows.reduce((latest, r) => (r.from > latest ? r.from : latest), rows[0]!.from);
+
+  return { from, to: today, rows, capped: rows.some((r) => r.capped) };
 }

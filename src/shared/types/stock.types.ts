@@ -117,3 +117,62 @@ export interface BranchStockHistoryRow {
   balanceQty: number;
   balanceAmount: number;
 }
+
+/**
+ * One branch's stock movement TOTALLED over a window — the row behind
+ * Admin → Branch Stock with "All branches" selected.
+ *
+ * The same six figures as `BranchStockHistoryRow`, folded the other way: that
+ * type slices ONE branch by day, this one slices ALL branches by branch. Both
+ * are derived by the same function, so the two views can never disagree about
+ * what a branch did.
+ *
+ * The window telescopes rather than sums:
+ *   - `opening` is the balance at the START of the window (the oldest day's
+ *     opening), NOT a sum of daily openings — adding those would count the same
+ *     stock once per day.
+ *   - `new` / `sold` / `returned` / `adjustment` ARE sums, since each counts
+ *     movements that happened on their day.
+ *   - `balance` is the live balance today.
+ * So `opening + new − sold − returned + adjustment = balance` holds across the
+ * whole window exactly as it does on a single day.
+ *
+ * Amounts carry the same caveat as the per-day rows: every quantity is valued at
+ * the product's CURRENT price, so `soldAmount` is stock valued at today's price
+ * list, not the money actually taken.
+ */
+export interface BranchStockSummaryRow {
+  branchId: string;
+  branchName: string;
+  /** Balance at the start of the window — see the note above on telescoping. */
+  openingQty: number;
+  openingAmount: number;
+  newQty: number;
+  newAmount: number;
+  soldQty: number;
+  soldAmount: number;
+  returnedQty: number;
+  returnedAmount: number;
+  /** Signed, so the window reconciles. */
+  adjustmentQty: number;
+  adjustmentAmount: number;
+  /** Live balance today. */
+  balanceQty: number;
+  balanceAmount: number;
+  /**
+   * The first business date this branch's figures actually cover. Normally the
+   * requested window's start, but a branch whose ledger hit the read cap gets a
+   * shorter one — reported per branch because the cap bites per branch.
+   */
+  from: string;
+  capped: boolean;
+}
+
+/** The "All branches" response. `from` is the widest window every row shares. */
+export interface BranchStockSummaryResult {
+  from: string;
+  to: string;
+  rows: BranchStockSummaryRow[];
+  /** True if ANY branch's ledger was capped — at least one row is short. */
+  capped: boolean;
+}

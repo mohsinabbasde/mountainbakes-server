@@ -22,6 +22,8 @@ import { returnIntoPool } from '../services/production-stock.service';
 import {
   applyStockCorrection,
   commitBranchReturn,
+  computeBranchStockDay,
+  computeAllBranchesStockSummary,
   computeBranchStockHistory,
   computeStockRows,
   purgeBranchStock,
@@ -72,6 +74,30 @@ router.get('/audit', async (req: AuthRequest, res, next) => {
   }
 });
 
+// GET /api/stock/history/branches?days=N — Admin → Branch Stock, "All branches":
+// one row per branch, totalled over the window, instead of one row per day for a
+// single branch.
+//
+// Super Admin only, and not for want of a branch scope — a branch role has no use
+// for it. The whole point of the row set is comparing shops, which is exactly
+// what a branch account may not do.
+//
+// Registered before `/history` for readability only: Express matches these as
+// exact paths, so '/history/branches' and '/history' cannot shadow each other
+// whichever order they appear in.
+router.get('/history/branches', requireRole('super_admin'), async (req: AuthRequest, res, next) => {
+  try {
+    // Parsed leniently, exactly as on /history: a junk or missing `days` falls
+    // back to a week rather than 400-ing the screen that asked.
+    const parsed = Number(req.query['days']);
+    const days = Number.isFinite(parsed) && parsed > 0 ? parsed : 7;
+
+    res.json(await computeAllBranchesStockSummary(days));
+  } catch (err) {
+    next(err);
+  }
+});
+
 // GET /api/stock/history?days=N — Branch Stock History: one row per business day
 // (Previous / New / Sold / Remaining, in units and money) for the Branch Dashboard.
 //
@@ -91,6 +117,16 @@ router.get('/history', async (req: AuthRequest, res, next) => {
       if (!branchId) { res.status(400).json({ error: 'Branch context required' }); return; }
     } else {
       res.status(403).json({ error: 'Access denied' });
+      return;
+    }
+
+    // `date` asks for ONE business day (Branch Daily Stock); `days` asks for a
+    // window ending today (the dashboard card). Not both — a caller that sends
+    // each means two different things, and picking one silently would answer a
+    // question it did not ask.
+    const date = (req.query['date'] as string | undefined)?.trim();
+    if (date) {
+      res.json({ branchId, date, row: await computeBranchStockDay(branchId, date) });
       return;
     }
 
