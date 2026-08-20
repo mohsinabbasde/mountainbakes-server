@@ -1,5 +1,11 @@
 import { supabaseAdmin } from '../config/supabase';
-import { businessDateStr, type StockFigures, type StockMovementType, type StockRow } from '../shared';
+import {
+  businessDateStr,
+  type BranchStockHistoryRow,
+  type StockFigures,
+  type StockMovementType,
+  type StockRow,
+} from '../shared';
 
 /**
  * Derived stock tracking (no cron). We keep a running balance per
@@ -232,6 +238,173 @@ export async function computeStockRows(branchId: string, date: string = business
       };
     })
     .sort((a, b) => b.balance - a.balance || a.productName.localeCompare(b.productName));
+}
+
+/**
+ * Per-DAY totals for a branch's stock ledger — Branch Dashboard → Branch Stock
+ * History. Where `computeStockRows` is one day across every product, this is one
+ * product-set across every day: Previous / New / Sold / Returned / Adjustment /
+ * Remaining, in units and in money.
+ *
+ * ─── How the openings are reconstructed ─────────────────────────────────────
+ * `stock.balance` is a LIVE running total with no per-day snapshot behind it, so
+ * a past day's figures have to be walked backwards out of the ledger exactly the
+ * way `computeStockRows` derives one day's opening. Starting from today's balance
+ * and stepping back through each date's net movement:
+ *
+ *   closing[today] = balance          opening[d] = closing[d] − net[d]
+ *   closing[d − 1] = opening[d]
+ *
+ * A date with no movements carries the balance through unchanged, which is why
+ * the loop runs over the full calendar range and not just the dates present in
+ * the ledger. This only holds while the walk starts at TODAY — hence no `to`
+ * parameter: the range always ends on the current business date.
+ *
+ * ─── Valuation ──────────────────────────────────────────────────────────────
+ * Every quantity is priced at the product's current `products.price`, sold
+ * included. See `BranchStockHistoryRow` for why that is not the day's takings.
+ * Products are read WITHOUT the `is_active` filter `computeStockRows` applies —
+ * a discontinued product still has history and still sits in the balance, and
+ * dropping it here would leave the amounts short of the quantities.
+ */
+export interface BranchStockHistoryResult {
+  branchId: string;
+  from: string;
+  to: string;
+  rows: BranchStockHistoryRow[];
+  /** True when ROW_CAP truncated the ledger read and `from` was pulled forward. */
+  capped: boolean;
+}
+
+/**
+ * Ceiling on the ledger rows one history read will pull. Reached only by a branch
+ * with a very wide window and a very large catalogue; the read is ordered newest
+ * first so the cap costs the OLDEST days, and `from` is moved past the partial
+ * day rather than reporting a half-summed one.
+ */
+const HISTORY_ROW_CAP = 20_000;
+
+/** Add `n` days to a 'YYYY-MM-DD' string. Local to this module; the shared helper is private. */
+function shiftDate(dateStr: string, n: number): string {
+  const d = new Date(`${dateStr}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + n);
+  return d.toISOString().slice(0, 10);
+}
+
+export async function computeBranchStockHistory(
+  branchId: string,
+  days: number,
+  today: string = businessDateStr(),
+): Promise<BranchStockHistoryResult> {
+  const span = Math.max(1, Math.min(365, Math.floor(days)));
+  let from = shiftDate(today, -(span - 1));
+
+  const [products, stock, history] = await Promise.all([
+    supabaseAdmin.from('products').select('id, price'),
+    supabaseAdmin.from('stock').select('product_id, balance').eq('branch_id', branchId),
+    supabaseAdmin
+      .from('stock_history')
+      .select('product_id, business_date, type, delta')
+      .eq('branch_id', branchId)
+      .gte('business_date', from)
+      .order('business_date', { ascending: false })
+      .range(0, HISTORY_ROW_CAP - 1),
+  ]);
+  if (products.error) throw products.error;
+  if (stock.error) throw stock.error;
+  if (history.error) throw history.error;
+
+  const priceByProduct = new Map<string, number>();
+  for (const p of (products.data ?? []) as { id: string; price: number | string }[]) {
+    priceByProduct.set(p.id, Number(p.price ?? 0));
+  }
+  const price = (productId: string) => priceByProduct.get(productId) ?? 0;
+
+  const rows = (history.data ?? []) as {
+    product_id: string;
+    business_date: string;
+    type: string;
+    delta: number | string;
+  }[];
+
+  // The cap drops the oldest rows, so the oldest date that survived may be only
+  // partly here. Discard it rather than publish a day that is missing movements.
+  const capped = rows.length >= HISTORY_ROW_CAP;
+  const oldestFetched = rows.length > 0 ? rows[rows.length - 1]!.business_date : from;
+  const cutoff = capped ? shiftDate(oldestFetched, 1) : from;
+  if (capped) from = cutoff;
+
+  // Live total, in units and in money — this is `closing` for TODAY.
+  let closingQty = 0;
+  let closingAmount = 0;
+  for (const s of (stock.data ?? []) as { product_id: string; balance: number | string }[]) {
+    const bal = Number(s.balance ?? 0);
+    closingQty += bal;
+    closingAmount += bal * price(s.product_id);
+  }
+
+  type DayTotals = {
+    netQty: number; netAmount: number;
+    newQty: number; newAmount: number;
+    soldQty: number; soldAmount: number;
+    returnedQty: number; returnedAmount: number;
+    adjustmentQty: number; adjustmentAmount: number;
+  };
+  const blank = (): DayTotals => ({
+    netQty: 0, netAmount: 0,
+    newQty: 0, newAmount: 0,
+    soldQty: 0, soldAmount: 0,
+    returnedQty: 0, returnedAmount: 0,
+    adjustmentQty: 0, adjustmentAmount: 0,
+  });
+
+  const byDate = new Map<string, DayTotals>();
+  for (const h of rows) {
+    const delta = Number(h.delta ?? 0);
+    const value = delta * price(h.product_id);
+    const day = byDate.get(h.business_date) ?? blank();
+    day.netQty += delta;
+    day.netAmount += value;
+    if (h.type === 'production') { day.newQty += delta; day.newAmount += value; }
+    // Sales and returns are stored as negative deltas; reported positive, as on
+    // the Stock page.
+    if (h.type === 'sale') { day.soldQty -= delta; day.soldAmount -= value; }
+    if (h.type === 'return') { day.returnedQty -= delta; day.returnedAmount -= value; }
+    // Corrections stay SIGNED — the direction is the information, and it is what
+    // makes opening + new − sold − returned + adjustment = balance hold.
+    if (h.type === 'adjustment') { day.adjustmentQty += delta; day.adjustmentAmount += value; }
+    byDate.set(h.business_date, day);
+  }
+
+  // Walk today → `from`, newest first, carrying the balance backwards.
+  const out: BranchStockHistoryRow[] = [];
+  for (let date = today; date >= from; date = shiftDate(date, -1)) {
+    const day = byDate.get(date) ?? blank();
+    const openingQty = closingQty - day.netQty;
+    const openingAmount = closingAmount - day.netAmount;
+
+    out.push({
+      date,
+      openingQty,
+      openingAmount,
+      newQty: day.newQty,
+      newAmount: day.newAmount,
+      soldQty: day.soldQty,
+      soldAmount: day.soldAmount,
+      returnedQty: day.returnedQty,
+      returnedAmount: day.returnedAmount,
+      adjustmentQty: day.adjustmentQty,
+      adjustmentAmount: day.adjustmentAmount,
+      balanceQty: closingQty,
+      balanceAmount: closingAmount,
+    });
+
+    // Yesterday's closing IS today's opening.
+    closingQty = openingQty;
+    closingAmount = openingAmount;
+  }
+
+  return { branchId, from, to: today, rows: out, capped };
 }
 
 /**

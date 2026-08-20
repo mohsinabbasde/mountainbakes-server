@@ -22,6 +22,7 @@ import { returnIntoPool } from '../services/production-stock.service';
 import {
   applyStockCorrection,
   commitBranchReturn,
+  computeBranchStockHistory,
   computeStockRows,
   purgeBranchStock,
   DayClosedError,
@@ -66,6 +67,39 @@ router.get('/audit', async (req: AuthRequest, res, next) => {
 
     const logs = rowToApi<StockAuditLog[]>(data ?? []);
     res.json({ logs, total: logs.length });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// GET /api/stock/history?days=N — Branch Stock History: one row per business day
+// (Previous / New / Sold / Remaining, in units and money) for the Branch Dashboard.
+//
+// Mounted BEFORE `GET /` only for readability — Express matches on the exact path,
+// so the two cannot shadow each other. Scoped like /audit: a branch role gets its
+// own branch and nothing else, Super Admin may name one, everyone else is refused.
+// It reads across days, which is precisely what a branch account may not do for a
+// branch that is not its own.
+router.get('/history', async (req: AuthRequest, res, next) => {
+  try {
+    let branchId: string | null;
+    if (isBranchRole(req.user!.role)) {
+      branchId = req.user!.branchId ?? null;
+      if (!branchId) { res.status(400).json({ error: 'No branch assigned' }); return; }
+    } else if (req.user!.role === 'super_admin') {
+      branchId = (req.query['branchId'] as string | undefined) ?? null;
+      if (!branchId) { res.status(400).json({ error: 'Branch context required' }); return; }
+    } else {
+      res.status(403).json({ error: 'Access denied' });
+      return;
+    }
+
+    // Clamped in the service too (1..365); parsed leniently here so a missing or
+    // junk `days` falls back to a week rather than 400-ing a dashboard card.
+    const parsed = Number(req.query['days']);
+    const days = Number.isFinite(parsed) && parsed > 0 ? parsed : 7;
+
+    res.json(await computeBranchStockHistory(branchId, days));
   } catch (err) {
     next(err);
   }

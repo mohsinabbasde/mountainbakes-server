@@ -77,3 +77,43 @@ export interface StockAuditLog {
   date: string; // 'YYYY-MM-DD' (Karachi)
   createdAt: string; // ISO UTC
 }
+
+/**
+ * One business day of a branch's stock ledger, aggregated across every product —
+ * the row behind Branch Dashboard → Branch Stock History.
+ *
+ * Same derivation as `StockRow` (opening + new − sold − returned + adjustment =
+ * balance), summed over products instead of listed per product, and carrying a
+ * money figure beside every quantity.
+ *
+ * WHAT THE AMOUNTS ARE: every quantity is valued at the product's CURRENT
+ * `products.price`, including the sold column. That is a deliberate choice and it
+ * is not the day's takings — an order's revenue is its snapshotted `unitPrice`
+ * less discount, and if this column used that number the row would stop adding
+ * up (`openingAmount + newAmount − soldAmount − returnedAmount + adjustmentAmount
+ * = balanceAmount`) on any day with a discount or a since-changed price. Read
+ * these as stock valued at today's price list; read Sales on the same dashboard
+ * for money actually taken.
+ */
+export interface BranchStockHistoryRow {
+  /** Business date 'YYYY-MM-DD' (Karachi, 2 AM rollover). */
+  date: string;
+  /** Balance carried in from the previous business day. */
+  openingQty: number;
+  openingAmount: number;
+  /** Stock added by Production approvals on this day. */
+  newQty: number;
+  newAmount: number;
+  /** Units sold on this day — positive, though stored as negative deltas. */
+  soldQty: number;
+  soldAmount: number;
+  /** Units handed back to Production — positive, same as `sold`. */
+  returnedQty: number;
+  returnedAmount: number;
+  /** Signed net of admin corrections, so the row reconciles. */
+  adjustmentQty: number;
+  adjustmentAmount: number;
+  /** Closing balance — what the branch carries into the next day. */
+  balanceQty: number;
+  balanceAmount: number;
+}
