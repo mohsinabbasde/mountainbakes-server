@@ -39,6 +39,7 @@ export * from './schemas/business-date.schemas';
 export * from './schemas/settings.schemas';
 export * from './schemas/price.schemas';
 export * from './schemas/support.schemas';
+export * from './schemas/stock.schemas';
 export * from './schemas/closing-notifications.schemas';
 export * from './schemas/special-event.schemas';
 export * from './schemas/geofence.schemas';

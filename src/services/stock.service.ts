@@ -235,6 +235,55 @@ export async function computeStockRows(branchId: string, date: string = business
 }
 
 /**
+ * HARD-DELETE one product's stock in one branch: the `stock` row and every
+ * `stock_history` row behind it.
+ *
+ * Reached only from Admin → Branch Stock with `mode: 'purge'`, and deliberately
+ * NOT the default there. It is the one stock operation in the codebase that is
+ * not a movement: everything else — sales, returns, production, admin
+ * corrections — appends to the append-only ledger, so the figures can always be
+ * reconstructed. This removes the rows the reconstruction reads.
+ *
+ * What that costs, said plainly, because the endpoint cannot un-say it:
+ *
+ * - Opening is derived (`balance − the day's net movements`), so deleting the
+ *   history of a product that has already traded restates every past day for it.
+ * - A daily-closing snapshot taken before the purge keeps the old figures, and
+ *   will now disagree with anything recomputed from the ledger.
+ * - Orders are NOT touched. A sale whose stock movement is purged still exists
+ *   in `orders` / `order_items`; only its effect on stock is gone.
+ *
+ * It exists because an admin sometimes needs a product mis-seeded into the wrong
+ * branch to be genuinely absent rather than sitting at zero forever. Use `zero`
+ * for anything that really happened.
+ */
+export async function purgeBranchStock(
+  branchId: string,
+  productId: string,
+): Promise<{ historyDeleted: number; stockDeleted: boolean }> {
+  // History first: the `stock` row is the thing the UI reads, so if the second
+  // delete fails the product still shows and the inconsistency is visible rather
+  // than a balance with no ledger behind it.
+  const { data: history, error: histErr } = await supabaseAdmin
+    .from('stock_history')
+    .delete()
+    .eq('branch_id', branchId)
+    .eq('product_id', productId)
+    .select('id');
+  if (histErr) throw histErr;
+
+  const { data: stock, error: stockErr } = await supabaseAdmin
+    .from('stock')
+    .delete()
+    .eq('branch_id', branchId)
+    .eq('product_id', productId)
+    .select('product_id');
+  if (stockErr) throw stockErr;
+
+  return { historyDeleted: (history ?? []).length, stockDeleted: (stock ?? []).length > 0 };
+}
+
+/**
  * The derived figures for ONE product in one branch on one business date — the
  * single-product form of `computeStockRows`, for callers (the Support Center's stock
  * reference) that need one product rather than the whole catalogue. Same

@@ -4,10 +4,32 @@ import { supabaseAdmin } from '../config/supabase';
 import { authenticate, type AuthRequest } from '../middleware/auth';
 import { requireRole } from '../middleware/requireRole';
 import { validate } from '../middleware/validate';
-import { businessDateStr, CreateBranchReturnSchema, type StockAuditLog, BRANCH_ROLES, isBranchRole } from '../shared';
+import {
+  businessDateStr,
+  CreateBranchReturnSchema,
+  type StockAuditLog,
+  type StockFigures,
+  BRANCH_ROLES,
+  isBranchRole,
+  ADMIN_STOCK_FIGURES,
+  AdminStockSaveSchema,
+  AdminStockDeleteSchema,
+  type AdminStockSaveInput,
+  type AdminStockDeleteInput,
+} from '../shared';
 import { notify } from '../services/push.service';
 import { returnIntoPool } from '../services/production-stock.service';
-import { commitBranchReturn, computeStockRows, InsufficientStockError } from '../services/stock.service';
+import {
+  applyStockCorrection,
+  commitBranchReturn,
+  computeStockRows,
+  purgeBranchStock,
+  DayClosedError,
+  InsufficientStockError,
+  NegativeBalanceError,
+  OverdeterminedCorrectionError,
+  type StockCorrectionTargets,
+} from '../services/stock.service';
 import { idempotent, persistIfCommitted } from '../middleware/idempotency';
 import { resolveClientBusinessDate } from '../utils/clientBusinessDate';
 import { requireInsideGeofence } from '../middleware/requireInsideGeofence';
@@ -214,6 +236,233 @@ router.post('/return', requireRole('super_admin', ...BRANCH_ROLES), idempotent('
     });
 
     res.status(201).json({ ids: committed.map((c) => c.id) });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ───────────────────────────────────────────────────────────────────────────────
+// Admin → Branch Stock: direct control over any branch's ledger.
+//
+// The Stock page a branch sees is read-only by design — stock moves by selling,
+// by Production approving a demand, or by returning. Admin needed a way to set a
+// figure outright, and until now the ONLY way was to have someone raise a Help
+// Desk query and correct it from the Support Center. That is the right shape for
+// "a branch disputes a number"; it is the wrong shape for "seed the opening
+// balances for a new branch" or "the count is wrong and there is no ticket".
+//
+// These two endpoints are that missing door. They deliberately reuse the Support
+// Center's correction engine rather than writing to `stock` directly:
+// `apply_stock_correction` takes ABSOLUTE targets, sizes each compensating
+// movement against the live figures under a row lock, refuses to drive a balance
+// negative, and appends the whole thing to `stock_history` — so an admin edit is
+// as auditable as a sale and cannot silently lose a concurrent one. The only
+// difference from the ticket path is the ref_id prefix (`admin:<uid>`), which is
+// what tells the two apart in the ledger afterwards.
+// ───────────────────────────────────────────────────────────────────────────────
+
+/** The figure keys forwarded to the correction RPC, straight off the schema. */
+const ADMIN_TARGET_KEYS = ADMIN_STOCK_FIGURES;
+
+/**
+ * Tell the branch its stock was changed under it.
+ *
+ * `support_resolved` rather than a new notification type on purpose: the client's
+ * `useStockRealtime` already treats it as stock-moving and invalidates the whole
+ * `['stock']` prefix on it, and a new value would mean a Postgres enum migration
+ * for a message that means exactly the same thing to the recipient ("an admin
+ * changed your figures — here is what and why"). Best-effort: the correction is
+ * already committed and a failed notification must not un-commit it.
+ *
+ * Targeted at `branch_manager` with the branch id. A `branch_user` on the same
+ * branch does not get the toast, but its open Stock page still refetches on the
+ * manager's — the shift account shares the branch, not the notification feed.
+ */
+async function notifyBranchOfStockChange(
+  branchId: string,
+  branchName: string,
+  message: string,
+): Promise<void> {
+  try {
+    await notify({
+      type: 'support_resolved',
+      title: 'Stock Updated by Admin',
+      message,
+      targetRole: 'branch_manager',
+      branchId,
+      relatedId: null,
+    });
+  } catch (err) {
+    console.error('[stock] admin correction notification failed:', err);
+  }
+}
+
+/** Look up a branch by id, or null. Shared by both admin endpoints. */
+async function findBranch(branchId: string): Promise<{ id: string; name: string } | null> {
+  const { data, error } = await supabaseAdmin
+    .from('branches')
+    .select('id, name')
+    .eq('id', branchId)
+    .maybeSingle();
+  if (error) throw error;
+  return (data as { id: string; name: string } | null) ?? null;
+}
+
+// PATCH /api/stock/admin — save edited figures for one or many products.
+//
+// PARTIAL SAVES ARE POSSIBLE and the response says so. `apply_stock_correction`
+// is per-product and PostgREST gives each call its own transaction, exactly as on
+// the branch-return path above; a row that the RPC refuses (it would go negative,
+// or an Opening edit lands on a closed day) is reported in `failed` while the
+// rows that went through stay committed. They are real stock movements — quietly
+// reversing them would be the worse lie.
+router.patch('/admin', requireRole('super_admin'), validate(AdminStockSaveSchema), async (req: AuthRequest, res, next) => {
+  try {
+    const { branchId, rows, date, reason } = req.body as AdminStockSaveInput;
+    const businessDate = date || businessDateStr();
+
+    const branch = await findBranch(branchId);
+    if (!branch) { res.status(404).json({ error: 'Branch not found' }); return; }
+
+    // One lookup for every product in the save, and the names come from `products`
+    // rather than the request: stock_history keeps a name snapshot, and it should
+    // read as the name at correction time, not whatever the client's cache held.
+    const productIds = [...new Set(rows.map((r) => r.productId))];
+    const { data: products, error: prodErr } = await supabaseAdmin
+      .from('products')
+      .select('id, name')
+      .in('id', productIds);
+    if (prodErr) throw prodErr;
+
+    const nameById = new Map((products ?? []).map((p) => [p.id as string, p.name as string]));
+    const missing = productIds.filter((id) => !nameById.has(id));
+    if (missing.length) { res.status(400).json({ error: 'Product not found', details: missing }); return; }
+
+    const ticketId = `admin:${req.user!.uid}`;
+    const saved: { productId: string; productName: string; applied: boolean; before: StockFigures; after: StockFigures }[] = [];
+    const failed: { productId: string; productName: string; error: string }[] = [];
+
+    for (const row of rows) {
+      const productName = nameById.get(row.productId)!;
+
+      const targets: StockCorrectionTargets = {};
+      for (const key of ADMIN_TARGET_KEYS) {
+        const value = row[key];
+        if (value !== undefined) targets[key] = value;
+      }
+
+      try {
+        const result = await applyStockCorrection({
+          branchId,
+          productId: row.productId,
+          productName,
+          targets,
+          ticketId,
+          businessDate,
+        });
+        saved.push({ productId: row.productId, productName, applied: result.applied, before: result.before, after: result.after });
+      } catch (err) {
+        // The three the RPC reports as a status rather than throwing SQL. Each is
+        // an admin-fixable mistake about ONE row, so it is collected and the rest
+        // of the save continues instead of aborting on the first bad number.
+        if (err instanceof OverdeterminedCorrectionError || err instanceof DayClosedError || err instanceof NegativeBalanceError) {
+          failed.push({ productId: row.productId, productName, error: err.message });
+          continue;
+        }
+        throw err;
+      }
+    }
+
+    // Nothing at all went through: that is a failed request, not a partial one.
+    if (saved.length === 0 && failed.length > 0) {
+      res.status(409).json({ error: failed[0]!.error, saved, failed });
+      return;
+    }
+
+    const changed = saved.filter((s) => s.applied);
+    if (changed.length > 0) {
+      const detail = changed.length === 1
+        ? `${changed[0]!.productName}: balance ${changed[0]!.before.balance} → ${changed[0]!.after.balance}`
+        : `${changed.length} products`;
+      await notifyBranchOfStockChange(
+        branchId,
+        branch.name,
+        [`${businessDate} — ${detail}`, reason].filter(Boolean).join(' · '),
+      );
+    }
+
+    res.json({
+      branchId,
+      date: businessDate,
+      // `applied: false` means the figures already matched — a no-op, not a failure.
+      saved,
+      failed,
+      changedCount: changed.length,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// POST /api/stock/admin/delete — remove a product's stock from a branch.
+//
+// A POST rather than a DELETE because it carries a body (mode, date, reason) and
+// bodies on DELETE are inconsistently handled end to end. `mode` decides what
+// "remove" means, and the default is the safe one — see AdminStockDeleteSchema.
+router.post('/admin/delete', requireRole('super_admin'), validate(AdminStockDeleteSchema), async (req: AuthRequest, res, next) => {
+  try {
+    const { branchId, productId, mode, date, reason } = req.body as AdminStockDeleteInput;
+    const businessDate = date || businessDateStr();
+
+    const branch = await findBranch(branchId);
+    if (!branch) { res.status(404).json({ error: 'Branch not found' }); return; }
+
+    const { data: product, error: prodErr } = await supabaseAdmin
+      .from('products')
+      .select('name')
+      .eq('id', productId)
+      .maybeSingle();
+    if (prodErr) throw prodErr;
+    if (!product) { res.status(404).json({ error: 'Product not found' }); return; }
+    const productName = product.name as string;
+
+    if (mode === 'purge') {
+      const result = await purgeBranchStock(branchId, productId);
+      await notifyBranchOfStockChange(
+        branchId,
+        branch.name,
+        [`${productName} was removed from this branch's stock`, reason].filter(Boolean).join(' · '),
+      );
+      res.json({ mode, productId, productName, ...result });
+      return;
+    }
+
+    // mode === 'zero' — an ordinary correction to a balance of 0, so the ledger
+    // keeps the movement that took it there and the row can be typed back up.
+    try {
+      const result = await applyStockCorrection({
+        branchId,
+        productId,
+        productName,
+        targets: { balance: 0 },
+        ticketId: `admin:${req.user!.uid}`,
+        businessDate,
+      });
+      if (result.applied) {
+        await notifyBranchOfStockChange(
+          branchId,
+          branch.name,
+          [`${productName}: balance ${result.before.balance} → 0`, reason].filter(Boolean).join(' · '),
+        );
+      }
+      res.json({ mode, productId, productName, applied: result.applied, before: result.before, after: result.after });
+    } catch (err) {
+      if (err instanceof NegativeBalanceError || err instanceof DayClosedError || err instanceof OverdeterminedCorrectionError) {
+        res.status(err.status).json({ error: err.message });
+        return;
+      }
+      throw err;
+    }
   } catch (err) {
     next(err);
   }
