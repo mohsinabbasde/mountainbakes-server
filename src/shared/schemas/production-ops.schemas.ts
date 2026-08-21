@@ -64,7 +64,23 @@ export const CreateBranchReturnSchema = z.object({
   businessDate: optionalBusinessDate,
 });
 
+// ── Correcting a branch-initiated return (Branch → Return Stock) ─────────────
+// The units have ALREADY moved by the time this is sent — a branch return is
+// applied immediately — so this is a request to move the difference, not to edit
+// a draft. `qty` is the return's new total, not a delta: the client shows the
+// figure that is on the record and the server works out which way stock has to
+// go, which is the only reading that stays right if two corrections race.
+//
+// `reason` is optional and, unlike the Production-recorded flow, may be blank —
+// it mirrors CreateBranchReturnSchema above, where an end-of-day batch carries
+// one shared reason and often none at all.
+export const ReviseBranchReturnSchema = z.object({
+  qty: z.number().int().positive('Quantity must be at least 1'),
+  reason: z.string().max(500).optional(),
+});
+
 export type PrepareProductionInput = z.infer<typeof PrepareProductionSchema>;
 export type CreateProductionReturnInput = z.infer<typeof CreateProductionReturnSchema>;
 export type ReviewProductionReturnInput = z.infer<typeof ReviewProductionReturnSchema>;
 export type CreateBranchReturnInput = z.infer<typeof CreateBranchReturnSchema>;
+export type ReviseBranchReturnInput = z.infer<typeof ReviseBranchReturnSchema>;

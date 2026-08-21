@@ -7,6 +7,8 @@ import { validate } from '../middleware/validate';
 import {
   businessDateStr,
   CreateBranchReturnSchema,
+  ReviseBranchReturnSchema,
+  businessDaysAgoStr,
   type StockAuditLog,
   type StockFigures,
   BRANCH_ROLES,
@@ -33,6 +35,13 @@ import {
   OverdeterminedCorrectionError,
   type StockCorrectionTargets,
 } from '../services/stock.service';
+import {
+  listBranchReturns,
+  reviseBranchReturn,
+  withdrawBranchReturn,
+  ReturnLockedError,
+  ReturnNotFoundError,
+} from '../services/branch-returns.service';
 import { idempotent, persistIfCommitted } from '../middleware/idempotency';
 import { resolveClientBusinessDate } from '../utils/clientBusinessDate';
 import { requireInsideGeofence } from '../middleware/requireInsideGeofence';
@@ -310,6 +319,96 @@ router.post('/return', requireRole('super_admin', ...BRANCH_ROLES), idempotent('
     next(err);
   }
 });
+
+// ───────────────────────────────────────────────────────────────────────────────
+// Branch → Return Stock: the branch's own view of what it has sent back.
+//
+// A SEPARATE endpoint from GET /api/production-returns rather than a widening of
+// it. That router is `super_admin` + `production_user` and answers with every
+// branch's returns; a branch may not read another branch's, and does not need
+// the extra rows even if it could. Here `branchId` comes off the JWT for a branch
+// role, exactly as it does for the rest of this router.
+// ───────────────────────────────────────────────────────────────────────────────
+
+// GET /api/stock/returns?days=N — the branch's returns, most recent first.
+router.get('/returns', requireRole('super_admin', ...BRANCH_ROLES), async (req: AuthRequest, res, next) => {
+  try {
+    const branchId = isBranchRole(req.user!.role)
+      ? req.user!.branchId
+      : ((req.query['branchId'] as string | undefined) ?? null);
+    if (!branchId) { res.status(400).json({ error: 'Branch context required' }); return; }
+
+    // Bounded the same way the Production board is, and for the same reason: the
+    // table is unpaginated on the client, so the window is what keeps it finite.
+    // 90 days rather than that board's 30 — this is a branch auditing its own
+    // returns over a quarter, not a queue of today's work.
+    const requested = Number(req.query['days'] ?? 90);
+    const days = Number.isFinite(requested) ? Math.max(1, Math.min(365, Math.floor(requested))) : 90;
+
+    const returns = await listBranchReturns(branchId, { from: businessDaysAgoStr(days - 1) });
+    res.json({ returns, total: returns.length });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// PUT /api/stock/returns/:id — change the quantity (and reason) of a return.
+//
+// Geofenced like POST /return: it moves the same stock in the same shop, and a
+// correction made from outside the branch is the same thing the geofence exists
+// to refuse. Idempotent for callers that send the header — the mobile app does;
+// the web app does not, and this is not a no-op it can be retried through
+// blindly, which is why the client confirms before sending.
+router.put(
+  '/returns/:id',
+  requireRole('super_admin', ...BRANCH_ROLES),
+  idempotent('stock.returns.revise'),
+  validate(ReviseBranchReturnSchema),
+  requireInsideGeofence('stock.return'),
+  async (req: AuthRequest, res, next) => {
+    try {
+      const { qty, reason } = req.body as { qty: number; reason?: string };
+      const updated = await reviseBranchReturn({
+        id: req.params['id']!,
+        // null lets an admin reach any branch's return; a branch role is pinned
+        // to its own, and `reviseBranchReturn` treats null as "skip that check".
+        branchId: isBranchRole(req.user!.role) ? req.user!.branchId : null,
+        qty,
+        ...(reason !== undefined ? { reason } : {}),
+      });
+      res.json(updated);
+    } catch (err) {
+      if (err instanceof InsufficientStockError) {
+        res.status(409).json({
+          error: 'The branch no longer holds enough stock to increase this return.',
+          details: err.shortfalls,
+        });
+        return;
+      }
+      if (err instanceof ReturnLockedError || err instanceof ReturnNotFoundError) { next(err); return; }
+      next(err);
+    }
+  },
+);
+
+// DELETE /api/stock/returns/:id — withdraw a return; the units go back to the branch.
+router.delete(
+  '/returns/:id',
+  requireRole('super_admin', ...BRANCH_ROLES),
+  idempotent('stock.returns.withdraw'),
+  requireInsideGeofence('stock.return'),
+  async (req: AuthRequest, res, next) => {
+    try {
+      await withdrawBranchReturn(
+        req.params['id']!,
+        isBranchRole(req.user!.role) ? req.user!.branchId : null,
+      );
+      res.json({ success: true });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
 
 // ───────────────────────────────────────────────────────────────────────────────
 // Admin → Branch Stock: direct control over any branch's ledger.

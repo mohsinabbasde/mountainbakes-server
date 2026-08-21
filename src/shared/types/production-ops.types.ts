@@ -100,6 +100,20 @@ export interface ProductionReturn {
   qty: number;
   reason: string;
   status: ProductionReturnStatus;
+  /**
+   * Which side raised it: 'branch' for the branch-initiated path
+   * (POST /api/stock/return, inserted already 'accepted' with the units already
+   * moved), null when Production recorded it (POST /api/production-returns,
+   * 'pending' until reviewed).
+   *
+   * Not cosmetic — it decides who may still change the record. Branch → Return
+   * Stock only offers Change and Delete on its own 'branch' rows; a
+   * Production-recorded return is Production's account of what it received and is
+   * corrected on their screen. The server enforces the same rule in
+   * `branch-returns.service.ts`, so this is the client knowing why a button is
+   * absent, not the rule itself.
+   */
+  source: 'branch' | null;
   date: string; // 'YYYY-MM-DD' (Karachi)
   createdBy: string;
   createdByName: string;
