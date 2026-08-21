@@ -23,6 +23,7 @@ import { router as supportRouter } from './support.routes';
 import { router as closingNotificationsRouter } from './closing-notifications.routes';
 import { router as specialEventsRouter } from './special-events.routes';
 import { router as settingsRouter } from './settings.routes';
+import { router as loginHistoryRouter } from './login-history.routes';
 import { router as businessDayRouter } from './business-day.routes';
 import { router as financeRouter } from './finance.routes';
 import { router as financeIncomeRouter, entriesRouter as financeEntriesRouter } from './finance-income.routes';
@@ -64,6 +65,9 @@ export function setupRoutes(app: Express) {
   app.use('/api/closing-notifications', closingNotificationsRouter);
   app.use('/api/special-events', specialEventsRouter);
   app.use('/api/settings', settingsRouter);
+  // Login History. Opened and pinged by the client, because a static-export app
+  // signs in to Supabase directly and this API never sees the login itself.
+  app.use('/api/login-history', loginHistoryRouter);
   app.use('/api/business-day', businessDayRouter);
   // Shared by finance and branch: one upload endpoint for every captured photo,
   // which decides what the caller may attach to from the `entity` field.
