@@ -27,6 +27,7 @@ import {
   computeBranchStockDay,
   computeAllBranchesStockSummary,
   computeBranchStockHistory,
+  reconcileBranchStockDay,
   computeStockRows,
   purgeBranchStock,
   DayClosedError,
@@ -135,7 +136,13 @@ router.get('/history', async (req: AuthRequest, res, next) => {
     // question it did not ask.
     const date = (req.query['date'] as string | undefined)?.trim();
     if (date) {
-      res.json({ branchId, date, row: await computeBranchStockDay(branchId, date) });
+      const row = await computeBranchStockDay(branchId, date);
+      // Shipped with the row, not behind its own endpoint: the statement is the
+      // only place the aggregate is stated, so it is the only place that can say
+      // whether the Stock page agrees with it — and a check that has to be asked
+      // for separately is a check nobody runs.
+      const reconciliation = await reconcileBranchStockDay(branchId, date, row.balanceQty);
+      res.json({ branchId, date, row, reconciliation });
       return;
     }
 

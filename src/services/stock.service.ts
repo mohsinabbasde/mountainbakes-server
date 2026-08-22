@@ -6,6 +6,9 @@ import {
   type BranchStockSummaryRow,
   type StockFigures,
   type StockMovementType,
+  type StockReconciliation,
+  type StockReconciliationCause,
+  type StockReconciliationReason,
   type StockRow,
 } from '../shared';
 
@@ -522,6 +525,129 @@ export async function computeBranchStockDay(
     );
   }
   return row;
+}
+
+/**
+ * Every product's closing balance for `date`, over the WHOLE of a branch's
+ * ledger — no catalogue filter of any kind.
+ *
+ * This is the aggregate's own view of the day, product by product: the same
+ * unwind `computeBranchStockHistory` does in total (`live balance − everything
+ * dated after the day`), kept per product so the two figures can be compared
+ * line by line rather than only as totals.
+ *
+ * Keyed by product_id off the `stock` table UNION the ledger, so a balance
+ * belonging to a product that no longer exists in `products` is still here —
+ * which is the whole point: that is exactly the stock the per-product table
+ * cannot show.
+ */
+async function closingBalancesByProduct(
+  branchId: string,
+  date: string,
+): Promise<Map<string, number>> {
+  const [stock, history] = await Promise.all([
+    supabaseAdmin.from('stock').select('product_id, balance').eq('branch_id', branchId),
+    supabaseAdmin
+      .from('stock_history')
+      .select('product_id, delta')
+      .eq('branch_id', branchId)
+      .gt('business_date', date)
+      .order('business_date', { ascending: true })
+      .range(0, HISTORY_ROW_CAP - 1),
+  ]);
+  if (stock.error) throw stock.error;
+  if (history.error) throw history.error;
+
+  const closing = new Map<string, number>();
+  for (const s of (stock.data ?? []) as { product_id: string; balance: number | string }[]) {
+    closing.set(s.product_id, Number(s.balance ?? 0));
+  }
+  // Take back off everything that happened AFTER the day being asked about.
+  for (const h of (history.data ?? []) as { product_id: string; delta: number | string }[]) {
+    closing.set(h.product_id, (closing.get(h.product_id) ?? 0) - Number(h.delta ?? 0));
+  }
+  return closing;
+}
+
+/**
+ * Compare the two places a branch's remaining stock is stated for one day, and
+ * name what is behind any gap.
+ *
+ * Dashboard → Stock Detail prints an AGGREGATE walked back from the live branch
+ * balance; the Stock page prints PER-PRODUCT rows and adds them up. Same ledger,
+ * two derivations, and for a long time they disagreed silently — a discontinued
+ * product's units counted in one and not the other, and every past day was wrong
+ * in the aggregate's favour. Both are fixed, so this now returns a difference of
+ * 0. It is computed and shown anyway, because the failure it is watching for is
+ * precisely the one that showed no symptom: two numbers, both plausible, that
+ * nothing ever compared.
+ *
+ * `unexplained` is the residue no product accounts for. A named product is a
+ * data problem someone can act on; an unexplained figure means the derivations
+ * themselves have drifted, which is worse.
+ */
+export async function reconcileBranchStockDay(
+  branchId: string,
+  date: string,
+  statementQty: number,
+): Promise<StockReconciliation> {
+  const [closing, rows, products] = await Promise.all([
+    closingBalancesByProduct(branchId, date),
+    computeStockRows(branchId, date),
+    supabaseAdmin.from('products').select('id, name, is_active'),
+  ]);
+  if (products.error) throw products.error;
+
+  const meta = new Map<string, { name: string; isActive: boolean }>();
+  for (const p of (products.data ?? []) as { id: string; name: string; is_active: boolean }[]) {
+    meta.set(p.id, { name: p.name, isActive: p.is_active });
+  }
+
+  const listed = new Map(rows.map((r) => [r.productId, r.balance]));
+  const itemsQty = rows.reduce((sum, r) => sum + r.balance, 0);
+
+  const reasons: StockReconciliationReason[] = [];
+  for (const [productId, qty] of closing) {
+    const onPage = listed.get(productId);
+    // Present on both sides and agreeing — the normal case, nothing to say.
+    if (onPage === qty) continue;
+
+    const product = meta.get(productId);
+    let cause: StockReconciliationCause;
+    if (onPage !== undefined) cause = 'mismatch';
+    else if (!product) cause = 'deleted-from-catalogue';
+    else if (!product.isActive) cause = 'discontinued';
+    else cause = 'unlisted';
+
+    // A product the table does not list contributes its whole balance to the
+    // gap; one it lists contributes only the disagreement.
+    const gap = qty - (onPage ?? 0);
+    if (gap === 0) continue;
+    reasons.push({
+      productId,
+      productName: product?.name ?? 'Product no longer in the catalogue',
+      qty: gap,
+      cause,
+    });
+  }
+
+  // Anything the table lists that the ledger has no closing balance for at all
+  // pulls the other way, and would otherwise land in `unexplained` unnamed.
+  for (const [productId, balance] of listed) {
+    if (closing.has(productId) || balance === 0) continue;
+    reasons.push({
+      productId,
+      productName: meta.get(productId)?.name ?? 'Unknown product',
+      qty: -balance,
+      cause: 'mismatch',
+    });
+  }
+
+  reasons.sort((a, b) => Math.abs(b.qty) - Math.abs(a.qty) || a.productName.localeCompare(b.productName));
+
+  const difference = statementQty - itemsQty;
+  const explained = reasons.reduce((sum, r) => sum + r.qty, 0);
+  return { statementQty, itemsQty, difference, reasons, unexplained: difference - explained };
 }
 
 /**

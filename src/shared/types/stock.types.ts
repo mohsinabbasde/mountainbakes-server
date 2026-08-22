@@ -87,6 +87,61 @@ export interface StockAuditLog {
 }
 
 /**
+ * Why one product's units sit in the day's aggregate but not in the per-product
+ * table, or vice versa.
+ *
+ * - `deleted-from-catalogue` — the branch holds a balance for a product that is
+ *   no longer in `products` at all. The aggregate counts the units (it sums the
+ *   `stock` table); the per-product table cannot name a row it has no product
+ *   for. This is the one cause that needs a data fix rather than an explanation.
+ * - `discontinued` — an inactive product. Normally listed on both sides while it
+ *   still holds stock, so this should not appear; if it does, the two sides are
+ *   filtering the catalogue differently again.
+ * - `unlisted` — an active product carrying a balance that the per-product table
+ *   did not return. Should never happen.
+ * - `mismatch` — both sides know the product and disagree about its quantity.
+ *   Should never happen; it means the two derivations have drifted.
+ */
+export type StockReconciliationCause =
+  | 'deleted-from-catalogue'
+  | 'discontinued'
+  | 'unlisted'
+  | 'mismatch';
+
+/** One product's contribution to the gap between the two figures. */
+export interface StockReconciliationReason {
+  productId: string;
+  productName: string;
+  /** Signed, in the direction statement − items: +3 means the aggregate counts 3 the table does not. */
+  qty: number;
+  cause: StockReconciliationCause;
+}
+
+/**
+ * Cross-check between the two places a branch's remaining stock is stated:
+ * the aggregated statement (Dashboard → Stock Detail) and the sum of the
+ * per-product rows (Stock page). They are derived by different paths from the
+ * same ledger, so agreement is an invariant rather than a coincidence — and for
+ * a long time they disagreed silently, because nothing compared them.
+ *
+ * `difference` is `statementQty − itemsQty` and is 0 on a healthy day. When it
+ * is not, `reasons` names the products responsible; `unexplained` is whatever
+ * the named products do not account for, which is the part that cannot be
+ * described and is therefore the most serious.
+ */
+export interface StockReconciliation {
+  /** What Dashboard → Stock Detail prints as Remaining Stock items. */
+  statementQty: number;
+  /** What the Stock page's Balance column adds up to for the same day. */
+  itemsQty: number;
+  /** statementQty − itemsQty. Zero when the two agree. */
+  difference: number;
+  reasons: StockReconciliationReason[];
+  /** Part of `difference` no product accounts for. Zero unless something is badly wrong. */
+  unexplained: number;
+}
+
+/**
  * One business day of a branch's stock ledger, aggregated across every product —
  * the row behind Branch Dashboard → Branch Stock History.
  *
