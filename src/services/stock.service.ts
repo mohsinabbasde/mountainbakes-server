@@ -180,40 +180,97 @@ export async function applyStockCorrection(params: {
 
 /**
  * Reconstruct the per-product Opening/New/Sold/Returned/Adjustment/Balance rows for
- * a branch on a given business date. Opening = current balance − the day's net
- * movements, matching the derived-stock model. Shared by the Stock page and the
- * daily-closing snapshot so they can never diverge.
+ * a branch on a given business date.
+ *
+ * ─── The balance is DERIVED, never read live for a past day ────────────────
+ * `stock.balance` is a live running total with no per-day snapshot behind it, so
+ * a past day's closing balance has to be walked back out of the ledger — the
+ * same walk `computeBranchStockHistory` does, and it has to agree with it:
+ *
+ *   closing[d] = live balance − (net of every movement dated AFTER d)
+ *   opening[d] = closing[d] − net[d]
+ *
+ * This function used to put `stock.balance` straight into every row's Balance
+ * whatever date was asked for, so the page printed TODAY's stock on every past
+ * day — and derived Opening off that figure, putting both ends of the row out.
+ * For `date = today` the walk is a no-op (nothing is dated after today), so the
+ * daily-closing snapshot and the closing report, which only ever ask for the day
+ * being closed, are unaffected.
+ *
+ * ─── Which products appear ─────────────────────────────────────────────────
+ * Every active product, plus any INACTIVE one that still holds stock or moved
+ * that day. A discontinued product's units are physically on the shelf and are
+ * inside `stock.balance`; dropping them is what made this page's Balance total
+ * disagree with the dashboard's Remaining Stock, which prices the whole
+ * catalogue (see `computeBranchStockHistory`). An inactive product with nothing
+ * left and no movement that day stays hidden, so the table does not fill up with
+ * dead catalogue.
  */
 export async function computeStockRows(branchId: string, date: string = businessDateStr()): Promise<StockRow[]> {
-  // The date filter is a real indexed predicate now
-  // (stock_history_branch_date_idx), rather than fetching a branch's entire
-  // history and filtering in memory.
+  const today = businessDateStr();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+    throw new UnreachableStockDateError(`"${date}" is not a YYYY-MM-DD business date.`);
+  }
+  if (date > today) {
+    throw new UnreachableStockDateError(`${date} has not happened yet — the ledger only reaches ${today}.`);
+  }
+  // Same ceiling as the history walk: the balance is derived from today's
+  // figure, so reaching further back means reading more of the ledger than the
+  // cap below allows. Refused with a reason rather than answered wrongly.
+  const span = Math.round((Date.parse(`${today}T00:00:00Z`) - Date.parse(`${date}T00:00:00Z`)) / 86_400_000) + 1;
+  if (span > 365) {
+    throw new UnreachableStockDateError(
+      `${date} is more than a year back; stock is derived from today's balance and only reaches 365 days.`,
+    );
+  }
+
+  // Everything from the requested day FORWARD: the day itself supplies the
+  // columns, everything after it is what has to be unwound to get back to that
+  // day's closing balance. The date filter is a real indexed predicate
+  // (stock_history_branch_date_idx). Asking for today reads one day, as before.
   const [products, stock, history] = await Promise.all([
-    supabaseAdmin.from('products').select('id, name, stock_code').eq('is_active', true),
+    supabaseAdmin.from('products').select('id, name, stock_code, is_active'),
     supabaseAdmin.from('stock').select('product_id, balance').eq('branch_id', branchId),
     supabaseAdmin
       .from('stock_history')
-      .select('product_id, type, delta')
+      .select('product_id, business_date, type, delta')
       .eq('branch_id', branchId)
-      .eq('business_date', date),
+      .gte('business_date', date)
+      .order('business_date', { ascending: true })
+      .range(0, HISTORY_ROW_CAP - 1),
   ]);
   if (products.error) throw products.error;
   if (stock.error) throw stock.error;
   if (history.error) throw history.error;
+
+  const movements = (history.data ?? []) as
+    { product_id: string; business_date: string; type: string; delta: number | string }[];
+  // A truncated read would leave part of the unwind missing and quietly shift
+  // every balance. There is no partial answer worth giving here.
+  if (movements.length >= HISTORY_ROW_CAP) {
+    throw new UnreachableStockDateError(
+      `Too much stock movement since ${date} to derive that day's balances in one read.`,
+    );
+  }
 
   const balanceByProduct = new Map<string, number>();
   for (const s of (stock.data ?? []) as { product_id: string; balance: number | string }[]) {
     balanceByProduct.set(s.product_id, Number(s.balance ?? 0));
   }
 
-  const net = new Map<string, number>();
+  const netOnDay = new Map<string, number>();
+  const netAfter = new Map<string, number>();
   const newQty = new Map<string, number>();
   const sold = new Map<string, number>();
   const returned = new Map<string, number>();
   const adjustment = new Map<string, number>();
-  for (const h of (history.data ?? []) as { product_id: string; type: string; delta: number | string }[]) {
+  for (const h of movements) {
     const delta = Number(h.delta ?? 0);
-    net.set(h.product_id, (net.get(h.product_id) ?? 0) + delta);
+    if (h.business_date > date) {
+      netAfter.set(h.product_id, (netAfter.get(h.product_id) ?? 0) + delta);
+      continue;
+    }
+    netOnDay.set(h.product_id, (netOnDay.get(h.product_id) ?? 0) + delta);
     if (h.type === 'production') newQty.set(h.product_id, (newQty.get(h.product_id) ?? 0) + delta);
     // Sold and returned are stored as negative deltas; report them positive.
     if (h.type === 'sale') sold.set(h.product_id, (sold.get(h.product_id) ?? 0) - delta);
@@ -224,14 +281,17 @@ export async function computeStockRows(branchId: string, date: string = business
     if (h.type === 'adjustment') adjustment.set(h.product_id, (adjustment.get(h.product_id) ?? 0) + delta);
   }
 
-  return ((products.data ?? []) as { id: string; name: string; stock_code: string }[])
+  return ((products.data ?? []) as { id: string; name: string; stock_code: string; is_active: boolean }[])
     .map((p) => {
-      const balance = balanceByProduct.get(p.id) ?? 0;
+      // Closing balance FOR THIS DAY: today's live figure with everything that
+      // happened after it taken back off.
+      const balance = (balanceByProduct.get(p.id) ?? 0) - (netAfter.get(p.id) ?? 0);
       return {
         productId: p.id,
         productName: p.name,
         stockCode: p.stock_code,
-        opening: balance - (net.get(p.id) ?? 0), // balance at start of the business day
+        isActive: p.is_active,
+        opening: balance - (netOnDay.get(p.id) ?? 0), // balance at start of the business day
         newQty: newQty.get(p.id) ?? 0,
         sold: sold.get(p.id) ?? 0,
         returned: returned.get(p.id) ?? 0,
@@ -239,6 +299,8 @@ export async function computeStockRows(branchId: string, date: string = business
         balance,
       };
     })
+    .filter((r) => r.isActive || r.balance !== 0 || r.opening !== 0
+      || r.newQty !== 0 || r.sold !== 0 || r.returned !== 0 || r.adjustment !== 0)
     .sort((a, b) => b.balance - a.balance || a.productName.localeCompare(b.productName));
 }
 

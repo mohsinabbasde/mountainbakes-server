@@ -44,6 +44,14 @@ export interface StockRow {
   productId: string;
   stockCode: string; // human-readable STK-###### (per product)
   productName: string;
+  /**
+   * False for a discontinued product. Such a product is still listed while it
+   * holds stock or moved that day — the units are on the shelf and inside the
+   * branch balance, so hiding them made the Stock page total disagree with the
+   * dashboard's Remaining Stock. Callers that are choosing a product to SELL or
+   * to stock up (rather than counting what is there) filter on this.
+   */
+  isActive: boolean;
   opening: number;
   newQty: number;
   sold: number;
