@@ -80,10 +80,11 @@ async function buildReport(
 
   switch (report) {
     case 'prepared-detail': {
-      // One line per product PER DAY over the window — the detail behind the
-      // "Production" report's per-day totals. Read straight off the pool ledger
-      // rather than from getProductionStockRows, which can only answer for a
-      // single date.
+      // One line per PRODUCT over the window — the same item prepared on several
+      // days collapses into a single row carrying the window's total, so a range
+      // reads as "what did we make, and how much of it". Read straight off the
+      // pool ledger rather than from getProductionStockRows, which can only
+      // answer for a single date.
       //
       // Deltas are summed SIGNED: a day can hold several prep batches, and an
       // admin lowering "Prepared Today" appends a negative 'prepare' movement.
@@ -115,37 +116,36 @@ async function buildReport(
         }
       }
 
-      const byDayProduct = new Map<string, { date: string; productId: string; name: string; qty: number }>();
+      const byProduct = new Map<string, { productId: string; name: string; qty: number }>();
       for (const m of movements) {
-        const key = `${m.business_date}|${m.product_id}`;
-        const cur = byDayProduct.get(key)
-          ?? { date: m.business_date, productId: m.product_id, name: m.product_name, qty: 0 };
+        const cur = byProduct.get(m.product_id)
+          ?? { productId: m.product_id, name: m.product_name, qty: 0 };
         cur.qty += Number(m.delta ?? 0);
-        byDayProduct.set(key, cur);
+        byProduct.set(m.product_id, cur);
       }
 
-      // A product whose corrections cancel its batches netted to nothing that day
-      // and did not get prepared — dropping it keeps the sheet to real production.
-      const detail = [...byDayProduct.values()]
+      // A product whose corrections cancel its batches netted to nothing over the
+      // window and did not get prepared — dropping it keeps the sheet to real
+      // production.
+      const detail = [...byProduct.values()]
         .filter((r) => r.qty !== 0)
-        .sort((a, b) => a.date.localeCompare(b.date) || a.name.localeCompare(b.name));
+        .sort((a, b) => a.name.localeCompare(b.name));
 
       const body: (string | number)[][] = detail.map((r) => [
-        r.date,
         meta.get(r.productId)?.code ?? '—',
         r.name,
         meta.get(r.productId)?.category ?? '',
         r.qty,
       ]);
       if (detail.length > 0) {
-        body.push(['Total', '', '', '', detail.reduce((sum, r) => sum + r.qty, 0)]);
+        body.push(['Total', '', '', detail.reduce((sum, r) => sum + r.qty, 0)]);
       }
 
       return {
         title: fromStr === toStr
           ? `Prepared Items — ${fromStr}`
           : `Prepared Items — ${fromStr} to ${toStr}`,
-        headers: ['Date', 'Item Code', 'Product', 'Category', 'Qty Prepared'],
+        headers: ['Item Code', 'Product', 'Category', 'Qty Prepared'],
         rows: body,
       };
     }
