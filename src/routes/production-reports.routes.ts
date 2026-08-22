@@ -15,6 +15,7 @@ router.use(authenticate, requireRole('super_admin', 'production_user'));
 
 export type ProductionReportType =
   | 'production'
+  | 'prepared-detail'
   | 'branch-demand'
   | 'approved-orders'
   | 'pending-balance'
@@ -35,6 +36,31 @@ function periodDateRange(period: string): { fromStr: string; toStr: string } {
   return { fromStr: `${todayStr.slice(0, 7)}-01`, toStr: todayStr };
 }
 
+/**
+ * Ceiling on the prepare-ledger rows one "Prepared Items" read will pull. The
+ * report aggregates in Node, so an unbounded window is an unbounded memory read;
+ * 20 000 rows is roughly a year of every product being prepared every day.
+ */
+const PREPARED_ROW_CAP = 20_000;
+
+/** Reports driven by an explicit from/to window instead of the period dropdown. */
+function usesDateRange(report: string): boolean {
+  return report === 'prepared-detail';
+}
+
+/**
+ * The explicit `from`/`to` window the date-wise reports run on. Both default to
+ * today (the common case: "what did we prepare today?") and a reversed pair is
+ * swapped rather than silently returning nothing.
+ */
+function explicitDateRange(from: unknown, to: unknown): { fromStr: string; toStr: string } {
+  const todayStr = businessDateStr();
+  const clean = (v: unknown) => (typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : '');
+  const a = clean(from) || clean(to) || todayStr;
+  const b = clean(to) || clean(from) || todayStr;
+  return a <= b ? { fromStr: a, toStr: b } : { fromStr: b, toStr: a };
+}
+
 interface RItem { qty: number; approved_qty?: number | null; total_required_qty?: number | null; remaining_balance_qty?: number | null }
 interface RDoc { branch_id: string; branch_name: string; business_date: string; status: string; approved_by_name?: string | null; items: RItem[] }
 
@@ -45,11 +71,84 @@ const ORDER_WITH_ITEMS =
 async function buildReport(
   report: string,
   period: string,
+  range?: { fromStr: string; toStr: string },
 ): Promise<{ title: string; headers: string[]; rows: (string | number)[][] }> {
-  const { fromStr, toStr } = periodDateRange(period);
+  // `prepared-detail` is driven by an explicit from/to window rather than the
+  // period dropdown; every other report still anchors to the named period.
+  const { fromStr, toStr } = range ?? periodDateRange(period);
   const inRange = (d: string) => d >= fromStr && d <= toStr;
 
   switch (report) {
+    case 'prepared-detail': {
+      // One line per product PER DAY over the window — the detail behind the
+      // "Production" report's per-day totals. Read straight off the pool ledger
+      // rather than from getProductionStockRows, which can only answer for a
+      // single date.
+      //
+      // Deltas are summed SIGNED: a day can hold several prep batches, and an
+      // admin lowering "Prepared Today" appends a negative 'prepare' movement.
+      // abs() here would report a correction as extra production.
+      const { data, error } = await supabaseAdmin
+        .from('production_stock_history')
+        .select('product_id, product_name, delta, business_date')
+        .eq('type', 'prepare')
+        .gte('business_date', fromStr)
+        .lte('business_date', toStr)
+        .order('business_date', { ascending: true })
+        .range(0, PREPARED_ROW_CAP - 1);
+      if (error) throw error;
+
+      const movements = (data ?? []) as
+        { product_id: string; product_name: string; delta: number | string; business_date: string }[];
+
+      // Item code + category come off the catalogue — the ledger stores neither.
+      const productIds = [...new Set(movements.map((m) => m.product_id))];
+      const meta = new Map<string, { code: string; category: string }>();
+      if (productIds.length > 0) {
+        const { data: prods, error: prodErr } = await supabaseAdmin
+          .from('products')
+          .select('id, stock_code, category_name')
+          .in('id', productIds);
+        if (prodErr) throw prodErr;
+        for (const pr of (prods ?? []) as { id: string; stock_code: string | null; category_name: string | null }[]) {
+          meta.set(pr.id, { code: pr.stock_code ?? '—', category: pr.category_name ?? '' });
+        }
+      }
+
+      const byDayProduct = new Map<string, { date: string; productId: string; name: string; qty: number }>();
+      for (const m of movements) {
+        const key = `${m.business_date}|${m.product_id}`;
+        const cur = byDayProduct.get(key)
+          ?? { date: m.business_date, productId: m.product_id, name: m.product_name, qty: 0 };
+        cur.qty += Number(m.delta ?? 0);
+        byDayProduct.set(key, cur);
+      }
+
+      // A product whose corrections cancel its batches netted to nothing that day
+      // and did not get prepared — dropping it keeps the sheet to real production.
+      const detail = [...byDayProduct.values()]
+        .filter((r) => r.qty !== 0)
+        .sort((a, b) => a.date.localeCompare(b.date) || a.name.localeCompare(b.name));
+
+      const body: (string | number)[][] = detail.map((r) => [
+        r.date,
+        meta.get(r.productId)?.code ?? '—',
+        r.name,
+        meta.get(r.productId)?.category ?? '',
+        r.qty,
+      ]);
+      if (detail.length > 0) {
+        body.push(['Total', '', '', '', detail.reduce((sum, r) => sum + r.qty, 0)]);
+      }
+
+      return {
+        title: fromStr === toStr
+          ? `Prepared Items — ${fromStr}`
+          : `Prepared Items — ${fromStr} to ${toStr}`,
+        headers: ['Date', 'Item Code', 'Product', 'Category', 'Qty Prepared'],
+        rows: body,
+      };
+    }
     case 'production-stock': {
       const rows = await getProductionStockRows();
       return {
@@ -179,26 +278,32 @@ async function buildReport(
   }
 }
 
-// GET /api/production-reports/summary?report=&period= — JSON preview
+// GET /api/production-reports/summary?report=&period=&from=&to= — JSON preview
 router.get('/summary', async (req: AuthRequest, res, next) => {
   try {
     const report = String(req.query['report'] || 'production');
     const period = String(req.query['period'] || 'monthly');
-    const data = await buildReport(report, period);
+    const range = usesDateRange(report) ? explicitDateRange(req.query['from'], req.query['to']) : undefined;
+    const data = await buildReport(report, period, range);
     res.json(data);
   } catch (err) {
     next(err);
   }
 });
 
-// GET /api/production-reports/export?report=&period=&type=pdf|excel|csv
+// GET /api/production-reports/export?report=&period=&from=&to=&type=pdf|excel|csv
 router.get('/export', async (req: AuthRequest, res, next) => {
   try {
     const report = String(req.query['report'] || 'production');
     const period = String(req.query['period'] || 'monthly');
     const exportType = String(req.query['type'] || 'excel');
-    const { title, headers, rows } = await buildReport(report, period);
-    const dateLabel = format(new Date(), 'yyyy-MM-dd');
+    const range = usesDateRange(report) ? explicitDateRange(req.query['from'], req.query['to']) : undefined;
+    const { title, headers, rows } = await buildReport(report, period, range);
+    // A range report names the window it covers, so two exports taken the same
+    // day for different windows don't land on the same filename.
+    const dateLabel = range
+      ? (range.fromStr === range.toStr ? range.fromStr : `${range.fromStr}_to_${range.toStr}`)
+      : format(new Date(), 'yyyy-MM-dd');
     const filename = `mountain-bakes-${report}-${dateLabel}`;
 
     if (exportType === 'pdf') {
