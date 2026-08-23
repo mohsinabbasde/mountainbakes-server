@@ -82,8 +82,30 @@ because `src/app.ts` deliberately omits the headers rather than throwing.
 ## Notes
 
 - **Database migrations** live in `supabase/migrations/*.sql` and are applied with
-  the Supabase CLI (`supabase db push`), not by the dyno at boot. Apply pending
-  migrations before or alongside a deploy that depends on them.
+  the Supabase CLI, not by the dyno at boot. Apply pending migrations before or
+  alongside a deploy that depends on them. The CLI is a devDependency and is **not
+  on `PATH`**, so the bare `supabase db push` written here for a long time does not
+  run — reach it through `npx`, and read the list before pushing, because a push
+  applies every pending migration and not just yours:
+
+  ```bash
+  npx supabase migration list --linked   # local vs remote — read this FIRST
+  npx supabase db push --linked          # applies EVERY pending migration
+  ```
+
+- **`db push` wraps ALL PENDING MIGRATIONS in ONE transaction**, not one per file.
+  This is worth knowing before you write an `alter type … add value`: Postgres
+  refuses to USE a new enum value in the transaction that declared it (55P04), and
+  moving the usage into its own migration file does **not** escape that — pushed
+  together, both files are still one transaction, and the error names the first
+  file alongside the second file's statement. The value and its first use have to
+  go out in two separate pushes. Migrations 55 (enum) and 56 (its usage) look like
+  a counterexample and are not; they shipped on different days.
+
+  Holding a migration back means moving it out of `migrations/` for the push and
+  restoring it after, which then needs `--include-all` to apply out of order. Often
+  the cheaper answer is to drop the statement that needed the new value, which is
+  what happened to the partial index that was going to accompany migration 86.
 - **Migration 84 (`idempotency_keys`) must be applied before this code is
   deployed.** Every guarded write claims a key through it, so the five
   offline-capable endpoints would 503 on any request carrying an
