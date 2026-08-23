@@ -20,7 +20,6 @@ import {
   type AdminStockDeleteInput,
 } from '../shared';
 import { notify } from '../services/push.service';
-import { returnIntoPool } from '../services/production-stock.service';
 import {
   applyStockCorrection,
   commitBranchReturn,
@@ -38,6 +37,7 @@ import {
 } from '../services/stock.service';
 import {
   listBranchReturns,
+  resubmitBranchReturn,
   reviseBranchReturn,
   withdrawBranchReturn,
   ReturnLockedError,
@@ -175,8 +175,25 @@ router.get('/', async (req: AuthRequest, res, next) => {
 });
 
 // POST /api/stock/return — branch returns unsold/damaged stock to production.
-// Applied immediately: branch balance ↓, production pool ↑ (Returned), and an
-// accepted return record + real-time notification for the Production dashboard.
+//
+// RAISED FOR REVIEW, NOT AUTO-APPROVED. This route used to do the whole thing:
+// insert the record already `accepted`, credit the production pool, and stamp
+// itself as its own reviewer. Production had no say — their Returns screen was a
+// log of decisions already taken. It now stops half way:
+//
+//   here      branch balance ↓, record `pending`, Production notified
+//   approve   production pool ↑ (see production-returns.routes.ts)
+//   reject    branch balance ↑ — the units come back
+//
+// The branch half still moves NOW, and deliberately: the goods have physically
+// left the shop, and leaving them on the balance would let the counter sell
+// stock that is already on its way to production. What waits for review is the
+// pool credit — the claim that production actually received them.
+//
+// The gap between the two is what makes Change and Delete meaningful on the
+// branch's Return Stock page: while the row is open the branch may still correct
+// or withdraw it (`branch-returns.service.ts`), and once Production has decided
+// it is final.
 //
 // Takes MANY products in one submission: a branch closing out an evening hands
 // back everything unsold at once, and Production wants one notification for that,
@@ -247,7 +264,6 @@ router.post('/return', requireRole('super_admin', ...BRANCH_ROLES), idempotent('
       return;
     }
 
-    const now = new Date().toISOString();
     const committed: { id: string; productId: string; productName: string; qty: number }[] = [];
 
     for (const it of items) {
@@ -256,9 +272,12 @@ router.post('/return', requireRole('super_admin', ...BRANCH_ROLES), idempotent('
       // stock, the production pool and the record — and the idempotency key on
       // both stock_history and production_stock_history — so all three movements
       // for a product must agree on it, and two products must never share one.
+      // The pool movement is not written here any more but still uses this id
+      // when Production approves, which is what keeps that credit idempotent.
       const returnId = randomUUID();
 
       // 1) Decrement branch stock (validates qty <= balance atomically).
+      //    This is the ONLY ledger write on this path now — see the header.
       try {
         await commitBranchReturn({ branchId, productId: it.productId, productName, qty: it.qty, refId: returnId, businessDate });
       } catch (err) {
@@ -275,15 +294,17 @@ router.post('/return', requireRole('super_admin', ...BRANCH_ROLES), idempotent('
         throw err;
       }
 
-      // 2) Add the units back into the central production pool (feeds "Returned").
-      await returnIntoPool(returnId, { productId: it.productId, productName, qty: it.qty }, businessDate);
-
       committed.push({ id: returnId, productId: it.productId, productName, qty: it.qty });
     }
 
-    // 3) Record accepted returns so they surface on the Production Returns page.
+    // 2) Record the returns as PENDING so they land on Production's queue.
     //    One row per product (the table is product-scoped) but a single insert.
     //    Ids are supplied rather than generated, to match the refIds above.
+    //
+    //    `reviewed_*` stay null. They used to be stamped with the branch user who
+    //    raised the return, which made every row read as "approved by the person
+    //    who asked" — the review columns now mean what they say and stay empty
+    //    until Production actually decides.
     const { error: insertErr } = await supabaseAdmin.from('production_returns').insert(
       committed.map((c) => ({
         id: c.id,
@@ -293,26 +314,25 @@ router.post('/return', requireRole('super_admin', ...BRANCH_ROLES), idempotent('
         product_name: c.productName,
         qty: c.qty,
         reason: reason || '',
-        status: 'accepted',
+        status: 'pending',
         source: 'branch',
         business_date: businessDate,
         created_by: req.user!.uid,
         created_by_name: req.user!.email,
-        reviewed_by: req.user!.uid,
-        reviewed_by_name: req.user!.email,
-        reviewed_at: now,
       })),
     );
     if (insertErr) throw insertErr;
 
-    // 4) Notify Production in real time — ONCE for the whole return. branchId
+    // 3) Notify Production in real time — ONCE for the whole return. branchId
     // null: production_user has no branch claim, and the notifications RLS filters
     // out a role broadcast whose branch_id doesn't match the recipient's. The
     // branch is named in the message.
+    // The title says what Production has to DO with it. "Stock Returned" read as
+    // a completed event, which it no longer is — these rows are waiting on them.
     const totalUnits = committed.reduce((s, c) => s + c.qty, 0);
     await notify({
       type: 'production_return',
-      title: 'Stock Returned',
+      title: 'Return Awaiting Review',
       message: committed.length === 1
         ? `${committed[0].qty} × ${committed[0].productName} from ${branchName}`
         : `${committed.length} products (${totalUnits} units) from ${branchName}`,
@@ -393,6 +413,32 @@ router.put(
         return;
       }
       if (err instanceof ReturnLockedError || err instanceof ReturnNotFoundError) { next(err); return; }
+      next(err);
+    }
+  },
+);
+
+// POST /api/stock/returns/:id/resubmit — send a handed-back return to Production
+// again, unchanged.
+//
+// NOT geofenced, unlike its neighbours, and the difference is real rather than an
+// oversight: the geofence exists to stop stock being moved from somewhere other
+// than the shop, and this moves none. The units left the branch when the return
+// was raised and the pool has never held them — all that changes is whose queue
+// the row sits in. Refusing it off-site would only strand a return that has
+// already had its stock effect.
+router.post(
+  '/returns/:id/resubmit',
+  requireRole('super_admin', ...BRANCH_ROLES),
+  idempotent('stock.returns.resubmit'),
+  async (req: AuthRequest, res, next) => {
+    try {
+      const updated = await resubmitBranchReturn(
+        req.params['id']!,
+        isBranchRole(req.user!.role) ? req.user!.branchId : null,
+      );
+      res.json(updated);
+    } catch (err) {
       next(err);
     }
   },

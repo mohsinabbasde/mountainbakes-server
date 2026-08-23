@@ -89,7 +89,27 @@ export interface ProductionStockRow {
 
 // ── Product Returns ──────────────────────────────────────────────────────────
 
-export type ProductionReturnStatus = 'pending' | 'accepted' | 'rejected';
+/**
+ * Where a return sits in Production's review.
+ *
+ * Two of the four are terminal and two are open:
+ *
+ * - `pending`  — awaiting Production. The units have already left the branch
+ *                balance (a branch return moves them as it is saved) but the
+ *                central pool has NOT been credited yet.
+ * - `returned` — Production handed it back to the branch to correct. Same stock
+ *                position as `pending`, moves nothing on its own; the branch
+ *                fixes the figure and resubmits, which returns it to `pending`.
+ * - `accepted` — Production took it. The pool is credited. Final.
+ * - `rejected` — Production refused it. The units go back onto the branch
+ *                balance. Final.
+ *
+ * `pending` and `returned` are the ONLY states in which a branch may change or
+ * delete its own return; both terminal states are locked to it. That rule lives
+ * in `branch-returns.service.ts` on the server, and the Return Stock page's
+ * `isCorrectable` is its client-side mirror deciding which buttons render.
+ */
+export type ProductionReturnStatus = 'pending' | 'accepted' | 'rejected' | 'returned';
 
 export interface ProductionReturn {
   id: string;
@@ -102,16 +122,24 @@ export interface ProductionReturn {
   status: ProductionReturnStatus;
   /**
    * Which side raised it: 'branch' for the branch-initiated path
-   * (POST /api/stock/return, inserted already 'accepted' with the units already
-   * moved), null when Production recorded it (POST /api/production-returns,
-   * 'pending' until reviewed).
+   * (POST /api/stock/return), null when Production recorded it
+   * (POST /api/production-returns). Both now start `pending`; what differs is
+   * which stock has already moved by then, and the review has to know:
    *
-   * Not cosmetic — it decides who may still change the record. Branch → Return
-   * Stock only offers Change and Delete on its own 'branch' rows; a
-   * Production-recorded return is Production's account of what it received and is
-   * corrected on their screen. The server enforces the same rule in
-   * `branch-returns.service.ts`, so this is the client knowing why a button is
-   * absent, not the rule itself.
+   * - `'branch'` — the units are already OFF the branch balance and are waiting
+   *   on Production, so accepting only credits the pool and rejecting only puts
+   *   them back on the branch.
+   * - `null` — nothing has moved at all; it is Production's note that goods
+   *   arrived, so accepting does BOTH movements and rejecting does none.
+   *
+   * It also decides who may change the record. Branch → Return Stock offers
+   * Change, Delete and Resubmit on its own `'branch'` rows only; a
+   * Production-recorded return is Production's account of what it received and
+   * is corrected on their screen — which is also why Send Back is offered on
+   * `'branch'` rows alone, there being no branch paperwork to hand back
+   * otherwise. The server enforces both rules in `branch-returns.service.ts` and
+   * `production-returns.routes.ts`, so this is the client knowing why a button
+   * is absent, not the rule itself.
    */
   source: 'branch' | null;
   date: string; // 'YYYY-MM-DD' (Karachi)

@@ -20,7 +20,7 @@ export type NotificationType =
   // Production module
   | 'production_demand' // branch submitted a new production demand → Production
   | 'production_reviewed' // Production approved/rejected a demand → branch
-  | 'production_return' // a product return was recorded/accepted
+  | 'production_return' // a product return was raised, or reviewed by production
   | 'production_order_verified' // branch verified physical receipt of a demand → Production
   | 'production_demand_cancelled' // branch deleted a still-pending demand → Production (migration 72)
   // Help Desk → Support Center queries (migration 25)

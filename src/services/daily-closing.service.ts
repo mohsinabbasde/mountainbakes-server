@@ -209,8 +209,20 @@ async function buildArchive(businessDate: string, autoStockClosing: boolean): Pr
     approvedQty: prodOrderRows
       .filter((o) => o.status === 'approved')
       .reduce((s, o) => s + (o.items ?? []).reduce((t, i) => t + Number(i.approved_qty ?? i.qty ?? 0), 0), 0),
+    // Everything the branches sent back that day EXCEPT what Production refused
+    // — not 'accepted' only. This is a permanent archive of a closed day, and
+    // since branch returns stopped being auto-approved most of a day's returns
+    // are still `pending` when the 2 AM closing runs; approval typically lands
+    // the next morning. Counting only 'accepted' would have written a zero into
+    // the snapshot and left it there after the units were approved.
+    //
+    // It also keeps this figure in step with the branch side of the ledger. A
+    // return takes the units off the branch balance the moment it is raised, so
+    // the branch's own Returned column already includes a pending one; a
+    // 'rejected' return puts them back, which is why that is the single status
+    // excluded.
     returnedQty: ((returns.data ?? []) as { qty: number; status: string }[])
-      .filter((r) => r.status === 'accepted')
+      .filter((r) => r.status !== 'rejected')
       .reduce((s, r) => s + Number(r.qty || 0), 0),
     pendingBalanceQty: ((balances.data ?? []) as { pending_qty: number }[])
       .reduce((s, b) => s + Number(b.pending_qty ?? 0), 0),

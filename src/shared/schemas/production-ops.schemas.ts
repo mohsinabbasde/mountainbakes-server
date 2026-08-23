@@ -20,14 +20,25 @@ export const CreateProductionReturnSchema = z.object({
   reason: z.string().min(1, 'Reason is required').max(500),
 });
 
+// The three decisions Production can take on a pending return. 'returned' hands
+// the paperwork back to the branch to correct and is NOT terminal — it moves no
+// stock and the branch resubmits from it. It is only valid on a branch-raised
+// return; the route refuses it on a Production-recorded one, where there is no
+// branch record to hand back.
 export const ReviewProductionReturnSchema = z.object({
-  status: z.enum(['accepted', 'rejected']),
+  status: z.enum(['accepted', 'rejected', 'returned']),
 });
 
 // ── Branch-initiated Returns (from the branch Stock page) ────────────────────
 // The branch returns unsold/damaged stock straight to production. branchId is
 // derived server-side from the caller; reason is optional here (the Production
-// flow above requires it). Applied immediately, no review step.
+// flow above requires it).
+//
+// REVIEWED, NOT AUTO-APPROVED. This used to insert already 'accepted' with both
+// stock movements applied before the response was written. It now inserts
+// 'pending': the units come off the branch balance immediately (they have
+// physically left the shop) but the central pool is credited only when
+// Production approves.
 //
 // One submission carries MANY products — a branch closing out an evening hands
 // back everything unsold at once. `reason` is shared across the whole return
@@ -65,11 +76,16 @@ export const CreateBranchReturnSchema = z.object({
 });
 
 // ── Correcting a branch-initiated return (Branch → Return Stock) ─────────────
-// The units have ALREADY moved by the time this is sent — a branch return is
-// applied immediately — so this is a request to move the difference, not to edit
-// a draft. `qty` is the return's new total, not a delta: the client shows the
-// figure that is on the record and the server works out which way stock has to
-// go, which is the only reading that stays right if two corrections race.
+// Only valid while the return is still open — 'pending' or 'returned'. Once
+// Production has accepted or rejected it the record is final and the server
+// refuses this with a 409; the client hides the button for the same reason.
+//
+// Even open, this is NOT a draft edit: the branch half of the movement has
+// already happened (the units came off the balance as the return was saved), so
+// this is a request to move the DIFFERENCE. `qty` is the return's new total, not
+// a delta — the client shows the figure that is on the record and the server
+// works out which way stock has to go, which is the only reading that stays
+// right if two corrections race.
 //
 // `reason` is optional and, unlike the Production-recorded flow, may be blank —
 // it mirrors CreateBranchReturnSchema above, where an end-of-day batch carries
