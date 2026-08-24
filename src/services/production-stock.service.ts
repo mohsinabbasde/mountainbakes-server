@@ -165,6 +165,10 @@ export async function commitProductionSaleTransaction(params: {
  * Build the Production Stock table for a Karachi day: current pool balance per
  * product plus today's prepared / transferred-out / returned totals.
  * `totalStock` is the gross available for the day (balance + what was moved out).
+ *
+ * Only products that actually CARRY a figure come back — see the filter at the
+ * bottom. A product the pool has never touched is not a zero row here, it is
+ * absent.
  */
 export async function getProductionStockRows(date: string = businessDateStr()): Promise<ProductionStockRow[]> {
   // The date filter is an indexed predicate rather than a full-collection scan.
@@ -190,10 +194,13 @@ export async function getProductionStockRows(date: string = businessDateStr()): 
 
   const rows = new Map<string, ProductionStockRow>();
 
-  // Seed from the ACTIVE catalogue, as the branch Stock page does, so every item
-  // production sells is listed with its ID from the start. Without this a product
-  // that has never been prepared has no row at all — nothing to read a code off,
-  // and so nothing that can be queried.
+  // Seed from the ACTIVE catalogue so a row that DOES carry figures is named and
+  // coded from the products table (Admin-owned) rather than from whatever name a
+  // movement happened to be written with — that is what puts the STK-###### on
+  // the row for the Help Desk to query against.
+  //
+  // The seed is scaffolding, not output: a seeded row that never picks up a
+  // balance or a movement is dropped again by the filter at the bottom.
   for (const p of catalogue) {
     if (!p.is_active) continue;
     rows.set(p.id, {
@@ -294,7 +301,28 @@ export async function getProductionStockRows(date: string = businessDateStr()): 
       (row.preparedToday - row.approvedQty + row.returned - row.soldToday + row.adjustment);
   }
 
-  return [...rows.values()].sort((a, b) => b.balance - a.balance || a.productName.localeCompare(b.productName));
+  // Drop every row that exists only because the catalogue was seeded above: no
+  // balance, and nothing that moved today. The page is a stock sheet, not a
+  // product list — a full catalogue of zeroes buries the handful of lines that
+  // carry real figures, and a product reappears the instant it is prepared (the
+  // prepare mutation invalidates this query, so the table updates on save).
+  //
+  // Safe for this endpoint's other readers — the Orders and Sales pool lookups
+  // both key a map by productId and read a MISSING product as 0, which is
+  // precisely what an omitted row means. Preparing is unaffected either way: its
+  // form lists the active catalogue, not this table.
+  const carriesFigures = (r: ProductionStockRow): boolean =>
+    r.balance !== 0 ||
+    r.opening !== 0 ||
+    r.preparedToday !== 0 ||
+    r.approvedQty !== 0 ||
+    r.returned !== 0 ||
+    r.soldToday !== 0 ||
+    r.adjustment !== 0;
+
+  return [...rows.values()]
+    .filter(carriesFigures)
+    .sort((a, b) => b.balance - a.balance || a.productName.localeCompare(b.productName));
 }
 
 /**
