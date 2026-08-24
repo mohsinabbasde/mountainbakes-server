@@ -164,7 +164,7 @@ create policy employee_advances_read on employee_advances
 -- (too strict) rather than open, which is the right direction for a table whose
 -- rows are photographs of money changing hands.
 -- ---------------------------------------------------------------------------
-drop policy attachments_read on attachments;
+drop policy if exists attachments_read on attachments;
 
 create policy attachments_read on attachments
   for select to authenticated
@@ -186,7 +186,7 @@ create policy attachments_read on attachments
 -- together: resolving a number the constraint then refuses turns a valid ticket
 -- into a 23514 at insert, and only after the raiser has typed the whole query.
 -- ---------------------------------------------------------------------------
-alter table finance_tickets drop constraint finance_tickets_reference_type_check;
+alter table finance_tickets drop constraint if exists finance_tickets_reference_type_check;
 
 alter table finance_tickets add constraint finance_tickets_reference_type_check
   check (reference_type in (
