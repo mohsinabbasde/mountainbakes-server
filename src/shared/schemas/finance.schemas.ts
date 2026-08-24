@@ -199,6 +199,18 @@ export const CreateSalaryPaymentSchema = z.object({
   account: z.enum(FINANCE_ACCOUNTS),
   notes: z.string().max(500).nullish(),
   asDraft: z.boolean().default(false),
+  /**
+   * The outstanding advances this payslip recovers. The form prefills it with
+   * everything the employee still owes and drives `bonus` / `deductions` from
+   * it, but the two are NOT re-derived server-side: an approver may legitimately
+   * recover only part of a large loan while still clearing the row it sits on.
+   *
+   * Sent explicitly rather than inferred from the employee, because "which
+   * advances did this payslip settle?" is a question the audit trail has to
+   * answer years later, and inferring it would make the answer a function of
+   * whatever the balance happened to be at read time.
+   */
+  recoverAdvanceIds: z.array(z.string().uuid()).max(50).default([]),
   /** Photo of the signed payslip or the cash handover. */
   attachmentIds: requiredAttachmentIds,
 })
@@ -219,6 +231,60 @@ export const UpdateSalaryPaymentSchema = z.object({
   account: z.enum(FINANCE_ACCOUNTS).optional(),
   notes: z.string().max(500).nullish(),
 });
+
+// ---------------------------------------------------------------------------
+// Employee advances
+// ---------------------------------------------------------------------------
+
+/**
+ * The three amounts are individually optional-and-zero but collectively
+ * positive: a handover is routinely one of them alone (just an advance, just a
+ * bonus), and requiring all three would mean typing two zeroes every time. What
+ * is never legitimate is a document where nothing moved — see the note at the
+ * top of this file.
+ */
+const employeeAdvanceFields = {
+  employeeId: z.string().uuid('Select an employee'),
+  /** Defaults to today's business date server-side when omitted. */
+  businessDate: businessDate.optional(),
+  /** Against this month's salary. */
+  advanceAmount: optionalMoney,
+  /** A bonus, paid early. Deducted from the payslip like the rest, then added
+   *  back as its Bonus figure — paid once, shown as earnings. */
+  bonusAmount: optionalMoney,
+  /** A loan. */
+  loanAmount: optionalMoney,
+  paymentMethod: z.enum(FINANCE_PAYMENT_METHODS),
+  account: z.enum(FINANCE_ACCOUNTS),
+  notes: z.string().max(500).nullish(),
+};
+
+const atLeastOneAmount = {
+  message: 'Enter an advance, a bonus or a loan amount',
+  path: ['advanceAmount'],
+};
+
+export const CreateEmployeeAdvanceSchema = z
+  .object({
+    ...employeeAdvanceFields,
+    asDraft: z.boolean().default(false),
+    /** Photo of the cash handover or the transfer slip. */
+    attachmentIds: requiredAttachmentIds,
+  })
+  .refine((d) => d.advanceAmount + d.bonusAmount + d.loanAmount > 0, atLeastOneAmount);
+
+// employeeId is excluded for the same reason UpdateSalaryPaymentSchema excludes
+// it: re-pointing a signed handover at a different person is not an edit.
+// attachmentIds is excluded for the reason given on UpdateFinanceTransactionSchema.
+//
+// The amounts stay individually optional here, so the "> 0" rule cannot be
+// checked on the request alone — a payload carrying only `bonusAmount` says
+// nothing about the advance and loan it is not touching. The service applies it
+// to the MERGED figures instead (see updateEmployeeAdvance).
+export const UpdateEmployeeAdvanceSchema = z
+  .object({ ...employeeAdvanceFields })
+  .omit({ employeeId: true })
+  .partial();
 
 // ---------------------------------------------------------------------------
 // Partners, partner advances/draws, branch share payouts
@@ -381,6 +447,8 @@ export type UpdateEmployeeInput = z.infer<typeof UpdateEmployeeSchema>;
 export type CreateSalaryRevisionInput = z.infer<typeof CreateSalaryRevisionSchema>;
 export type CreateSalaryPaymentInput = z.infer<typeof CreateSalaryPaymentSchema>;
 export type UpdateSalaryPaymentInput = z.infer<typeof UpdateSalaryPaymentSchema>;
+export type CreateEmployeeAdvanceInput = z.infer<typeof CreateEmployeeAdvanceSchema>;
+export type UpdateEmployeeAdvanceInput = z.infer<typeof UpdateEmployeeAdvanceSchema>;
 export type UpdateFinancePartnerInput = z.infer<typeof UpdateFinancePartnerSchema>;
 export type CreatePartnerExpenseInput = z.infer<typeof CreatePartnerExpenseSchema>;
 export type UpdatePartnerExpenseInput = z.infer<typeof UpdatePartnerExpenseSchema>;

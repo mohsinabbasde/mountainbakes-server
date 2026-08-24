@@ -642,7 +642,12 @@ export async function getPartnerShareSummary(from?: string, to?: string): Promis
 // ---------------------------------------------------------------------------
 
 export interface ApproveDocumentInput {
-  table: 'finance_transactions' | 'partner_expenses' | 'salary_payments' | 'branch_share_payments';
+  table:
+    | 'finance_transactions'
+    | 'partner_expenses'
+    | 'salary_payments'
+    | 'employee_advances'
+    | 'branch_share_payments';
   id: string;
   ref: string;
   status: FinanceDocStatus;

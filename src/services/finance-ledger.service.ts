@@ -53,6 +53,7 @@ const num = (v: unknown) => Number(v ?? 0);
 const SOURCE_ATTACHMENT_ENTITY: Partial<Record<LedgerSourceType, AttachmentEntity>> = {
   manual: 'finance_transaction',
   salary: 'salary_payment',
+  employee_advance: 'employee_advance',
   partner_expense: 'partner_expense',
   branch_income: 'finance_income_approval',
   company_share: 'finance_income_approval',
@@ -499,7 +500,7 @@ export async function closeFinanceDay(
   if (lockErr) throw lockErr;
 
   // Documents settled on the day follow their entries into `locked`.
-  for (const table of ['finance_transactions', 'salary_payments', 'partner_expenses']) {
+  for (const table of ['finance_transactions', 'salary_payments', 'partner_expenses', 'employee_advances']) {
     const { error: docErr } = await supabaseAdmin
       .from(table)
       .update({ status: 'locked' })
@@ -516,7 +517,7 @@ export async function closeFinanceDay(
 
 /** Salaries carry no business_date, so they are excluded from the day check. */
 async function countPendingForDate(businessDate: string): Promise<number> {
-  const [txns, partners, income] = await Promise.all([
+  const [txns, partners, advances, income] = await Promise.all([
     supabaseAdmin
       .from('finance_transactions')
       .select('id', { count: 'exact', head: true })
@@ -528,13 +529,18 @@ async function countPendingForDate(businessDate: string): Promise<number> {
       .eq('business_date', businessDate)
       .in('status', ['draft', 'pending_approval']),
     supabaseAdmin
+      .from('employee_advances')
+      .select('id', { count: 'exact', head: true })
+      .eq('business_date', businessDate)
+      .in('status', ['draft', 'pending_approval']),
+    supabaseAdmin
       .from('finance_income_approvals')
       .select('id', { count: 'exact', head: true })
       .eq('business_date', businessDate)
       .in('status', ['pending_verification', 'pending_approval']),
   ]);
-  for (const r of [txns, partners, income]) if (r.error) throw r.error;
-  return (txns.count ?? 0) + (partners.count ?? 0) + (income.count ?? 0);
+  for (const r of [txns, partners, advances, income]) if (r.error) throw r.error;
+  return (txns.count ?? 0) + (partners.count ?? 0) + (advances.count ?? 0) + (income.count ?? 0);
 }
 
 /** Closing history, most recent first. */
@@ -573,7 +579,7 @@ export async function listDayClosings(days = 30): Promise<FinanceDayClosing[]> {
 export async function getFinanceDashboard(businessDate = businessDateStr()): Promise<FinanceDashboard> {
   const trendFrom = businessDaysAgoStr(6);
 
-  const [day, shares, pendingIncome, pendingTxns, pendingPartners, pendingSalaries, recent, trendRows] =
+  const [day, shares, pendingIncome, pendingTxns, pendingPartners, pendingSalaries, pendingAdvances, recent, trendRows] =
     await Promise.all([
       getDayClosing(businessDate),
       shareTotals(businessDate),
@@ -584,6 +590,7 @@ export async function getFinanceDashboard(businessDate = businessDateStr()): Pro
       supabaseAdmin.from('finance_transactions').select('amount').in('status', ['draft', 'pending_approval']),
       supabaseAdmin.from('partner_expenses').select('amount').in('status', ['draft', 'pending_approval']),
       supabaseAdmin.from('salary_payments').select('net_salary').in('status', ['draft', 'pending_approval']),
+      supabaseAdmin.from('employee_advances').select('total_amount').in('status', ['draft', 'pending_approval']),
       supabaseAdmin.from('ledger_entries').select('*').order('seq', { ascending: false }).limit(10),
       supabaseAdmin
         .from('ledger_entries')
@@ -592,7 +599,7 @@ export async function getFinanceDashboard(businessDate = businessDateStr()): Pro
         .lte('entry_date', businessDate),
     ]);
 
-  for (const r of [pendingIncome, pendingTxns, pendingPartners, pendingSalaries, recent, trendRows]) {
+  for (const r of [pendingIncome, pendingTxns, pendingPartners, pendingSalaries, pendingAdvances, recent, trendRows]) {
     if (r.error) throw r.error;
   }
 
@@ -600,11 +607,17 @@ export async function getFinanceDashboard(businessDate = businessDateStr()): Pro
     ((rows ?? []) as Record<string, unknown>[]).reduce((s, r) => s + num(r[key]), 0);
 
   // Every expense-side approval queue rolled into one figure — a finance user
-  // wants "what is waiting on me", not three separate counts they have to add up.
+  // wants "what is waiting on me", not four separate counts they have to add up.
   const pendingExpenseCount =
-    (pendingTxns.data?.length ?? 0) + (pendingPartners.data?.length ?? 0) + (pendingSalaries.data?.length ?? 0);
+    (pendingTxns.data?.length ?? 0) +
+    (pendingPartners.data?.length ?? 0) +
+    (pendingSalaries.data?.length ?? 0) +
+    (pendingAdvances.data?.length ?? 0);
   const pendingExpenseAmount =
-    sum(pendingTxns.data, 'amount') + sum(pendingPartners.data, 'amount') + sum(pendingSalaries.data, 'net_salary');
+    sum(pendingTxns.data, 'amount') +
+    sum(pendingPartners.data, 'amount') +
+    sum(pendingSalaries.data, 'net_salary') +
+    sum(pendingAdvances.data, 'total_amount');
 
   const trendMap = new Map<string, { income: number; expenses: number }>();
   for (const r of (trendRows.data ?? []) as Record<string, unknown>[]) {

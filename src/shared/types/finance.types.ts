@@ -237,6 +237,7 @@ export type LedgerSourceType =
   | 'company_share'
   | 'branch_share'
   | 'salary'
+  | 'employee_advance'
   | 'partner_expense'
   | 'adjustment'
   | 'branch_share_payout'
@@ -508,6 +509,99 @@ export interface SalaryPayment {
   attachments?: Attachment[];
 }
 
+/**
+ * Money handed to an employee between payslips — an advance against this
+ * month's salary, a bonus paid early, a loan, or any mix of the three in one
+ * handover.
+ *
+ * WHY ONE DOCUMENT WITH THREE AMOUNTS rather than three documents: a handover is
+ * counted out once and signed for once. See migration 87 for the long version.
+ *
+ * The cash is gone the moment this posts, so the next payslip deducts the WHOLE
+ * `totalAmount` — bonus included — and separately adds `bonusAmount` back as its
+ * Bonus figure. The bonus is therefore visible on the payslip as earnings
+ * without being paid twice, and total payroll cost still comes to salary + bonus.
+ */
+export interface EmployeeAdvance {
+  id: string;
+  advanceNo: string;
+  employeeId: string;
+  /** Snapshots — a promotion must not restate a handover already signed for. */
+  employeeName: string;
+  department: string;
+  designation: string;
+  /** The date the money changed hands (Asia/Karachi business date). */
+  businessDate: string;
+  advanceAmount: number;
+  bonusAmount: number;
+  loanAmount: number;
+  /** advanceAmount + bonusAmount + loanAmount — what actually left the account. */
+  totalAmount: number;
+  paymentMethod: string;
+  account: FinanceAccount;
+  status: FinanceDocStatus;
+  notes: string | null;
+  /**
+   * The payslip that recovers this advance, claimed when that payslip is
+   * CREATED — not when it posts. A payslip in the approval queue has already
+   * promised to deduct this money; leaving it unclaimed until approval would let
+   * next month's payslip deduct the same amount again.
+   *
+   * A claim by a payslip that ends up rejected does not count: `outstanding`
+   * below is computed against the claimer's status, not merely its presence.
+   */
+  recoveredBySalaryId: string | null;
+  /** The payslip's number, resolved on read for display. */
+  recoveredBySalaryNo: string | null;
+  /** Stamped when the claiming payslip is approved and posts. */
+  recoveredAt: string | null;
+  /**
+   * True once a payslip has claimed it and that payslip has not been rejected.
+   * `recoveredAt` is the narrower fact — that the claiming payslip actually
+   * posted — and stays null until it does.
+   */
+  isRecovered: boolean;
+  createdBy: string | null;
+  createdByName: string | null;
+  approvedBy: string | null;
+  approvedByName: string | null;
+  approvedAt: string | null;
+  rejectionReason: string | null;
+  ledgerEntryId: string | null;
+  createdAt: string;
+  updatedAt: string;
+  /** Photo of the cash handover or the transfer slip. */
+  attachments?: Attachment[];
+}
+
+/**
+ * One employee's advance position — the "Previous payment" panel on the advance
+ * form and the figures the payslip form prefills from.
+ *
+ * Computed on read from the advance rows themselves rather than stored on the
+ * employee: a stored running balance is a number that can disagree with the
+ * documents behind it, and the first time it does nobody can tell which is right.
+ */
+export interface EmployeeAdvanceSummary {
+  employeeId: string;
+  employeeName: string;
+  /** Every posted advance ever, recovered or not. */
+  totalPaid: number;
+  /**
+   * The part a payslip has claimed and not been rejected on — so it counts a
+   * payslip still sitting in the approval queue. That is the conservative
+   * direction: the alternative would offer the same money to next month's
+   * payslip as well, and deduct it twice.
+   */
+  totalRecovered: number;
+  /** totalPaid − totalRecovered: what the next payslip should deduct. */
+  outstanding: number;
+  /** The bonus part of `outstanding` — what the next payslip should ADD as Bonus. */
+  outstandingBonus: number;
+  /** The posted, unrecovered advances making up `outstanding`, oldest first. */
+  advances: EmployeeAdvance[];
+}
+
 // ---------------------------------------------------------------------------
 // Partners, partner advances/draws, branch share payouts
 // ---------------------------------------------------------------------------
@@ -762,6 +856,7 @@ export type FinanceAuditEntity =
   | 'finance_transaction'
   | 'income_approval'
   | 'salary_payment'
+  | 'employee_advance'
   | 'partner_expense'
   | 'employee'
   | 'day_closing'
@@ -894,6 +989,7 @@ export const FINANCE_TICKET_REFERENCES = {
   income_approval:      { prefix: 'INC', table: 'finance_income_approvals', refColumn: 'reference_no', label: 'Branch Income' },
   finance_transaction:  { prefix: 'FTX', table: 'finance_transactions',     refColumn: 'txn_no',       label: 'Transaction' },
   salary_payment:       { prefix: 'SAL', table: 'salary_payments',          refColumn: 'salary_no',    label: 'Salary Payment' },
+  employee_advance:     { prefix: 'ADV', table: 'employee_advances',         refColumn: 'advance_no',   label: 'Employee Advance' },
   partner_expense:      { prefix: 'PEX', table: 'partner_expenses',         refColumn: 'expense_no',   label: 'Partner Expense' },
   branch_share_payment: { prefix: 'BSP', table: 'branch_share_payments',    refColumn: 'payment_no',   label: 'Branch Share' },
 } as const;
@@ -914,6 +1010,7 @@ export const FINANCE_TICKET_REFERENCE_LABELS: Record<FinanceTicketReferenceType,
   income_approval: 'Branch Income',
   finance_transaction: 'Transaction',
   salary_payment: 'Salary Payment',
+  employee_advance: 'Employee Advance',
   partner_expense: 'Partner Expense',
   branch_share_payment: 'Branch Share',
 };
