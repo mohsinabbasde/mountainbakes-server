@@ -162,9 +162,13 @@ export async function commitProductionSaleTransaction(params: {
 }
 
 /**
- * Build the Production Stock table for a Karachi day: current pool balance per
- * product plus today's prepared / transferred-out / returned totals.
- * `totalStock` is the gross available for the day (balance + what was moved out).
+ * Build the Production Stock table for a Karachi day: today's prepared /
+ * transferred-out / returned / sold totals per product, plus `dayBalance` — what
+ * the day itself came to, which is what the page shows and which may be negative.
+ *
+ * `balance` rides along unchanged as the RUNNING pool balance. It is not what the
+ * page reports any more, but the Demand Summary and the counter-sale check both
+ * key off it, so it is still served.
  *
  * Only products that actually CARRY a figure come back — see the filter at the
  * bottom. A product the pool has never touched is not a zero row here, it is
@@ -207,11 +211,11 @@ export async function getProductionStockRows(date: string = businessDateStr()): 
       productId: p.id,
       stockCode: p.stock_code,
       productName: p.name,
-      opening: 0,
       preparedToday: 0,
       totalStock: 0,
       approvedQty: 0,
       balance: 0,
+      dayBalance: 0,
       returned: 0,
       soldToday: 0,
       adjustment: 0,
@@ -230,11 +234,11 @@ export async function getProductionStockRows(date: string = businessDateStr()): 
       productId: d.product_id,
       stockCode: codeById.get(d.product_id) ?? '—',
       productName: d.product_name,
-      opening: 0,
       preparedToday: 0,
       totalStock: 0,
       approvedQty: 0,
       balance: Number(d.balance ?? 0),
+      dayBalance: 0,
       returned: 0,
       soldToday: 0,
       adjustment: 0,
@@ -255,11 +259,11 @@ export async function getProductionStockRows(date: string = businessDateStr()): 
         productId: h.product_id,
         stockCode: codeById.get(h.product_id) ?? '—',
         productName: h.product_name,
-        opening: 0,
         preparedToday: 0,
         totalStock: 0,
         approvedQty: 0,
         balance: 0,
+        dayBalance: 0,
         returned: 0,
         soldToday: 0,
         adjustment: 0,
@@ -285,20 +289,28 @@ export async function getProductionStockRows(date: string = businessDateStr()): 
     else if (h.type === 'adjustment') row.adjustment += delta;
   }
 
-  // totalStock = what's on hand now + everything that already left today. Counter
-  // sales leave the pool just like an approved transfer does, so they belong in
-  // this sum — without them the gross view would shrink every time one is rung up.
+  // The day on its own, with yesterday deliberately left out of it.
   //
-  // opening = balance − the day's NET movement, the same definition
-  // computeStockRows uses for a branch. The signs are unfolded back to raw deltas
-  // first: prepare and return_in were stored positive, but approvedQty and
-  // soldToday were NEGATED above to report them positive, so they subtract here.
-  //     net = prepared − approvedQty + returned − soldToday + adjustment
+  // totalStock used to be `balance + approvedQty + soldToday` — on-hand now plus
+  // everything that left today — which quietly folded the opening balance into a
+  // figure headed "Total Stock". The pool is baked fresh every morning, so a
+  // product whose pool opened negative reported every unit made today as a
+  // negative too: the floor prepared 50 and the sheet said -50. Reading the day
+  // by itself is what puts newly prepared stock back on a positive figure.
+  //
+  //     totalStock = prepared + returned          (what came IN today)
+  //     dayBalance = totalStock − approvedQty − soldToday + adjustment
+  //
+  // dayBalance goes NEGATIVE when more left the pool than entered it today, and
+  // that is the point of it — the shortfall is production still to do, not an
+  // error to clamp away.
+  //
+  // `balance` is untouched: it stays the running pool balance that the Demand
+  // Summary, the counter-sale check and the Help Desk correction dialog all read,
+  // so none of them moves because of this.
   for (const row of rows.values()) {
-    row.totalStock = row.balance + row.approvedQty + row.soldToday;
-    row.opening =
-      row.balance -
-      (row.preparedToday - row.approvedQty + row.returned - row.soldToday + row.adjustment);
+    row.totalStock = row.preparedToday + row.returned;
+    row.dayBalance = row.totalStock - row.approvedQty - row.soldToday + row.adjustment;
   }
 
   // Drop every row that exists only because the catalogue was seeded above: no
@@ -313,7 +325,6 @@ export async function getProductionStockRows(date: string = businessDateStr()): 
   // form lists the active catalogue, not this table.
   const carriesFigures = (r: ProductionStockRow): boolean =>
     r.balance !== 0 ||
-    r.opening !== 0 ||
     r.preparedToday !== 0 ||
     r.approvedQty !== 0 ||
     r.returned !== 0 ||
@@ -352,7 +363,6 @@ export async function getProductionStockFigures(
   if (history.error) throw history.error;
 
   const figures: ProductionStockFigures = {
-    opening: 0,
     preparedToday: 0,
     approvedQty: 0,
     returned: 0,
@@ -360,6 +370,7 @@ export async function getProductionStockFigures(
     adjustment: 0,
     balance: Number(stock.data?.balance ?? 0),
     totalStock: 0,
+    dayBalance: 0,
   };
 
   // Same signed convention as getProductionStockRows above.
@@ -371,12 +382,11 @@ export async function getProductionStockFigures(
     else if (h.type === 'sale') figures.soldToday -= delta;
     else if (h.type === 'adjustment') figures.adjustment += delta;
   }
-  figures.totalStock = figures.balance + figures.approvedQty + figures.soldToday;
-  // Same derivation as getProductionStockRows — see the comment there for why
-  // approvedQty and soldToday subtract rather than add.
-  figures.opening =
-    figures.balance -
-    (figures.preparedToday - figures.approvedQty + figures.returned - figures.soldToday + figures.adjustment);
+  // Same day-scoped derivation as getProductionStockRows — see the comment there
+  // for why yesterday is left out of both figures.
+  figures.totalStock = figures.preparedToday + figures.returned;
+  figures.dayBalance =
+    figures.totalStock - figures.approvedQty - figures.soldToday + figures.adjustment;
   return figures;
 }
 
@@ -447,16 +457,28 @@ export async function applyProductionStockCorrection(params: {
   };
 
   // numeric(14,3) arrives as a string from PostgREST — coerce every figure.
-  const figures = (raw: Record<string, unknown> = {}): ProductionStockFigures => ({
-    opening: Number(raw['opening'] ?? 0),
-    preparedToday: Number(raw['preparedToday'] ?? 0),
-    approvedQty: Number(raw['approvedQty'] ?? 0),
-    returned: Number(raw['returned'] ?? 0),
-    soldToday: Number(raw['soldToday'] ?? 0),
-    adjustment: Number(raw['adjustment'] ?? 0),
-    balance: Number(raw['balance'] ?? 0),
-    totalStock: Number(raw['totalStock'] ?? 0),
-  });
+  // The RPC still returns the pool's old `opening` / `totalStock` pair; both are
+  // ignored here. Opening is no longer a figure this module reports, and
+  // totalStock is re-derived day-scoped below rather than taken from the SQL,
+  // which still computes it as balance + approved + sold.
+  const figures = (raw: Record<string, unknown> = {}): ProductionStockFigures => {
+    const preparedToday = Number(raw['preparedToday'] ?? 0);
+    const approvedQty = Number(raw['approvedQty'] ?? 0);
+    const returned = Number(raw['returned'] ?? 0);
+    const soldToday = Number(raw['soldToday'] ?? 0);
+    const adjustment = Number(raw['adjustment'] ?? 0);
+    const totalStock = preparedToday + returned;
+    return {
+      preparedToday,
+      approvedQty,
+      returned,
+      soldToday,
+      adjustment,
+      balance: Number(raw['balance'] ?? 0),
+      totalStock,
+      dayBalance: totalStock - approvedQty - soldToday + adjustment,
+    };
+  };
 
   return {
     applied: Boolean(result.applied),

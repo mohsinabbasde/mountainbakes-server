@@ -151,10 +151,24 @@ async function buildReport(
     }
     case 'production-stock': {
       const rows = await getProductionStockRows();
+      // The same day-scoped columns, in the same order, as the Production Stock
+      // page — and they reconcile left to right:
+      //   prepared + returned = total stock; − approved − sold + adjustment = balance.
+      // Sold and Adjustment were missing before, which left the sheet's Balance
+      // unexplainable from the columns beside it.
       return {
         title: 'Production Stock',
-        headers: ['Product', 'Prepared Today', 'Total Stock', 'Approved Qty', 'Balance', 'Returned'],
-        rows: rows.map((r) => [r.productName, r.preparedToday, r.totalStock, r.approvedQty, r.balance, r.returned]),
+        headers: ['Product', 'Prepared Today', 'Returned', 'Total Stock', 'Approved Qty', 'Sold', 'Adjustment', 'Balance'],
+        rows: rows.map((r) => [
+          r.productName,
+          r.preparedToday,
+          r.returned,
+          r.totalStock,
+          r.approvedQty,
+          r.soldToday,
+          r.adjustment,
+          r.dayBalance,
+        ]),
       };
     }
     case 'branch-stock': {

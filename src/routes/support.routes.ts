@@ -459,17 +459,20 @@ async function resolveReference(
     // alternative is re-folding the movement types here and eventually disagreeing
     // with the page.
     const f = await getProductionStockFigures(product.id, today);
+    // NO Opening, unlike the branch reference below. The pool is read as the day
+    // it had — prepared and returned in, approved and sold out — because that is
+    // what the Production Stock page now shows, and a query raised from that page
+    // has to resolve against the same figures. `balance` is still here: it is the
+    // running pool total, and it is the one the correction writes to.
     fields.push(
-      // Opening first, as on the branch reference — it is where the day starts,
-      // and without it the other figures have nothing to be read against.
-      { label: 'Opening Stock', value: String(f.opening) },
       { label: 'Prepared Today', value: String(f.preparedToday) },
       { label: 'Total Stock', value: String(f.totalStock) },
       { label: 'Approved Qty', value: String(f.approvedQty) },
       { label: 'Sold', value: String(f.soldToday) },
       { label: 'Returned', value: String(f.returned) },
       { label: 'Adjustment', value: f.adjustment > 0 ? `+${f.adjustment}` : String(f.adjustment) },
-      { label: 'Balance', value: String(f.balance) },
+      { label: "Today's Balance", value: String(f.dayBalance) },
+      { label: 'Pool Balance', value: String(f.balance) },
     );
     return {
       type,
@@ -477,8 +480,9 @@ async function resolveReference(
       entityId: product.id,
       title: `Production Stock ${referenceId} — ${product.name}`,
       fields,
-      // Total Stock is absent on purpose: it is derived (balance + approved + sold)
-      // and has no movement of its own to book a correction against.
+      // Total Stock and Today's Balance are absent on purpose: both are derived
+      // from the figures below and have no movement of their own to book a
+      // correction against. `balance` is the running pool total, which does.
       editableFields: [
         { key: 'preparedToday', label: 'Prepared Today', kind: 'number', value: f.preparedToday },
         { key: 'approvedQty', label: 'Approved Qty', kind: 'number', value: f.approvedQty },

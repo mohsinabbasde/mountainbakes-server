@@ -43,20 +43,21 @@ export interface ProductionStockHistoryRow {
  * derived — balance + approved + sold — so neither is directly correctable.
  */
 export interface ProductionStockFigures {
-  /**
-   * The pool balance at the start of this business day — yesterday's closing.
-   * Derived exactly as the branch ledger derives it (StockFigures.opening):
-   * balance minus the day's net movement. Not correctable, for the same reason
-   * the branch's is not: it is a day that has already closed.
-   */
-  opening: number;
   preparedToday: number;
   approvedQty: number;
   returned: number;
   soldToday: number;
   adjustment: number;
+  /** The running pool balance, yesterday carried forward. Correctable. */
   balance: number;
+  /** What the pool took in today: prepared + returned. Opening is not in it. */
   totalStock: number;
+  /**
+   * Today's own position — totalStock − approvedQty − soldToday + adjustment.
+   * Negative means the shortfall the floor still has to bake. Derived, so it is
+   * not correctable on its own: correct the figures it is made of.
+   */
+  dayBalance: number;
 }
 
 /** Computed per-product row for the Production Stock page. */
@@ -70,11 +71,29 @@ export interface ProductionStockRow {
    */
   stockCode: string;
   productName: string;
-  opening: number; // pool balance at the start of the day (balance − today's net)
   preparedToday: number; // Σ prepare deltas today
-  totalStock: number; // current balance + what left today (a "gross in" view)
+  /**
+   * What the pool took IN today: prepared + returned.
+   *
+   * Yesterday's carry-forward is deliberately NOT in this sum. The pool is baked
+   * fresh each morning, so a balance that opened negative made every product
+   * prepared today read negative too — the floor made 50 and the sheet said -50.
+   * Reading the day on its own is what puts a newly prepared product back on a
+   * positive figure. `balance` below still carries the running total for the
+   * callers that need it.
+   */
+  totalStock: number;
   approvedQty: number; // Σ transferred out today
-  balance: number; // current pool balance
+  balance: number; // running pool balance, yesterday carried forward
+  /**
+   * Today's own position: totalStock − approvedQty − soldToday + adjustment.
+   *
+   * NEGATIVE IS A REAL ANSWER and must not be clamped: it is the shortfall the
+   * floor still has to bake before what has already gone out is covered. This is
+   * the figure the Production Stock page shows as Balance; `balance` is what the
+   * Demand Summary and the counter-sale check read, and neither is changed by it.
+   */
+  dayBalance: number;
   returned: number; // Σ returns added back today
   soldToday: number; // Σ sold at the production counter today
   /**
