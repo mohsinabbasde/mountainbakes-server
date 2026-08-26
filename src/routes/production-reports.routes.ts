@@ -151,23 +151,23 @@ async function buildReport(
     }
     case 'production-stock': {
       const rows = await getProductionStockRows();
-      // The same day-scoped columns, in the same order, as the Production Stock
-      // page — and they reconcile left to right:
-      //   prepared + returned = total stock; − approved − sold + adjustment = balance.
-      // Sold and Adjustment were missing before, which left the sheet's Balance
-      // unexplainable from the columns beside it.
+      // The same columns, in the same order, as the Production Stock page: the
+      // day's MOVEMENTS and nothing else. No Total Stock and no Balance -- both
+      // are derived from the four figures here, and the page dropped them, so
+      // carrying them on the sheet would put a number in front of someone that
+      // the screen they got it from no longer shows.
+      //
+      // Still day-scoped, and still nothing carried over from yesterday.
       return {
         title: 'Production Stock',
-        headers: ['Product', 'Prepared Today', 'Returned', 'Total Stock', 'Approved Qty', 'Sold', 'Adjustment', 'Balance'],
+        headers: ['Product', 'Prepared Today', 'Returned', 'Approved Qty', 'Sold', 'Adjustment'],
         rows: rows.map((r) => [
           r.productName,
           r.preparedToday,
           r.returned,
-          r.totalStock,
           r.approvedQty,
           r.soldToday,
           r.adjustment,
-          r.dayBalance,
         ]),
       };
     }
