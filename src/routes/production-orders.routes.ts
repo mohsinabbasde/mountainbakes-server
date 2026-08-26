@@ -17,6 +17,7 @@ import {
   BRANCH_ROLES,
   isBranchRole,
   resolveShareSplit,
+  type ProductionShortfall,
 } from '../shared';
 import { bindAttachments, listAttachmentsFor } from '../services/attachments.service';
 import { notify } from '../services/push.service';
@@ -42,7 +43,7 @@ export const router = Router();
 const ORDER_SELECT = `
   *,
   items:production_order_items(
-    id, product_id, product_name, qty, remarks, is_special, added_by_production,
+    id, product_id, product_name, qty, unit_price, remarks, is_special, added_by_production,
     previous_balance_qty, total_required_qty, approved_qty, remaining_balance_qty, line_no
   ),
   packingItems:production_order_packing_items(
@@ -107,6 +108,8 @@ async function withPhotos(orders: Record<string, unknown>[]): Promise<Record<str
 interface ResolvedSpecialItem {
   productId: string;
   productName: string;
+  /** Rate snapshot, from the hidden product. 0 for a freshly minted one. */
+  unitPrice: number;
   qty: number;
   description: string;
   attachmentIds: string[];
@@ -141,15 +144,20 @@ async function resolveSpecialItems(
   // functional expression.
   const { data: existing, error: findErr } = await supabaseAdmin
     .from('products')
-    .select('id, name')
+    .select('id, name, price')
     .eq('is_special', true);
   if (findErr) throw findErr;
 
-  const idByKey = new Map(
-    ((existing ?? []) as { id: string; name: string }[]).map((p) => [p.name.trim().toLowerCase(), p.id]),
+  // Price rides along so a special line carries a RATE like every other line.
+  // Newly minted special products are created at 0 below, but one an admin has
+  // since priced keeps that price — and either way the figure is snapshotted onto
+  // the order line, never re-read at display time.
+  const metaByKey = new Map(
+    ((existing ?? []) as { id: string; name: string; price: number | null }[])
+      .map((p) => [p.name.trim().toLowerCase(), { id: p.id, price: Number(p.price ?? 0) }]),
   );
 
-  const missing = names.filter((n, i) => !idByKey.has(keys[i]!));
+  const missing = names.filter((n, i) => !metaByKey.has(keys[i]!));
   if (missing.length > 0) {
     // price 0 and no category: a special item is priced (if ever) by whoever
     // handles the customer, not through the catalogue. is_active stays TRUE so
@@ -158,11 +166,11 @@ async function resolveSpecialItems(
     const { data: created, error: createErr } = await supabaseAdmin
       .from('products')
       .insert(missing.map((name) => ({ name, price: 0, is_active: true, is_special: true })))
-      .select('id, name');
+      .select('id, name, price');
 
     if (createErr && createErr.code !== '23505') throw createErr;
-    for (const p of ((created ?? []) as { id: string; name: string }[])) {
-      idByKey.set(p.name.trim().toLowerCase(), p.id);
+    for (const p of ((created ?? []) as { id: string; name: string; price: number | null }[])) {
+      metaByKey.set(p.name.trim().toLowerCase(), { id: p.id, price: Number(p.price ?? 0) });
     }
 
     // Lost the race (or part of it): re-read so the rows the other request
@@ -171,11 +179,11 @@ async function resolveSpecialItems(
     if (createErr) {
       const { data: reread, error: rereadErr } = await supabaseAdmin
         .from('products')
-        .select('id, name')
+        .select('id, name, price')
         .eq('is_special', true);
       if (rereadErr) throw rereadErr;
-      for (const p of ((reread ?? []) as { id: string; name: string }[])) {
-        idByKey.set(p.name.trim().toLowerCase(), p.id);
+      for (const p of ((reread ?? []) as { id: string; name: string; price: number | null }[])) {
+        metaByKey.set(p.name.trim().toLowerCase(), { id: p.id, price: Number(p.price ?? 0) });
       }
     }
 
@@ -184,13 +192,14 @@ async function resolveSpecialItems(
   }
 
   return specialItems.map((s, i) => {
-    const productId = idByKey.get(keys[i]!);
-    if (!productId) {
+    const meta = metaByKey.get(keys[i]!);
+    if (!meta) {
       throw Object.assign(new Error(`Could not create the special item "${s.name}"`), { status: 500 });
     }
     return {
-      productId,
+      productId: meta.id,
       productName: names[i]!,
+      unitPrice: meta.price,
       qty: s.qty,
       description: s.description ?? '',
       attachmentIds: s.attachmentIds ?? [],
@@ -228,20 +237,38 @@ router.post('/', requireRole(...BRANCH_ROLES), idempotent('production_order.crea
       businessDate?: string;
     };
 
-    // Resolve product names server-side — branch users never send names or
-    // prices, those are Admin-controlled. One query rather than N point reads.
+    // Resolve names AND the RATE server-side — branch users never send either,
+    // both are Admin-controlled (§18). One query rather than N point reads.
+    //
+    // THE RATE IS SNAPSHOTTED, not referenced. `unit_price` is written onto the
+    // line here and never touched again, so a price change tomorrow leaves every
+    // order raised today worth exactly what it was worth. Reading `products.price`
+    // at display time instead would silently rewrite history — the branch would
+    // open last week's demand and find a different total than the one it agreed.
+    //
+    // A client-supplied price is not merely ignored, it is impossible: the schema
+    // accepts {productId, qty, remarks} and nothing else, the same rule
+    // `OrderItemSchema` follows for POS sales.
     const productIds = [...new Set(items.map((i) => i.productId))];
     const { data: products, error: prodErr } = await supabaseAdmin
       .from('products')
-      .select('id, name')
+      .select('id, name, price')
       .in('id', productIds);
     if (prodErr) throw prodErr;
 
-    const nameById = new Map((products ?? []).map((p) => [p.id as string, p.name as string]));
+    const productById = new Map(
+      (products ?? []).map((p) => [p.id as string, { name: p.name as string, price: Number(p.price ?? 0) }]),
+    );
     const resolvedItems = items.map((i) => {
-      const name = nameById.get(i.productId);
-      if (!name) throw Object.assign(new Error(`Product ${i.productId} not found`), { status: 400 });
-      return { productId: i.productId, productName: name, qty: i.qty, remarks: i.remarks || '' };
+      const meta = productById.get(i.productId);
+      if (!meta) throw Object.assign(new Error(`Product ${i.productId} not found`), { status: 400 });
+      return {
+        productId: i.productId,
+        productName: meta.name,
+        unitPrice: meta.price,
+        qty: i.qty,
+        remarks: i.remarks || '',
+      };
     });
 
     // Same treatment for packing materials, with one extra condition: the query
@@ -315,6 +342,7 @@ router.post('/', requireRole(...BRANCH_ROLES), idempotent('production_order.crea
           production_order_id: order.id,
           product_id: it.productId,
           product_name: it.productName,
+          unit_price: it.unitPrice,
           qty: it.qty,
           remarks: it.remarks,
           is_special: false,
@@ -324,6 +352,10 @@ router.post('/', requireRole(...BRANCH_ROLES), idempotent('production_order.crea
           production_order_id: order.id,
           product_id: it.productId,
           product_name: it.productName,
+          // A special item is priced from the hidden product `resolveSpecialItems`
+          // just created for it, so it carries a rate like any other line rather
+          // than being the one row on the order with no amount.
+          unit_price: it.unitPrice,
           // The typed description lives in `remarks` — the column that already
           // exists for "what the branch wants doing with this line".
           qty: it.qty,
@@ -627,6 +659,42 @@ interface ReviewedItem {
   remainingBalanceQty: number;
 }
 
+/**
+ * The INSUFFICIENT_STOCK body (§26).
+ *
+ * A machine-readable `error` code, the per-product arithmetic, and a `message`
+ * already phrased for a human. The three are for three different readers — the
+ * client switches on the code, the screen renders the rows, and the message is
+ * what ends up in a toast — and computing any of them twice is how they start
+ * disagreeing about the same shortfall.
+ *
+ * `productId` / `requested` / `available` / `shortage` are lifted to the top level
+ * as well as listed, because the single-product case is overwhelmingly the common
+ * one and the spec's example shows it flat.
+ */
+function insufficientStockBody(shortfalls: ProductionShortfall[]) {
+  const first = shortfalls[0];
+  const message =
+    shortfalls.length === 1 && first
+      ? `Insufficient production stock for ${first.productName}. Requested ${first.requested}, available ${first.available}, short ${first.shortage}.`
+      : `Insufficient production stock for ${shortfalls.length} products: ` +
+        shortfalls.map((s) => `${s.productName} (short ${s.shortage})`).join(', ') + '.';
+
+  return {
+    error: 'INSUFFICIENT_STOCK',
+    message,
+    shortfalls,
+    ...(shortfalls.length === 1 && first
+      ? {
+          productId: first.productId,
+          requested: first.requested,
+          available: first.available,
+          shortage: first.shortage,
+        }
+      : {}),
+  };
+}
+
 /** No balance fields: packing materials carry nothing forward (migration 39). */
 interface ReviewedPackingItem {
   packingMaterialId: string;
@@ -654,10 +722,19 @@ router.put('/:id/review', requireRole('super_admin', 'production_user'), validat
     // until they reload — see ReviewProductionOrderSchema.
     const status = rawStatus === 'approved' ? 'awaiting_verification' : rawStatus;
 
-    // Status check-and-set, balance carry-forward and the item rewrite all happen
-    // inside review_production_order (migration 16) — they must be one
-    // transaction or a double review would apply the balance maths twice.
-    const { data, error } = await supabaseAdmin.rpc('review_production_order', {
+    // §8: committing to SEND is checked against available stock first, and the
+    // check runs INSIDE the same transaction as the review. `*_checked` wraps the
+    // existing review_production_order rather than reimplementing it (migration
+    // 90), so the review logic stays in one place and there is no window between
+    // validating and writing for a concurrent branch to slip through.
+    //
+    // `override=1` is the authorised escape hatch of §8, restricted to
+    // super_admin: a production user cannot approve past a shortage, but an admin
+    // can consciously decide to. It declines the guard, not the audit trail —
+    // every movement is still written exactly as it would have been.
+    const override = req.query['override'] === '1' && req.user!.role === 'super_admin';
+
+    const { data, error } = await supabaseAdmin.rpc('review_production_order_checked', {
       p_order_id: id,
       p_status: status,
       p_overrides: approvedItems ?? [],
@@ -665,6 +742,7 @@ router.put('/:id/review', requireRole('super_admin', 'production_user'), validat
       p_reviewed_by: req.user!.uid,
       p_reviewed_by_name: req.user!.email,
       p_packing_overrides: approvedPackingItems ?? [],
+      p_enforce_stock: !override,
     });
     if (error) throw error;
 
@@ -677,7 +755,13 @@ router.put('/:id/review', requireRole('super_admin', 'production_user'), validat
           packingItems: ReviewedPackingItem[];
         }
       | { status: 'not_found' }
-      | { status: 'already_reviewed' };
+      | { status: 'already_reviewed' }
+      | { status: 'insufficient_stock'; shortfalls: ProductionShortfall[] };
+
+    if (result.status === 'insufficient_stock') {
+      res.status(409).json(insufficientStockBody(result.shortfalls));
+      return;
+    }
 
     if (result.status === 'not_found') {
       res.status(404).json({ error: 'Production order not found' });
@@ -962,7 +1046,12 @@ router.put('/:id/verify', requireRole(...BRANCH_ROLES), validate(VerifyProductio
       actor: { uid: req.user!.uid },
     });
 
-    const { data, error } = await supabaseAdmin.rpc('verify_production_order', {
+    // §8 again, at the moment stock actually LEAVES the pool. Same wrapper
+    // pattern, same reason: the check and the write are one transaction.
+    const verifyOverride = req.query['override'] === '1' && req.user!.role === 'super_admin';
+
+    const { data, error } = await supabaseAdmin.rpc('verify_production_order_checked', {
+      p_enforce_stock: !verifyOverride,
       p_order_id: id,
       p_verified_items: verifiedItems.map((v) => ({ productId: v.productId, verifiedQty: v.verifiedQty })),
       p_new_items: resolvedNewItems,
@@ -974,8 +1063,13 @@ router.put('/:id/verify', requireRole(...BRANCH_ROLES), validate(VerifyProductio
     const result = data as
       | { status: 'ok'; branchId: string; branchName: string | null; items: { productId: string; productName: string; qty: number }[] }
       | { status: 'not_found' }
-      | { status: 'already_reviewed' };
+      | { status: 'already_reviewed' }
+      | { status: 'insufficient_stock'; shortfalls: ProductionShortfall[] };
 
+    if (result.status === 'insufficient_stock') {
+      res.status(409).json(insufficientStockBody(result.shortfalls));
+      return;
+    }
     if (result.status === 'not_found') {
       res.status(404).json({ error: 'Production order not found' });
       return;

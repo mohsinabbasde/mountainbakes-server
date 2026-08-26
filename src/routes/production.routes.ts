@@ -31,20 +31,25 @@ router.get('/overview', async (_req, res, next) => {
     const demandFrom = businessDaysAgoStr(179); // ~6 months for the monthly chart
     const dayFrom = businessDaysAgoStr(29); // 30-day daily/weekly window
 
-    const [ordersRes, prodStockRes, prepHistRes, returnsRes, branchesRes, productsRes] = await Promise.all([
+    const [ordersRes, prepHistRes, availRes, returnsRes, branchesRes, productsRes] = await Promise.all([
       // Deleted demands are excluded at the query, not per-metric: the cards
       // below filter by status but the chart aggregations loop over every row,
       // so a withdrawn demand would keep counting toward demand-by-day/month,
       // branch demand and top products — the exact figures the branch deleted it
       // to take back.
       supabaseAdmin.from('production_orders').select(ORDER_WITH_ITEMS).gte('business_date', demandFrom).neq('status', 'cancelled'),
-      supabaseAdmin.from('production_stock').select('balance'),
       supabaseAdmin.from('production_stock_history').select('type, delta, business_date').gte('business_date', historyFrom),
+      // AVAILABLE, not the raw pool balance: goods a branch has already been
+      // promised are still on the shelf but are not free to sell or re-promise.
+      // One SQL definition (migration 90) shared with the counter sale and the
+      // Production Stock page's Balance column, so the card cannot drift from the
+      // table it sits above.
+      supabaseAdmin.rpc('production_stock_availability'),
       supabaseAdmin.from('production_returns').select('qty, status').eq('business_date', todayStr),
       supabaseAdmin.from('branches').select('id', { count: 'exact', head: true }).eq('is_active', true),
       supabaseAdmin.from('products').select('id', { count: 'exact', head: true }).eq('is_active', true),
     ]);
-    for (const r of [ordersRes, prodStockRes, prepHistRes, returnsRes, branchesRes, productsRes]) {
+    for (const r of [ordersRes, prepHistRes, availRes, returnsRes, branchesRes, productsRes]) {
       if (r.error) throw r.error;
     }
 
@@ -69,8 +74,10 @@ router.get('/overview', async (_req, res, next) => {
       if (h.business_date >= monthStartStr) monthlyProduction += q;
     }
 
-    const availableProductionStock = ((prodStockRes.data ?? []) as { balance: number }[])
-      .reduce((s, d) => s + Number(d.balance ?? 0), 0);
+    // Can go NEGATIVE, and that is a real answer: branches are owed more than the
+    // pool holds, and the difference is production still to do.
+    const availableProductionStock = ((availRes.data ?? []) as { available: number | string }[])
+      .reduce((s, a) => s + Number(a.available ?? 0), 0);
     const returnedProducts = ((returnsRes.data ?? []) as { qty: number; status: string }[])
       .filter((r) => r.status === 'accepted')
       .reduce((s, r) => s + Number(r.qty || 0), 0);

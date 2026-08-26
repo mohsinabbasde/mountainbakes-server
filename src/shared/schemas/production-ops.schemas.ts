@@ -11,6 +11,71 @@ export const PrepareProductionSchema = z.object({
   items: z.array(PrepareProductionItemSchema).min(1, 'At least one product is required'),
 });
 
+// ── Stock Adjustments (recorded by Production) ───────────────────────────────
+//
+// The authorised way to move the pool by hand. It is NOT "edit the balance": the
+// caller states a signed quantity and a reason, and the server appends ONE
+// movement of that size. There is no field here that assigns a balance, by design
+// — §38 of the spec, and the same rule the branch ledger already follows.
+//
+// A REASON IS MANDATORY. An adjustment with no stated cause is indistinguishable
+// from someone typing over an inconvenient number, and the audit trail exists
+// precisely so that cannot happen. The RPC re-checks it server-side rather than
+// trusting this schema alone.
+export const PRODUCTION_ADJUSTMENT_TYPES = [
+  'damage',
+  'expired',
+  'count_correction',
+  'production_correction',
+  'data_correction',
+  'other',
+] as const;
+
+export type ProductionAdjustmentType = (typeof PRODUCTION_ADJUSTMENT_TYPES)[number];
+
+/** Human labels, so the popup and the audit note read the same words. */
+export const PRODUCTION_ADJUSTMENT_LABELS: Record<ProductionAdjustmentType, string> = {
+  damage: 'Damage',
+  expired: 'Expired product',
+  count_correction: 'Counting correction',
+  production_correction: 'Production correction',
+  data_correction: 'Data correction',
+  other: 'Other authorised adjustment',
+};
+
+export const CreateProductionAdjustmentSchema = z.object({
+  productId: z.string().min(1, 'Product is required'),
+  adjustmentType: z.enum(PRODUCTION_ADJUSTMENT_TYPES),
+  /**
+   * SIGNED and non-zero. Positive adds to the pool (ADJUSTMENT_IN), negative takes
+   * from it (ADJUSTMENT_OUT). Zero is refused rather than silently ignored: it is
+   * always a mistake, and accepting it would write an audit row that says nothing
+   * happened.
+   */
+  qty: z.number().int().refine((n) => n !== 0, 'Quantity must not be zero'),
+  reason: z.string().trim().min(1, 'A reason is required').max(500),
+  remarks: z.string().trim().max(1000).optional(),
+  approvedBy: z.string().trim().max(200).optional(),
+});
+
+// ── Stock Movement History query ─────────────────────────────────────────────
+// Every filter is optional and every one is applied SERVER-side. The ledger grows
+// without bound, so the page must never be the thing deciding what to show from a
+// full download.
+export const ProductionMovementQuerySchema = z.object({
+  from: optionalBusinessDate,
+  to: optionalBusinessDate,
+  productId: z.string().optional(),
+  categoryId: z.string().optional(),
+  branchId: z.string().optional(),
+  movementType: z.string().optional(),
+  status: z.enum(['posted', 'reserved']).optional(),
+  /** Debounced free text: product name/code, branch, demand number, movement id. */
+  search: z.string().trim().max(120).optional(),
+  limit: z.coerce.number().int().min(1).max(200).optional(),
+  offset: z.coerce.number().int().min(0).optional(),
+});
+
 // ── Product Returns (recorded by Production) ─────────────────────────────────
 // branchId + productId identify what came back; names are resolved server-side.
 export const CreateProductionReturnSchema = z.object({
@@ -25,9 +90,29 @@ export const CreateProductionReturnSchema = z.object({
 // stock and the branch resubmits from it. It is only valid on a branch-raised
 // return; the route refuses it on a Production-recorded one, where there is no
 // branch record to hand back.
-export const ReviewProductionReturnSchema = z.object({
-  status: z.enum(['accepted', 'rejected', 'returned']),
-});
+export const ReviewProductionReturnSchema = z
+  .object({
+    status: z.enum(['accepted', 'rejected', 'returned']),
+    /**
+     * What happens to the goods. Only meaningful when accepting — a rejected or
+     * sent-back return moves no production stock at all, so it has no disposition
+     * to record.
+     *
+     * Defaults to 'saleable', which is what every accept did before this existed.
+     */
+    disposition: z.enum(['saleable', 'damaged', 'expired']).optional(),
+    dispositionNote: z.string().trim().max(500).optional(),
+  })
+  .refine((r) => r.status === 'accepted' || !r.disposition || r.disposition === 'saleable', {
+    message: 'Only an accepted return can be written off — reject it instead.',
+    path: ['disposition'],
+  })
+  .refine((r) => r.disposition === undefined || r.disposition === 'saleable' || !!r.dispositionNote, {
+    // Writing stock off is the one outcome here that destroys value, so it is the
+    // one that has to say why — the same rule adjustments follow.
+    message: 'Say why the stock is being written off.',
+    path: ['dispositionNote'],
+  });
 
 // ── Branch-initiated Returns (from the branch Stock page) ────────────────────
 // The branch returns unsold/damaged stock straight to production. branchId is

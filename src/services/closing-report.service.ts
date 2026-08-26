@@ -170,22 +170,33 @@ export async function buildBranchReport(
 // Production
 // ---------------------------------------------------------------------------
 export async function buildProductionReport(businessDate: string): Promise<ProductionClosingReport> {
-  const [movements, pool, demandOrders] = await Promise.all([
+  const [movements, closing, demandOrders] = await Promise.all([
     supabaseAdmin
       .from('production_stock_history')
       .select('type, delta')
       .eq('business_date', businessDate),
-    supabaseAdmin.from('production_stock').select('balance'),
+    // Everything the ledger booked UP TO AND INCLUDING this day — the pool's
+    // closing balance for it, which is also the next day's opening.
+    //
+    // Not Σ production_stock.balance: that column is the running total as of NOW,
+    // so re-running a report for last Tuesday would print this morning's shelf
+    // against Tuesday's date. Reading the ledger to the date makes a closed day's
+    // report reproducible.
+    supabaseAdmin
+      .from('production_stock_history')
+      .select('delta')
+      .lte('business_date', businessDate),
     supabaseAdmin
       .from('production_orders')
       .select('status, items:production_order_items(qty, approved_qty)')
       .eq('business_date', businessDate),
   ]);
-  for (const r of [movements, pool, demandOrders]) {
+  for (const r of [movements, closing, demandOrders]) {
     if (r.error) throw r.error;
   }
 
-  // The central pool's ledger: prepare (+), transfer_out (-), return_in (+).
+  // The central pool's ledger for THIS DAY: prepare (+), return_in (+),
+  // transfer_out (−), sale (−), adjustment (signed).
   let prepared = 0, delivered = 0, returned = 0;
   for (const m of (movements.data ?? []) as { type: string; delta: number }[]) {
     const d = num(m.delta);
@@ -193,7 +204,7 @@ export async function buildProductionReport(businessDate: string): Promise<Produ
     else if (m.type === 'transfer_out') delivered += Math.abs(d);
     else if (m.type === 'return_in') returned += d;
   }
-  const remaining = ((pool.data ?? []) as { balance: number }[]).reduce((s, p) => s + num(p.balance), 0);
+  const remaining = ((closing.data ?? []) as { delta: number }[]).reduce((s, m) => s + num(m.delta), 0);
 
   let demandTotal = 0, demandApproved = 0, ordersClosed = 0, ordersPending = 0;
   for (const o of (demandOrders.data ?? []) as { status: string; items: { qty: number; approved_qty: number | null }[] }[]) {

@@ -151,23 +151,24 @@ async function buildReport(
     }
     case 'production-stock': {
       const rows = await getProductionStockRows();
-      // The same columns, in the same order, as the Production Stock page: the
-      // day's MOVEMENTS and nothing else. No Total Stock and no Balance -- both
-      // are derived from the four figures here, and the page dropped them, so
-      // carrying them on the sheet would put a number in front of someone that
-      // the screen they got it from no longer shows.
-      //
-      // Still day-scoped, and still nothing carried over from yesterday.
+      // The same nine columns, in the same order, as the Production Stock page —
+      // exported from the SAME query, so the sheet and the screen cannot disagree.
       return {
         title: 'Production Stock',
-        headers: ['Product', 'Prepared Today', 'Returned', 'Approved Qty', 'Sold', 'Adjustment'],
+        headers: [
+          'Product', 'Opening Stock', 'Prepared Stock', 'Total Stock',
+          'Branch Demand Stock', 'Sale', 'Return Stock', 'Adjustment', 'Balance',
+        ],
         rows: rows.map((r) => [
           r.productName,
+          r.opening,
           r.preparedToday,
-          r.returned,
-          r.approvedQty,
+          r.totalStock,
+          r.branchDemand,
           r.soldToday,
+          r.returned,
           r.adjustment,
+          r.balance,
         ]),
       };
     }

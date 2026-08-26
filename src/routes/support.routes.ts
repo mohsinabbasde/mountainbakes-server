@@ -14,6 +14,7 @@ import {
   businessDateStr,
   karachiTimeStr,
   type PaymentMethod,
+  type ProductionStockFigures,
   type StockFigures,
   type SupportReference,
   type SupportReferenceType,
@@ -93,14 +94,34 @@ const STOCK_FIGURE_LABELS = {
 /** The only signed correctable figure — a correction can go either way. */
 const SIGNED_STOCK_FIGURES = new Set(['adjustment']);
 
-/** The pool figures an admin may correct, labelled as the Production Stock page shows them. */
+/**
+ * The pool figures an admin may correct, labelled as the Production Stock page
+ * shows them.
+ *
+ * `balance` is the ledger's closing figure for the day — the same number the
+ * Production Stock page prints — so what an admin corrects here is what the
+ * production user who raised the ticket actually sees.
+ */
 const PRODUCTION_FIGURE_LABELS = {
-  preparedToday: 'Prepared Today',
-  approvedQty: 'Approved Qty',
-  soldToday: 'Sold',
-  returned: 'Returned',
+  preparedToday: 'Prepared Stock',
+  approvedQty: 'Branch Demand (delivered)',
+  soldToday: 'Sale',
+  returned: 'Return Stock',
   balance: 'Balance',
 } as const;
+
+/**
+ * Correction targets are keyed by the SQL RPC's names, but the figures come back
+ * on a `ProductionStockFigures`, whose fields are named for the Production Stock
+ * page. This is the one place the two vocabularies meet.
+ */
+const PRODUCTION_FIGURE_FIELD = {
+  preparedToday: 'preparedToday',
+  approvedQty: 'demandFulfilled',
+  soldToday: 'soldToday',
+  returned: 'returned',
+  balance: 'balance',
+} as const satisfies Record<keyof typeof PRODUCTION_FIGURE_LABELS, keyof ProductionStockFigures>;
 
 /**
  * "Sold 10 → 12, Balance 40 → 38" — only the figures that actually moved. Every
@@ -117,8 +138,9 @@ function describeStockChange(result: StockCorrectionResult): string {
 /** The pool's counterpart of `describeStockChange`. */
 function describeProductionChange(result: ProductionStockCorrectionResult): string {
   return (Object.keys(PRODUCTION_FIGURE_LABELS) as (keyof typeof PRODUCTION_FIGURE_LABELS)[])
-    .filter((k) => result.before[k] !== result.after[k])
-    .map((k) => `${PRODUCTION_FIGURE_LABELS[k]} ${result.before[k]} → ${result.after[k]}`)
+    .filter((k) => result.before[PRODUCTION_FIGURE_FIELD[k]] !== result.after[PRODUCTION_FIGURE_FIELD[k]])
+    .map((k) =>
+      `${PRODUCTION_FIGURE_LABELS[k]} ${result.before[PRODUCTION_FIGURE_FIELD[k]]} → ${result.after[PRODUCTION_FIGURE_FIELD[k]]}`)
     .join(', ');
 }
 
@@ -459,20 +481,21 @@ async function resolveReference(
     // alternative is re-folding the movement types here and eventually disagreeing
     // with the page.
     const f = await getProductionStockFigures(product.id, today);
-    // NO Opening, unlike the branch reference below. The pool is read as the day
+    // NO Opening, and no running Pool Balance either. The pool is read as the day
     // it had — prepared and returned in, approved and sold out — because that is
-    // what the Production Stock page now shows, and a query raised from that page
-    // has to resolve against the same figures. `balance` is still here: it is the
-    // running pool total, and it is the one the correction writes to.
+    // what the Production Stock page shows, what the counter sells against, and
+    // therefore the only thing a query raised from either can be about.
     fields.push(
-      { label: 'Prepared Today', value: String(f.preparedToday) },
+      { label: 'Opening Stock', value: String(f.opening) },
+      { label: 'Prepared Stock', value: String(f.preparedToday) },
       { label: 'Total Stock', value: String(f.totalStock) },
-      { label: 'Approved Qty', value: String(f.approvedQty) },
-      { label: 'Sold', value: String(f.soldToday) },
-      { label: 'Returned', value: String(f.returned) },
+      { label: 'Branch Demand Stock (outstanding)', value: String(f.branchDemand) },
+      { label: '  · outstanding (not yet verified)', value: String(f.branchDemand) },
+      { label: '  · fulfilled (verified out)', value: String(f.demandFulfilled) },
+      { label: 'Sale', value: String(f.soldToday) },
+      { label: 'Return Stock', value: String(f.returned) },
       { label: 'Adjustment', value: f.adjustment > 0 ? `+${f.adjustment}` : String(f.adjustment) },
-      { label: "Today's Balance", value: String(f.dayBalance) },
-      { label: 'Pool Balance', value: String(f.balance) },
+      { label: 'Balance', value: String(f.balance) },
     );
     return {
       type,
@@ -480,14 +503,20 @@ async function resolveReference(
       entityId: product.id,
       title: `Production Stock ${referenceId} — ${product.name}`,
       fields,
-      // Total Stock and Today's Balance are absent on purpose: both are derived
-      // from the figures below and have no movement of their own to book a
-      // correction against. `balance` is the running pool total, which does.
+      // Opening Stock, Total Stock and the reserved half of Branch Demand are
+      // absent on purpose. Opening is a CLOSED day's arithmetic — correcting it
+      // means correcting that day, not this one. Total Stock is opening +
+      // prepared. The reserved demand lives on the order, not in this ledger, and
+      // is fixed by correcting the demand.
+      //
+      // Balance IS correctable and is the residual: setting it books the single
+      // `adjustment` movement that closes the gap between what the movement
+      // figures imply and what the shelf actually holds.
       editableFields: [
-        { key: 'preparedToday', label: 'Prepared Today', kind: 'number', value: f.preparedToday },
-        { key: 'approvedQty', label: 'Approved Qty', kind: 'number', value: f.approvedQty },
-        { key: 'soldToday', label: 'Sold', kind: 'number', value: f.soldToday },
-        { key: 'returned', label: 'Returned', kind: 'number', value: f.returned },
+        { key: 'preparedToday', label: 'Prepared Stock', kind: 'number', value: f.preparedToday },
+        { key: 'approvedQty', label: 'Demand Fulfilled', kind: 'number', value: f.demandFulfilled },
+        { key: 'soldToday', label: 'Sale', kind: 'number', value: f.soldToday },
+        { key: 'returned', label: 'Return Stock', kind: 'number', value: f.returned },
         { key: 'balance', label: 'Balance', kind: 'number', value: f.balance },
       ],
       isProductionPool: true,
@@ -785,7 +814,7 @@ router.patch('/:id/figures', requireRole('super_admin'), validate(ChangeFiguresS
     // below would otherwise claim it.
     if (isPoolStock) {
       // Absolute targets, as on the branch. `totalStock` is not among them: it is
-      // derived (balance + approved + sold) with no movement of its own.
+      // prepared + returned, with no movement of its own to book against.
       const targets: ProductionStockCorrectionTargets = {};
       for (const key of ['preparedToday', 'approvedQty', 'soldToday', 'returned', 'balance'] as const) {
         const raw = edits[key];
@@ -795,9 +824,10 @@ router.patch('/:id/figures', requireRole('super_admin'), validate(ChangeFiguresS
           res.status(400).json({ error: `${PRODUCTION_FIGURE_LABELS[key]} must be a number.` });
           return;
         }
-        // The four movement figures are counts and cannot be negative. Balance can:
-        // the pool is allowed to run negative (migration 15) and does, so refusing
-        // one would make an already-negative product impossible to correct.
+        // The four movement figures are counts and cannot be negative. Balance
+        // can: the pool is allowed to run negative (migration 15) and does, so
+        // refusing one would make an already-negative product impossible to
+        // correct.
         if (key !== 'balance' && value < 0) {
           res.status(400).json({ error: `${PRODUCTION_FIGURE_LABELS[key]} must be a number of 0 or more.` });
           return;

@@ -10,7 +10,7 @@ import {
   businessDaysAgoStr,
 } from '../shared';
 import { notify } from '../services/push.service';
-import { returnIntoPool } from '../services/production-stock.service';
+import { returnIntoPool, recordProductionAdjustment } from '../services/production-stock.service';
 import { applyStockMovement } from '../services/stock.service';
 import { rowToApi } from '../utils/case';
 
@@ -118,6 +118,10 @@ router.put('/:id/review', validate(ReviewProductionReturnSchema), async (req: Au
   try {
     const { status } = req.body as { status: 'accepted' | 'rejected' | 'returned' };
     const id = req.params['id']!;
+    const { disposition = 'saleable', dispositionNote } = req.body as {
+      disposition?: 'saleable' | 'damaged' | 'expired';
+      dispositionNote?: string;
+    };
 
     // Read before write, only to answer "may this row take this decision" — the
     // update below is still the atomic gate on double review, so a row that slips
@@ -149,13 +153,18 @@ router.put('/:id/review', validate(ReviewProductionReturnSchema), async (req: Au
       .from('production_returns')
       .update({
         status,
+        // Only an accept carries a disposition; the schema already refuses one on
+        // a reject or a send-back, and neither moves production stock.
+        ...(status === 'accepted'
+          ? { disposition, ...(dispositionNote ? { disposition_note: dispositionNote } : {}) }
+          : {}),
         reviewed_by: req.user!.uid,
         reviewed_by_name: req.user!.email,
         reviewed_at: new Date().toISOString(),
       })
       .eq('id', id)
       .eq('status', 'pending')
-      .select('branch_id, product_id, product_name, qty')
+      .select('branch_id, product_id, product_name, qty, reason')
       .maybeSingle();
     if (updErr) throw updErr;
 
@@ -171,7 +180,41 @@ router.put('/:id/review', validate(ReviewProductionReturnSchema), async (req: Au
     // The refId is the return's own id, which is also what the raise path minted
     // for it — one product's return credits the pool once however often this runs.
     if (status === 'accepted') {
-      await returnIntoPool(id, { productId: reviewed.product_id, productName: reviewed.product_name, qty });
+      // The units came back — always recorded, whatever condition they are in.
+      await returnIntoPool(
+        id,
+        { productId: reviewed.product_id, productName: reviewed.product_name, qty },
+        undefined,
+        {
+          branchId: reviewed.branch_id,
+          reason: reviewed.reason ?? null,
+          actorId: req.user!.uid,
+          actorName: req.user!.email,
+        },
+      );
+
+      // ...but they only become SALEABLE if their condition says so (§10).
+      //
+      // A write-off is booked as its own ADJUSTMENT_OUT rather than by skipping
+      // the credit above. Both movements are then in the ledger — Return Stock
+      // reports what physically returned, Adjustment reports the write-off, and
+      // the balance nets to no change. Skipping the credit would have left the
+      // same balance while erasing the fact that anything came back at all, and
+      // nobody could later ask how much stock was written off or why.
+      if (disposition !== 'saleable') {
+        await recordProductionAdjustment({
+          productId: reviewed.product_id,
+          productName: reviewed.product_name,
+          qty: -Math.abs(qty),
+          adjustmentType: disposition === 'expired' ? 'expired' : 'damaged',
+          reason:
+            dispositionNote ||
+            `${disposition === 'expired' ? 'Expired' : 'Damaged'} stock returned from branch — written off`,
+          remarks: `Return ${id}`,
+          actorId: req.user!.uid,
+          actorName: req.user!.email,
+        });
+      }
 
       // Branch side ONLY for a return Production recorded itself. See the table
       // above: a branch-raised return debited the shop when it was raised.
