@@ -945,7 +945,7 @@ router.post('/:id/items', requireRole('super_admin', 'production_user'), validat
 
     const { data: product, error: prodErr } = await supabaseAdmin
       .from('products')
-      .select('name')
+      .select('name, price')
       .eq('id', productId)
       .maybeSingle();
     if (prodErr) throw prodErr;
@@ -971,6 +971,12 @@ router.post('/:id/items', requireRole('super_admin', 'production_user'), validat
       // what ships — but `added_by_production` tells the screens not to report
       // this figure as something the branch asked for (migration 83).
       qty,
+      // Snapshotted here for the same reason as on submission (§18): the rate is
+      // fixed at the moment the line joins the order and never re-read. Without
+      // it a Production-added line is the one row on a demand that can never be
+      // priced from its own record, so it would be billed at whatever the
+      // catalogue happened to say on the day someone opened the order.
+      unit_price: Number(product.price ?? 0),
       added_by_production: true,
       remarks: remarks || '',
       line_no: nextLineNo,
