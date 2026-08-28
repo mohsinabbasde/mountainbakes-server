@@ -44,6 +44,11 @@ export const TYPE_URL: Record<string, string> = {
   production_demand: '/production-orders',
   production_reviewed: '/branch-new-orders',
   production_return: '/production-returns',
+  // Role-blind, like the event entries below: 'branch_discount' is only ever
+  // seen by Production and 'branch_discount_reviewed' only by the branch, so
+  // these two happen to be unambiguous where the event ones are not.
+  branch_discount: '/production-discounts',
+  branch_discount_reviewed: '/branch-new-orders',
   // Special Events. NOTE this map is role-blind — the admin, branch and
   // production event screens live at three different paths, so these entries can
   // only ever be right for one role. Whoever reimplements push has to key the

@@ -3,7 +3,8 @@
  * the authority, and `notifications.type` is `not null` against it, so a value
  * missing there fails the insert with a raw 22P02. The enum is declared in
  * migration 01 and extended by 14 (`password_reset`), 25 (the two `support_*`),
- * 42 (the six `event_*`) and 72 (`production_demand_cancelled`).
+ * 42 (the six `event_*`), 72 (`production_demand_cancelled`) and 92 (the two
+ * `branch_discount*`).
  *
  * Note `notify()` takes `type: string`, not this union (services/push.service.ts) —
  * nothing mechanically enforces the match, so add values in BOTH places.
@@ -23,6 +24,12 @@ export type NotificationType =
   | 'production_return' // a product return was raised, or reviewed by production
   | 'production_order_verified' // branch verified physical receipt of a demand → Production
   | 'production_demand_cancelled' // branch deleted a still-pending demand → Production (migration 72)
+  // Branch discount claims (migration 92) — money asked for against a demand.
+  // Two values where returns make do with one, because the two directions have
+  // different audiences: a claim raised goes to Production, a claim decided goes
+  // back to the branch.
+  | 'branch_discount' // a branch raised a discount claim → Production
+  | 'branch_discount_reviewed' // Production approved/rejected/sent it back → branch
   // Help Desk → Support Center queries (migration 25)
   | 'support_query' // a branch/production user raised a query → Admin
   | 'support_resolved' // Admin resolved/rejected or corrected the figures → raiser

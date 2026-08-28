@@ -14,6 +14,8 @@ import { router as productionRouter } from './production.routes';
 import { router as productionOrdersRouter } from './production-orders.routes';
 import { router as productionStockRouter } from './production-stock.routes';
 import { router as productionReturnsRouter } from './production-returns.routes';
+import { router as productionDiscountsRouter } from './production-discounts.routes';
+import { router as branchDiscountsRouter } from './branch-discounts.routes';
 import { router as productionReportsRouter } from './production-reports.routes';
 import { router as expensesRouter } from './expenses.routes';
 import { router as stockRouter } from './stock.routes';
@@ -56,6 +58,11 @@ export function setupRoutes(app: Express) {
   app.use('/api/production-orders', productionOrdersRouter);
   app.use('/api/production-stock', productionStockRouter);
   app.use('/api/production-returns', productionReturnsRouter);
+  // Discount claims, split across two prefixes the way returns are: the branch
+  // raises and corrects on one, Production reviews on the other, and each router
+  // carries its own requireRole at the mount instead of re-checking per handler.
+  app.use('/api/production-discounts', productionDiscountsRouter);
+  app.use('/api/branch-discounts', branchDiscountsRouter);
   app.use('/api/production-reports', productionReportsRouter);
   app.use('/api/expenses', expensesRouter);
   app.use('/api/stock', stockRouter);
