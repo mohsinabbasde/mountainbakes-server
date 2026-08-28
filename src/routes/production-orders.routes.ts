@@ -571,7 +571,8 @@ router.get('/:id/previous-balance', requireRole('super_admin', 'production_user'
     if (!prev) {
       res.json({
         previous: null, deliveredValue: 0, companySharePct,
-        companyShareValue: 0, returnsValue: 0, returnItems: [], amountToCollect: 0,
+        companyShareValue: 0, returnsValue: 0, returnItems: [],
+        discountsValue: 0, discountItems: [], amountToCollect: 0,
       });
       return;
     }
@@ -633,6 +634,39 @@ router.get('/:id/previous-balance', requireRole('super_admin', 'production_user'
       returnsValue = returnItems.reduce((a, r) => a + r.amount, 0);
     }
 
+    // Approved discount claims falling in the SAME billing window as the returns
+    // above — after the previous order, up to and including this one.
+    //
+    // Windowed identically on purpose, and the reasoning the returns block sets
+    // out applies unchanged: a day-based rule would re-deduct the same claim on
+    // every slip of a day a branch took several deliveries. Bounding by the two
+    // orders' timestamps partitions claims exactly, so each is deducted once and
+    // none is lost.
+    //
+    // 'approved' only. A claim still pending is one Production has not agreed to,
+    // and netting it off the collection would hand the branch money on a decision
+    // nobody has taken; a rejected or sent-back one is not owed at all.
+    //
+    // No price lookup, unlike returns: a claim IS an amount. There are no units to
+    // value, which is why the printed line carries money alone where Less Returns
+    // carries `qty · money`.
+    const { data: discounts, error: discErr } = await supabaseAdmin
+      .from('branch_discounts')
+      .select('demand_number, amount')
+      .eq('branch_id', order.branch_id)
+      .eq('status', 'approved')
+      .gt('created_at', prev.submitted_at)
+      .lte('created_at', order.submitted_at);
+    if (discErr) throw discErr;
+
+    // Itemised here rather than re-derived on the client, for the reason the
+    // return items are: the lines the slip prints are then by construction the
+    // ones the total was built from, and cannot drift from it.
+    const discountItems = ((discounts ?? []) as { demand_number: string | null; amount: number | string }[]).map(
+      (d) => ({ demandNumber: d.demand_number ?? '—', amount: Number(d.amount ?? 0) }),
+    );
+    const discountsValue = discountItems.reduce((a, d) => a + d.amount, 0);
+
     const companyShareValue = (deliveredValue * companySharePct) / 100;
 
     res.json({
@@ -642,7 +676,12 @@ router.get('/:id/previous-balance', requireRole('super_admin', 'production_user'
       companyShareValue,
       returnsValue,
       returnItems,
-      amountToCollect: companyShareValue - returnsValue,
+      discountsValue,
+      discountItems,
+      // Both deductions come off the company's share. A discount reduces what the
+      // rider collects exactly as a return does — the only difference is that one
+      // is goods coming back and the other is money agreed off.
+      amountToCollect: companyShareValue - returnsValue - discountsValue,
     });
   } catch (err) {
     next(err);
