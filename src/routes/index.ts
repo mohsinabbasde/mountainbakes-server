@@ -18,6 +18,7 @@ import { router as productionDiscountsRouter } from './production-discounts.rout
 import { router as branchDiscountsRouter } from './branch-discounts.routes';
 import { router as productionReportsRouter } from './production-reports.routes';
 import { router as expensesRouter } from './expenses.routes';
+import { router as branchClosingRouter } from './branch-closing.routes';
 import { router as stockRouter } from './stock.routes';
 import { router as reportsRouter } from './reports.routes';
 import { router as searchRouter } from './search.routes';
@@ -65,6 +66,7 @@ export function setupRoutes(app: Express) {
   app.use('/api/branch-discounts', branchDiscountsRouter);
   app.use('/api/production-reports', productionReportsRouter);
   app.use('/api/expenses', expensesRouter);
+  app.use('/api/branch-closing', branchClosingRouter);
   app.use('/api/stock', stockRouter);
   app.use('/api/reports', reportsRouter);
   app.use('/api/search', searchRouter);

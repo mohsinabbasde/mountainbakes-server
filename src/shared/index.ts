@@ -59,3 +59,4 @@ export * from './utils/hijri';
 export * from './utils/geo';
 export * from './utils/share';
 export * from './utils/production-amounts';
+export * from './utils/closing';
