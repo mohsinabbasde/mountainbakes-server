@@ -5,6 +5,7 @@ import { requireRole } from '../middleware/requireRole';
 import { businessDateStr, businessDaysAgoStr } from '../shared';
 import { getProductionStockRows } from '../services/production-stock.service';
 import { genericPDF, genericExcel, genericCSV } from '../services/production-export.service';
+import { getPreviousOrderBalance } from '../services/previous-balance.service';
 import { format } from 'date-fns';
 
 export const router = Router();
@@ -21,7 +22,8 @@ export type ProductionReportType =
   | 'pending-balance'
   | 'returned-products'
   | 'production-stock'
-  | 'branch-stock';
+  | 'branch-stock'
+  | 'collections';
 
 /** Karachi date-string range for a named period (anchored to today). */
 function periodDateRange(period: string): { fromStr: string; toStr: string } {
@@ -45,7 +47,32 @@ const PREPARED_ROW_CAP = 20_000;
 
 /** Reports driven by an explicit from/to window instead of the period dropdown. */
 function usesDateRange(report: string): boolean {
-  return report === 'prepared-detail';
+  return report === 'prepared-detail' || report === 'collections';
+}
+
+/**
+ * Ceiling on the deliveries one Collections export will bill.
+ *
+ * Each row costs a `getPreviousOrderBalance` call — several queries apiece — so
+ * this is a wall-clock bound, not a memory one. When it bites, the sheet says so
+ * in a final row rather than just stopping: a truncated export that looks
+ * complete is how a collection goes uncollected.
+ */
+const COLLECTIONS_ORDER_CAP = 750;
+
+/** Resolve `tasks` at most `limit` at a time, preserving input order. */
+async function mapWithConcurrency<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
+  const out = new Array<R>(items.length);
+  let cursor = 0;
+  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    for (;;) {
+      const i = cursor++;
+      if (i >= items.length) return;
+      out[i] = await fn(items[i]!);
+    }
+  });
+  await Promise.all(workers);
+  return out;
 }
 
 /**
@@ -72,9 +99,12 @@ async function buildReport(
   report: string,
   period: string,
   range?: { fromStr: string; toStr: string },
+  /** Scope to one branch. Empty/absent means every branch — the default. */
+  branchId?: string,
 ): Promise<{ title: string; headers: string[]; rows: (string | number)[][] }> {
-  // `prepared-detail` is driven by an explicit from/to window rather than the
-  // period dropdown; every other report still anchors to the named period.
+  // `prepared-detail` and `collections` are driven by an explicit from/to window
+  // rather than the period dropdown; every other report still anchors to the
+  // named period. See usesDateRange.
   const { fromStr, toStr } = range ?? periodDateRange(period);
   const inRange = (d: string) => d >= fromStr && d <= toStr;
 
@@ -271,6 +301,114 @@ async function buildReport(
         rows: returns.map((r) => [r.business_date, r.branch_name, r.product_name, r.qty, r.reason, r.status]),
       };
     }
+    case 'collections': {
+      // One row per DELIVERY, carrying what the branch owes for it — the same
+      // figures the company copy of the next slip prints.
+      //
+      // Two things about the window are easy to get wrong. First, it filters the
+      // delivery being BILLED, but those figures are keyed by that delivery's
+      // SUCCESSOR (getPreviousOrderBalance walks backwards from an order to the
+      // one before it), so the query must not stop at `toStr` — the successor of
+      // the last delivery in the window usually falls outside it.
+      //
+      // Second, a delivery with no successor yet has never been billed on any
+      // slip, so there is no figure to export for it. That is not this report
+      // being lossy: the amount genuinely does not exist until the next delivery
+      // fixes the window the returns and discounts are counted in. The final row
+      // says how many were held back for that reason, so a short sheet is never
+      // mistaken for a quiet day.
+      let q = supabaseAdmin
+        .from('production_orders')
+        .select('id, branch_id, branch_name, demand_number, business_date, submitted_at')
+        .in('status', ['awaiting_verification', 'approved'])
+        .gte('business_date', fromStr)
+        .order('submitted_at', { ascending: true });
+      if (branchId) q = q.eq('branch_id', branchId);
+      const { data, error } = await q;
+      if (error) throw error;
+
+      type ORow = { id: string; branch_id: string; branch_name: string | null; demand_number: string; business_date: string; submitted_at: string };
+      const all = (data ?? []) as ORow[];
+
+      // Chained per branch: "the previous order" only means anything within one
+      // branch's own sequence of deliveries.
+      const byBranch = new Map<string, ORow[]>();
+      for (const o of all) {
+        const list = byBranch.get(o.branch_id);
+        if (list) list.push(o); else byBranch.set(o.branch_id, [o]);
+      }
+
+      const billable: { billed: ORow; successorId: string }[] = [];
+      let unbilled = 0;
+      for (const list of byBranch.values()) {
+        for (let i = 0; i < list.length; i++) {
+          const billed = list[i]!;
+          if (!inRange(billed.business_date)) continue;
+          const successor = list[i + 1];
+          if (!successor) { unbilled++; continue; }
+          billable.push({ billed, successorId: successor.id });
+        }
+      }
+      billable.sort(
+        (a, b) =>
+          (a.billed.branch_name ?? '').localeCompare(b.billed.branch_name ?? '') ||
+          a.billed.business_date.localeCompare(b.billed.business_date),
+      );
+
+      const truncated = billable.length > COLLECTIONS_ORDER_CAP;
+      const wanted = truncated ? billable.slice(0, COLLECTIONS_ORDER_CAP) : billable;
+
+      // Modest concurrency: each balance is several round trips, and a month
+      // across every branch run strictly serially is a minute of dead air.
+      const balances = await mapWithConcurrency(wanted, 8, (b) => getPreviousOrderBalance(b.successorId));
+
+      const rows: (string | number)[][] = [];
+      const totals = { delivered: 0, share: 0, retQty: 0, returns: 0, discount: 0, collect: 0 };
+      for (let i = 0; i < wanted.length; i++) {
+        const bal = balances[i];
+        // `previous` is the authoritative identity of the billed delivery — it is
+        // what the slip printed. Taken from the balance rather than from our own
+        // row so the label and the figures beside it can never disagree.
+        if (!bal?.previous) continue;
+        const retQty = bal.returnItems.reduce((a, r) => a + r.qty, 0);
+        totals.delivered += bal.deliveredValue;
+        totals.share += bal.companyShareValue;
+        totals.retQty += retQty;
+        totals.returns += bal.returnsValue;
+        totals.discount += bal.discountsValue;
+        totals.collect += bal.amountToCollect;
+        rows.push([
+          wanted[i]!.billed.branch_name ?? '',
+          bal.previous.demandNumber,
+          bal.previous.date,
+          Math.round(bal.deliveredValue),
+          Math.round(bal.companyShareValue),
+          retQty,
+          Math.round(bal.returnsValue),
+          Math.round(bal.discountsValue),
+          Math.round(bal.amountToCollect),
+        ]);
+      }
+
+      if (rows.length > 0) {
+        rows.push(['TOTAL', '', '', Math.round(totals.delivered), Math.round(totals.share), totals.retQty, Math.round(totals.returns), Math.round(totals.discount), Math.round(totals.collect)]);
+      }
+      if (unbilled > 0) {
+        rows.push([`${unbilled} delivery(s) in this window have no later delivery yet, so nothing has been billed for them.`, '', '', '', '', '', '', '', '']);
+      }
+      if (truncated) {
+        rows.push([`Showing the first ${COLLECTIONS_ORDER_CAP} of ${billable.length} deliveries — narrow the date range or pick one branch.`, '', '', '', '', '', '', '', '']);
+      }
+
+      return {
+        title: 'Collections',
+        // Money is written as plain numbers, not "Rs. 37,600" — a spreadsheet
+        // that cannot sum its own money column is a picture of a report. Zero
+        // prints as 0 rather than the slip's em dash for the same reason.
+        headers: ['Branch', 'Previous Order', 'Date', 'Delivered Value', 'Company Share', 'Less Returns Qty', 'Less Returns', 'Less Discount', 'Amount to Collect'],
+        rows,
+      };
+    }
     case 'production':
     default: {
       // Prepared production by day.
@@ -299,7 +437,8 @@ router.get('/summary', async (req: AuthRequest, res, next) => {
     const report = String(req.query['report'] || 'production');
     const period = String(req.query['period'] || 'monthly');
     const range = usesDateRange(report) ? explicitDateRange(req.query['from'], req.query['to']) : undefined;
-    const data = await buildReport(report, period, range);
+    const branchId = typeof req.query['branchId'] === 'string' ? req.query['branchId'] : '';
+    const data = await buildReport(report, period, range, branchId);
     res.json(data);
   } catch (err) {
     next(err);
@@ -313,7 +452,8 @@ router.get('/export', async (req: AuthRequest, res, next) => {
     const period = String(req.query['period'] || 'monthly');
     const exportType = String(req.query['type'] || 'excel');
     const range = usesDateRange(report) ? explicitDateRange(req.query['from'], req.query['to']) : undefined;
-    const { title, headers, rows } = await buildReport(report, period, range);
+    const branchId = typeof req.query['branchId'] === 'string' ? req.query['branchId'] : '';
+    const { title, headers, rows } = await buildReport(report, period, range, branchId);
     // A range report names the window it covers, so two exports taken the same
     // day for different windows don't land on the same filename.
     const dateLabel = range
