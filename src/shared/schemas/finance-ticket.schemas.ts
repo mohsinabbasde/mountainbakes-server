@@ -3,7 +3,9 @@ import { optionalAttachmentIds } from './attachment.schemas';
 import {
   FINANCE_QUERY_PRIORITIES,
   FINANCE_QUERY_TYPES,
+  FINANCE_RESOLUTION_TYPES,
   FINANCE_TICKET_PREFIXES,
+  FINANCE_TICKET_STATUSES,
 } from '../types/finance.types';
 import type {
   FinanceQueryPriority,
@@ -61,7 +63,7 @@ export const OptionalFinanceReferenceNoSchema = z
 /** Help Desk → a Finance user raises a query. Goes straight to Admin. */
 export const CreateFinanceTicketSchema = z.object({
   queryType: z.enum(FINANCE_QUERY_TYPES),
-  priority: z.enum(FINANCE_QUERY_PRIORITIES).default('medium'),
+  priority: z.enum(FINANCE_QUERY_PRIORITIES).default('normal'),
   referenceNo: OptionalFinanceReferenceNoSchema,
   /**
    * The brief's separate "Ledger/Voucher ID". Free text, never resolved: it is
@@ -87,12 +89,37 @@ export const EditFinanceTicketSchema = z
   .object({
     subject: z.string().trim().min(3).max(200).optional(),
     message: z.string().trim().min(3).max(4000).optional(),
+    /** The brief's "change category" (§6). Admin-only, like every field here. */
+    queryType: z.enum(FINANCE_QUERY_TYPES).optional(),
     priority: z.enum(FINANCE_QUERY_PRIORITIES).optional(),
     resolutionNote: z.string().trim().max(4000).optional(),
+    /**
+     * §6's "internal notes" — the admin's working notes on the query, never
+     * shown to the raiser and never part of the resolution the raiser reads.
+     * Appended to the audit trail like every other field on this PATCH.
+     */
+    internalNote: z.string().trim().max(4000).optional(),
+    /**
+     * Why the query itself was edited. Required by the route, not here: §8 asks
+     * for a reason on an amendment, and an edit to the query TEXT is the same
+     * kind of change to the same record — but a PATCH that only sets
+     * `internalNote` is not amending anything a raiser will ever see.
+     */
+    reason: z.string().trim().max(500).optional(),
   })
-  .refine((v) => Object.values(v).some((x) => x !== undefined), {
-    message: 'Nothing to update — send subject, message, priority or resolutionNote.',
-  });
+  .refine(
+    (v) =>
+      v.subject !== undefined ||
+      v.message !== undefined ||
+      v.queryType !== undefined ||
+      v.priority !== undefined ||
+      v.resolutionNote !== undefined ||
+      v.internalNote !== undefined,
+    {
+      message:
+        'Nothing to update — send subject, message, queryType, priority, resolutionNote or internalNote.',
+    },
+  );
 export type EditFinanceTicketInput = z.infer<typeof EditFinanceTicketSchema>;
 
 /**
@@ -107,12 +134,38 @@ export type EditFinanceTicketInput = z.infer<typeof EditFinanceTicketSchema>;
  * status: the check needs the CURRENT status, which the schema cannot see.
  */
 export const FinanceTicketStatusSchema = z.object({
-  status: z.enum(['open', 'under_review', 'waiting_for_information',
-                  'resolved', 'rejected', 'closed'] as const satisfies readonly FinanceTicketStatus[]),
+  status: z.enum(FINANCE_TICKET_STATUSES).exclude(['reopened']),
   adminResponse: z.string().trim().max(4000).optional(),
   resolutionNote: z.string().trim().max(4000).optional(),
+  /** §11's Resolution Type. Required by the route when resolving; see there. */
+  resolutionType: z.enum(FINANCE_RESOLUTION_TYPES).optional(),
 });
 export type FinanceTicketStatusInput = z.infer<typeof FinanceTicketStatusSchema>;
+
+/**
+ * Help Desk → a resolved query is disputed and goes live again (§12).
+ *
+ * Its own endpoint rather than another target on FinanceTicketStatusSchema,
+ * because reopening is not a status move that happens to be legal from a
+ * terminal state — it has to ARCHIVE the resolution it is undoing (onto
+ * `finance_tickets.resolution_history`) in the same write that clears it. Folded
+ * into the status route, that archive step would be a branch every other
+ * transition has to skip, and the one nobody notices is missing.
+ *
+ * `reason` is required and non-empty here, in the route, and in
+ * `finance_tickets_reopen_check`. A resolution overturned without a stated
+ * reason tells the next reader that the first answer was wrong and nothing
+ * about why — which is the half that matters when it is reopened again.
+ *
+ * BOTH SIDES may call it, and they get different outcomes: an Admin reopens the
+ * query, a Finance raiser records a REQUEST to reopen against their own query
+ * (§12 — "Finance or Admin may request reopening depending on permissions").
+ * The route decides which from the JWT; the payload is the same either way.
+ */
+export const ReopenFinanceTicketSchema = z.object({
+  reason: z.string().trim().min(3, 'Say why this query is being reopened').max(1000),
+});
+export type ReopenFinanceTicketInput = z.infer<typeof ReopenFinanceTicketSchema>;
 
 /** Help Desk → either side adds a message to the conversation. */
 export const FinanceTicketMessageSchema = z.object({
@@ -190,18 +243,18 @@ export type AssignFinanceTicketInput = z.infer<typeof AssignFinanceTicketSchema>
  * value here is caught by the `satisfies` on each line.
  */
 const STATUS_FILTERS = [
-  'open', 'under_review', 'waiting_for_information',
+  'open', 'under_review', 'waiting_for_finance', 'reopened',
   'resolved', 'rejected', 'closed', 'all',
 ] as const satisfies readonly (FinanceTicketStatus | 'all')[];
 
 const QUERY_TYPE_FILTERS = [
-  'income', 'expense', 'company_transaction', 'partner_advance', 'branch_share',
-  'salary', 'ledger', 'payment', 'stock_finance_difference', 'calculation_issue',
-  'other', 'all',
+  'income', 'expense', 'company_transaction', 'partner_advance', 'company_share',
+  'branch_share', 'salary', 'ledger', 'payment', 'stock_finance_difference',
+  'calculation_issue', 'other', 'all',
 ] as const satisfies readonly (FinanceQueryType | 'all')[];
 
 const PRIORITY_FILTERS = [
-  'low', 'medium', 'high', 'urgent', 'all',
+  'low', 'normal', 'high', 'urgent', 'all',
 ] as const satisfies readonly (FinanceQueryPriority | 'all')[];
 
 export const FinanceTicketQuerySchema = z.object({

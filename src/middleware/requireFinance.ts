@@ -116,6 +116,44 @@ export function requireFinanceHelpDeskAdmin() {
 }
 
 /**
+ * Either side of the Help Desk — the one gate for the routes BOTH parties use.
+ *
+ * The conversation thread (§7, §17) and the reopen request (§12) are not admin
+ * actions and not raiser actions; they are the two halves talking to each other,
+ * and each route decides from `sideOf(role)` which half is speaking.
+ *
+ * It exists because `requireFinance('create')` is the wrong gate for them and
+ * fails in the direction hardest to notice: `financeCan` grants a super admin
+ * nothing but `view` unless `finance_settings.allowSuperAdminWrite` is on, and
+ * that toggle ships OFF — so an Admin could read a query and not reply to it on
+ * a fresh install. That is the exact failure requireFinanceHelpDeskAdmin's
+ * header describes and refuses, and the reasoning is identical here: the Help
+ * Desk is the sanctioned, audited channel, so the toggle that guards writing to
+ * the books OUTSIDE it has no business closing the thread inside it.
+ *
+ * A Read Only Auditor is excluded — they see the queue and say nothing into it,
+ * the same shape their access takes everywhere else in the module.
+ */
+export function requireFinanceHelpDeskParticipant() {
+  return (req: AuthRequest, res: Response, next: NextFunction) => {
+    if (!req.user) {
+      res.status(401).json({ error: 'Unauthorized' });
+      return;
+    }
+    const { role } = req.user;
+    if (financeHelpDeskCan(role, 'respond') || (isFinanceRole(role) && role !== 'finance_auditor')) {
+      next();
+      return;
+    }
+    res.status(403).json({
+      error: isFinanceRole(role)
+        ? 'Forbidden: a Read Only Auditor may view a Help Desk query but not write to it.'
+        : 'Forbidden: the Finance Help Desk is restricted to Finance and Admin accounts.',
+    });
+  };
+}
+
+/**
  * The Admin-verifies step in the branch-income workflow.
  *
  *   Branch closing → ADMIN VERIFIES → Finance approves → posted.

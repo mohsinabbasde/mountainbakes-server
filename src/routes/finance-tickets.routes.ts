@@ -1,7 +1,11 @@
 import { Router } from 'express';
 import { supabaseAdmin } from '../config/supabase';
 import { authenticate, type AuthRequest } from '../middleware/auth';
-import { requireFinance, requireFinanceHelpDeskAdmin } from '../middleware/requireFinance';
+import {
+  requireFinance,
+  requireFinanceHelpDeskAdmin,
+  requireFinanceHelpDeskParticipant,
+} from '../middleware/requireFinance';
 import { validate } from '../middleware/validate';
 import {
   AmendFinanceRecordSchema,
@@ -17,12 +21,15 @@ import {
   businessDateStr,
   FinanceTicketMessageSchema,
   FinanceTicketStatusSchema,
+  ReopenFinanceTicketSchema,
   financeHelpDeskCan,
   isFinanceTicketTerminal,
   type FinanceAmendmentAction,
   type FinanceAuditEntity,
+  type FinanceResolutionType,
   type FinanceTicketReferenceLookup,
   type FinanceTicketReferenceType,
+  type FinanceTicketResolution,
   type FinanceTicketStatus,
 } from '../shared';
 import { notify } from '../services/push.service';
@@ -92,19 +99,48 @@ class LookupError extends Error {
  * legality of a move is a property of the PAIR, and five routes would be five
  * places to re-derive the same fact and four chances to disagree.
  *
- * Note what is absent from every terminal status: a way out. A resolved query is
- * not reopened — a further problem with the same record is a new query — which
- * is what keeps `resolvedAt` a fact that never has to be un-written, and what
- * `finance_tickets_resolution_check` enforces underneath.
+ * Note what is absent from every terminal status, and from `reopened` as a
+ * TARGET: there is no way into or out of a terminal state through this table.
+ * Reopening (§12) is a real transition but not one of these — it has to archive
+ * the resolution it is undoing before clearing it, so it lives on its own route
+ * (POST /:id/reopen) and writes `reopened` itself. Listing it here as well would
+ * be a second door into the same room, and only one of them keeps the history.
  */
 const FINANCE_TICKET_TRANSITIONS: Record<FinanceTicketStatus, FinanceTicketStatus[]> = {
   open: ['under_review', 'rejected', 'resolved'],
-  under_review: ['waiting_for_information', 'resolved', 'rejected'],
-  waiting_for_information: ['under_review', 'resolved', 'rejected'],
+  under_review: ['waiting_for_finance', 'resolved', 'rejected'],
+  waiting_for_finance: ['under_review', 'resolved', 'rejected'],
+  // A reopened query rejoins the workflow exactly where a fresh one under
+  // investigation sits — §12's REOPENED → UNDER_REVIEW — and can be answered
+  // again from there without passing back through `open`.
+  reopened: ['under_review', 'waiting_for_finance', 'resolved', 'rejected'],
   resolved: ['closed'],
   rejected: ['closed'],
   closed: [],
 };
+
+/**
+ * The statuses a query may be REOPENED from — the terminal three.
+ *
+ * Separate from the table above on purpose: this is the one move that is legal
+ * *out* of a terminal status, and keeping it out of `FINANCE_TICKET_TRANSITIONS`
+ * is what stops PATCH /:id/status from ever performing it. See migration 95.
+ */
+const FINANCE_TICKET_REOPENABLE: readonly FinanceTicketStatus[] = ['resolved', 'rejected', 'closed'];
+
+/**
+ * The row as this caller may see it.
+ *
+ * `internal_note` is the admin's working note (§6) and is stripped for everyone
+ * else HERE, at the boundary, rather than by the UI declining to render it — a
+ * note the raiser must not read is not protected by a component, because the row
+ * still crosses the wire either way.
+ */
+function ticketForCaller<T extends Record<string, unknown>>(row: T, isAdmin: boolean) {
+  if (isAdmin) return rowToApi(row);
+  const { internal_note: _internalNote, ...visible } = row;
+  return rowToApi(visible);
+}
 
 /**
  * Resolve `RV-000001` to the row it names.
@@ -261,7 +297,7 @@ router.get('/', requireFinance('view'), async (req: AuthRequest, res, next) => {
 
     const { data, error } = await query;
     if (error) throw error;
-    res.json({ tickets: rowToApi(data ?? []) });
+    res.json({ tickets: (data ?? []).map((row) => ticketForCaller(row, isAdmin)) });
   } catch (err) {
     next(err);
   }
@@ -310,7 +346,7 @@ router.get('/:id', requireFinance('view'), async (req: AuthRequest, res, next) =
 
     res.json({
       ticket: {
-        ...rowToApi(ticket),
+        ...ticketForCaller(ticket, isAdmin),
         attachments: ticketPhotos,
         messages: (messages ?? []).map((m) => ({
           ...rowToApi(m),
@@ -405,8 +441,9 @@ router.post('/', requireFinance('create'), validate(CreateFinanceTicketSchema), 
         title: `New Finance Help Desk Query`,
         message:
           `Query ID: ${data.query_no}\n` +
+          `Subject: ${subject}\n` +
           `Priority: ${String(priority).toUpperCase()}\n` +
-          `Subject: ${subject}`,
+          `Submitted By: ${req.user!.email}`,
         targetRole: 'super_admin',
         relatedId: data.id,
       });
@@ -424,7 +461,10 @@ router.post('/', requireFinance('create'), validate(CreateFinanceTicketSchema), 
 
 router.post(
   '/:id/messages',
-  requireFinance('create'),
+  // NOT requireFinance('create') — that gate grants a super admin nothing but
+  // `view` unless `allowSuperAdminWrite` is on, and it ships off, so an Admin
+  // could read a query and not answer it. See the middleware's own header.
+  requireFinanceHelpDeskParticipant(),
   validate(FinanceTicketMessageSchema),
   async (req: AuthRequest, res, next) => {
     try {
@@ -474,9 +514,9 @@ router.post(
       }
 
       // §7's "Mark information as received": the raiser answering a
-      // WAITING_FOR_INFORMATION query is the act itself, not a separate button
-      // to remember to press. The status goes back to the admin's court.
-      if (side === 'finance' && ticket['status'] === 'waiting_for_information') {
+      // WAITING_FOR_FINANCE query is the act itself, not a separate button to
+      // remember to press. The status goes back to the admin's court.
+      if (side === 'finance' && ticket['status'] === 'waiting_for_finance') {
         await supabaseAdmin
           .from('finance_tickets')
           .update({ status: 'under_review', information_received_at: new Date().toISOString() })
@@ -522,11 +562,35 @@ router.patch('/:id', requireFinanceHelpDeskAdmin(), validate(EditFinanceTicketSc
       return;
     }
 
+    // A deleted query is a record, not a working row. Editing one would produce
+    // an audit entry describing a change to something the desk considers gone.
+    if (before['deleted_at']) {
+      res.status(409).json({ error: `Query ${before['query_no']} has been deleted.` });
+      return;
+    }
+
     const patch: Record<string, unknown> = {};
     if (req.body.subject !== undefined) patch['subject'] = req.body.subject;
     if (req.body.message !== undefined) patch['message'] = req.body.message;
+    if (req.body.queryType !== undefined) patch['query_type'] = req.body.queryType;
     if (req.body.priority !== undefined) patch['priority'] = req.body.priority;
     if (req.body.resolutionNote !== undefined) patch['resolution_note'] = req.body.resolutionNote;
+    if (req.body.internalNote !== undefined) patch['internal_note'] = req.body.internalNote;
+
+    // §8: a change the RAISER will see needs a stated reason, and the reason is
+    // what the audit row is worth reading for. An edit that only touches the
+    // admin's own internal note changes nothing the raiser sees, so it does not.
+    const touchesRaiserVisible = ['subject', 'message', 'query_type', 'priority', 'resolution_note']
+      .some((k) => k in patch);
+    const reason = String(req.body.reason ?? '').trim();
+    if (touchesRaiserVisible && !reason) {
+      res.status(400).json({
+        error:
+          `Editing ${before['query_no']} needs a reason. It is kept with the previous values in ` +
+          'the audit history, and it is how the next reader knows why the query changed.',
+      });
+      return;
+    }
 
     const { data, error } = await supabaseAdmin
       .from('finance_tickets')
@@ -540,19 +604,44 @@ router.patch('/:id', requireFinanceHelpDeskAdmin(), validate(EditFinanceTicketSc
       return;
     }
 
+    // §19: the PREVIOUS value of every field this PATCH touched, and only those.
+    // Logging the whole row would bury the change; logging a fixed list would
+    // record "subject: unchanged → unchanged" on a priority-only edit.
+    const columnOf: Record<string, string> = {
+      subject: 'subject',
+      message: 'message',
+      query_type: 'query_type',
+      priority: 'priority',
+      resolution_note: 'resolution_note',
+      internal_note: 'internal_note',
+    };
+    const previousValues = Object.fromEntries(
+      Object.keys(patch).map((k) => [k, before[columnOf[k] as string] ?? null]),
+    );
+
     await logFinanceAudit(req, {
       entity: 'finance_ticket',
       entityId: data.id,
       entityRef: data.query_no,
       action: 'updated',
-      previousValues: {
-        subject: before.subject,
-        message: before.message,
-        priority: before.priority,
-        resolutionNote: before.resolution_note,
-      },
-      newValues: patch,
+      previousValues,
+      newValues: { ...patch, ...(reason ? { reason } : {}) },
     });
+
+    // The raiser is told their query was changed under them. Silently editing
+    // someone's report and leaving them to notice is exactly the "data loss"
+    // §19 is about, even when every previous value is safe in the trail.
+    if (touchesRaiserVisible && data.raised_by && data.raised_by !== req.user!.uid) {
+      try {
+        await notify({
+          type: 'finance_query_updated',
+          title: `Query ${data.query_no} — updated by Admin`,
+          message: reason,
+          targetUserId: data.raised_by as string,
+          relatedId: data.id,
+        });
+      } catch { /* best-effort */ }
+    }
 
     res.json({ ticket: rowToApi(data) });
   } catch (err) {
@@ -640,10 +729,11 @@ router.patch(
   validate(FinanceTicketStatusSchema),
   async (req: AuthRequest, res, next) => {
     try {
-      const { status, adminResponse, resolutionNote } = req.body as {
+      const { status, adminResponse, resolutionNote, resolutionType } = req.body as {
         status: FinanceTicketStatus;
         adminResponse?: string;
         resolutionNote?: string;
+        resolutionType?: FinanceResolutionType;
       };
 
       const before = await getTicket(req.params.id as string);
@@ -685,7 +775,22 @@ router.patch(
         return;
       }
 
+      // §11's Resolution Type. Required when a query is RESOLVED or REJECTED,
+      // optional on `closed` — closing is filing a query that was already
+      // answered, and demanding the type again would ask the admin to restate a
+      // decision the resolution already recorded.
+      if (isFinanceTicketTerminal(status) && status !== 'closed' && !resolutionType
+          && !before['resolution_type']) {
+        res.status(400).json({
+          error:
+            `Say what kind of resolution this is — Fixed, Information Provided, Rejected, ` +
+            `Duplicate or Other. It is what ${before['query_no']} is counted as in reports.`,
+        });
+        return;
+      }
+
       const patch: Record<string, unknown> = { status };
+      if (resolutionType !== undefined) patch['resolution_type'] = resolutionType;
       if (adminResponse !== undefined) {
         patch['admin_response'] = adminResponse;
         patch['responded_by'] = req.user!.uid;
@@ -720,7 +825,7 @@ router.patch(
         entityRef: data.query_no,
         action: status === 'rejected' ? 'rejected' : status === 'resolved' ? 'resolved' : 'updated',
         previousValues: { status: from },
-        newValues: { status, adminResponse, resolutionNote },
+        newValues: { status, adminResponse, resolutionNote, resolutionType },
       });
 
       try {
@@ -742,6 +847,201 @@ router.patch(
   },
 );
 
+/**
+ * §12 — a resolution is disputed, and the query goes live again.
+ *
+ *     RESOLVED  →  REOPENED  →  UNDER_REVIEW
+ *
+ * ONE ROUTE, TWO OUTCOMES, decided from the JWT and not from the payload:
+ *
+ *   · An Admin REOPENS the query. The resolution being overturned is archived
+ *     onto `resolution_history` in the same UPDATE that clears it, so there is
+ *     no instant at which the query has neither the old answer nor a record of
+ *     it, and no way for a failure between two writes to lose one.
+ *   · The Finance RAISER records a REQUEST to reopen. §12 says either side may
+ *     ask "depending on permissions", and a Finance user's permission is to ask:
+ *     the request is posted as a message on the thread — where it is
+ *     append-only and the admin's reply sits beside it — and the admin is
+ *     notified. The status does not move, which is the whole difference.
+ *
+ * Anyone else who reaches here is a Finance user looking at somebody else's
+ * query, and `canSee` has already turned them away.
+ *
+ * WHY NOT PATCH /:id/status WITH status='reopened'. Because reopening is the one
+ * transition that must UNDO a previous write rather than follow it, and the undo
+ * has a precondition — archive first — that no other transition has. Expressed
+ * as a row in FINANCE_TICKET_TRANSITIONS it would be a branch every other
+ * transition skips, and the archive step would be one `if` away from being
+ * forgotten by the next person who adds a status.
+ */
+router.post(
+  '/:id/reopen',
+  requireFinanceHelpDeskParticipant(),
+  validate(ReopenFinanceTicketSchema),
+  async (req: AuthRequest, res, next) => {
+    try {
+      const reason = String(req.body.reason).trim();
+
+      const before = await getTicket(req.params.id as string);
+      if (!before) {
+        res.status(404).json({ error: 'Query not found' });
+        return;
+      }
+      if (!canSee(req, before)) {
+        res.status(403).json({ error: 'Forbidden: that query was raised by someone else.' });
+        return;
+      }
+      if (before['deleted_at']) {
+        res.status(409).json({ error: `Query ${before['query_no']} has been deleted.` });
+        return;
+      }
+
+      const from = before['status'] as FinanceTicketStatus;
+      if (!FINANCE_TICKET_REOPENABLE.includes(from)) {
+        res.status(409).json({
+          error:
+            `Query ${before['query_no']} is ${FINANCE_TICKET_STATUS_LABELS[from]} and is already ` +
+            'open. Only a resolved, rejected or closed query can be reopened.',
+        });
+        return;
+      }
+
+      const isAdmin = financeHelpDeskCan(req.user!.role, 'respond');
+
+      // ---- The raiser's side: a request, not a reopening ----
+      if (!isAdmin) {
+        const { data: message, error: msgErr } = await supabaseAdmin
+          .from('finance_ticket_messages')
+          .insert({
+            ticket_id: before['id'],
+            author_id: req.user!.uid,
+            author_name: req.user!.email,
+            author_role: req.user!.role,
+            author_side: 'finance',
+            body: `Requested to reopen this query.\n\nReason: ${reason}`,
+          })
+          .select('*')
+          .single();
+        if (msgErr) throw msgErr;
+
+        await logFinanceAudit(req, {
+          entity: 'finance_ticket',
+          entityId: before['id'] as string,
+          entityRef: before['query_no'] as string,
+          action: 'reopen_requested',
+          previousValues: { status: from },
+          newValues: { reason },
+        });
+
+        try {
+          await notify({
+            type: 'finance_query',
+            title: `Reopen requested — ${before['query_no']}`,
+            message: `${req.user!.email} disputes the resolution.\n\nReason: ${reason}`,
+            targetRole: 'super_admin',
+            relatedId: before['id'] as string,
+          });
+        } catch { /* best-effort */ }
+
+        // 202, not 200: the request was accepted and nothing has changed yet.
+        // A 200 with an unchanged ticket would read to the client as "reopened"
+        // and to the raiser as a status that refused to update.
+        res.status(202).json({
+          requested: true,
+          ticket: ticketForCaller(before, false),
+          message: rowToApi(message),
+        });
+        return;
+      }
+
+      // ---- The admin's side: the reopening itself ----
+      //
+      // The answer being overturned is preserved verbatim, including its
+      // resolution type and who gave it, and stamped with who overturned it and
+      // why. Reopening three times leaves three of these, oldest first.
+      const archived: FinanceTicketResolution = {
+        status: from,
+        resolutionType: (before['resolution_type'] as FinanceResolutionType | null) ?? null,
+        resolutionNote: (before['resolution_note'] as string | null) ?? null,
+        adminResponse: (before['admin_response'] as string | null) ?? null,
+        resolvedBy: (before['resolved_by'] as string | null) ?? null,
+        resolvedByName: (before['resolved_by_name'] as string | null) ?? null,
+        resolvedAt: (before['resolved_at'] as string | null) ?? null,
+        reopenedAt: new Date().toISOString(),
+        reopenedByName: req.user!.email,
+        reopenReason: reason,
+      };
+      const history = [
+        ...((before['resolution_history'] as FinanceTicketResolution[] | null) ?? []),
+        archived,
+      ];
+
+      const { data, error } = await supabaseAdmin
+        .from('finance_tickets')
+        .update({
+          status: 'reopened',
+          resolution_history: history,
+          reopen_count: history.length,
+          reopened_at: archived.reopenedAt,
+          reopened_by: req.user!.uid,
+          reopened_by_name: req.user!.email,
+          reopen_reason: reason,
+          // Cleared because `finance_tickets_resolution_check` forbids a live
+          // query from carrying a resolver — and because the query genuinely no
+          // longer has a current answer. Both are safe to clear only because
+          // `history` above already holds them, in this same statement.
+          resolved_by: null,
+          resolved_by_name: null,
+          resolved_at: null,
+          resolution_note: null,
+          resolution_type: null,
+        })
+        .eq('id', req.params.id)
+        // Same optimistic guard as the status route: two admins reopening at
+        // once must not both archive, or the history grows a duplicate entry
+        // for a resolution that was only overturned once.
+        .eq('status', from)
+        .select('*')
+        .maybeSingle();
+      if (error) throw error;
+      if (!data) {
+        res.status(409).json({ error: 'Someone else moved this query while you were working on it.' });
+        return;
+      }
+
+      await logFinanceAudit(req, {
+        entity: 'finance_ticket',
+        entityId: data.id,
+        entityRef: data.query_no,
+        action: 'reopened',
+        previousValues: {
+          status: from,
+          resolutionType: archived.resolutionType,
+          resolutionNote: archived.resolutionNote,
+          resolvedByName: archived.resolvedByName,
+          resolvedAt: archived.resolvedAt,
+        },
+        newValues: { status: 'reopened', reason, reopenCount: history.length },
+      });
+
+      try {
+        if (data.raised_by && data.raised_by !== req.user!.uid) {
+          await notify({
+            type: 'finance_query_updated',
+            title: `Query ${data.query_no} — Reopened`,
+            message: `An Admin reopened your query.\n\nReason: ${reason}`,
+            targetUserId: data.raised_by as string,
+            relatedId: data.id,
+          });
+        }
+      } catch { /* best-effort */ }
+
+      res.json({ ticket: rowToApi(data) });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
 // ---------------------------------------------------------------------------
 // Changing the BOOKS (§9, §11, §12) — the reason this module has a Help Desk
 // ---------------------------------------------------------------------------

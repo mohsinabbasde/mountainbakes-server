@@ -848,6 +848,13 @@ export type FinanceAuditAction =
   | 'settings_updated'
   | 'salary_revised'
   | 'resolved'
+  // §12. Two actions, not one: 'reopened' is an Admin overturning a resolution
+  // and IS a change to the query; 'reopen_requested' is the raiser disputing it
+  // and changes nothing but the thread. Collapsing them would make the trail
+  // unable to answer "who actually reopened this", which is the question §12
+  // exists to keep answerable.
+  | 'reopened'
+  | 'reopen_requested'
   | 'deleted';
 
 export type FinanceAuditEntity =
@@ -1029,22 +1036,29 @@ export const FINANCE_TICKET_PREFIX_MAP: Record<string, FinanceTicketReferenceTyp
 );
 
 /**
- * The six states a Help Desk query moves through (migration 94).
+ * The seven states a Help Desk query moves through (migrations 94, 95).
  *
  * Stored lowercase like every other status in this module; the brief writes them
  * UPPER_SNAKE, which is a display convention and lives in the labels below.
  *
- *   open                    → raised, nobody has picked it up
- *   under_review            → an admin is investigating the reference
- *   waiting_for_information → the admin has asked the raiser something
- *   resolved                → dealt with, correction applied or explained
- *   rejected                → not an error, or out of scope
- *   closed                  → finished and filed
+ *   open                → raised, nobody has picked it up
+ *   under_review        → an admin is investigating the reference
+ *   waiting_for_finance → the admin has asked the raiser something
+ *   reopened            → a resolved query was disputed and is live again
+ *   resolved            → dealt with, correction applied or explained
+ *   rejected            → not an error, or out of scope
+ *   closed              → finished and filed
+ *
+ * `waiting_for_finance` was `waiting_for_information` until migration 95 renamed
+ * the value in place. It names who is being waited ON, which is what a queue's
+ * status is for; the old spelling named what was being waited FOR and read the
+ * same whichever side was holding things up.
  */
 export type FinanceTicketStatus =
   | 'open'
   | 'under_review'
-  | 'waiting_for_information'
+  | 'waiting_for_finance'
+  | 'reopened'
   | 'resolved'
   | 'rejected'
   | 'closed';
@@ -1052,7 +1066,8 @@ export type FinanceTicketStatus =
 export const FINANCE_TICKET_STATUSES = [
   'open',
   'under_review',
-  'waiting_for_information',
+  'waiting_for_finance',
+  'reopened',
   'resolved',
   'rejected',
   'closed',
@@ -1061,7 +1076,8 @@ export const FINANCE_TICKET_STATUSES = [
 export const FINANCE_TICKET_STATUS_LABELS: Record<FinanceTicketStatus, string> = {
   open: 'Open',
   under_review: 'Under Review',
-  waiting_for_information: 'Waiting for Information',
+  waiting_for_finance: 'Waiting for Finance',
+  reopened: 'Reopened',
   resolved: 'Resolved',
   rejected: 'Rejected',
   closed: 'Closed',
@@ -1070,10 +1086,13 @@ export const FINANCE_TICKET_STATUS_LABELS: Record<FinanceTicketStatus, string> =
 /**
  * The statuses that END a query.
  *
- * `finance_tickets_resolution_check` (migration 94) requires exactly these to
- * carry a `resolvedAt`, and the API refuses to move a query out of one — a
- * further problem with the same record is a new query, not a reopening, so the
- * closing timestamp never has to be un-written.
+ * `finance_tickets_resolution_check` (migration 95) requires exactly these to
+ * carry a `resolvedAt`, and every other status to carry none.
+ *
+ * A terminal query is not immovable: migration 95 added REOPEN (§12), which is
+ * the one way out and goes through its own endpoint rather than the status
+ * table, because it has to archive the resolution it is undoing before it clears
+ * it. See {@link FinanceTicketResolution}.
  */
 export const FINANCE_TICKET_TERMINAL_STATUSES = [
   'resolved',
@@ -1086,19 +1105,42 @@ export function isFinanceTicketTerminal(status: FinanceTicketStatus): boolean {
 }
 
 /**
- * What the query is ABOUT, as chosen by the raiser.
+ * The statuses a query is still LIVE in — the complement of the terminal three.
+ *
+ * Used by the dashboard cards and by the Support Center's badge count, both of
+ * which had the list written out inline and would have silently excluded
+ * `reopened` when migration 95 added it.
+ */
+export const FINANCE_TICKET_LIVE_STATUSES = [
+  'open',
+  'under_review',
+  'waiting_for_finance',
+  'reopened',
+] as const satisfies readonly FinanceTicketStatus[];
+
+export function isFinanceTicketLive(status: FinanceTicketStatus): boolean {
+  return !isFinanceTicketTerminal(status);
+}
+
+/**
+ * What the query is ABOUT, as chosen by the raiser — the brief's Category.
  *
  * Deliberately not the same axis as {@link FinanceTicketReferenceType}, which is
  * DERIVED from the reference number's prefix and says which table the record
- * lives in. This says what kind of problem the raiser thinks they have — and the
- * last two ('calculation_issue', 'other') routinely name no record at all, which
- * is why a reference is optional from migration 94 onwards.
+ * lives in. This says what kind of problem the raiser thinks they have — and
+ * 'calculation_issue' and 'other' routinely name no record at all, which is why
+ * a reference is optional from migration 94 onwards.
+ *
+ * 'company_share' and 'branch_share' are separate for the same reason the
+ * records are: a branch share payment settles what a BRANCH is owed, a company
+ * share is the house's own cut of the same split.
  */
 export type FinanceQueryType =
   | 'income'
   | 'expense'
   | 'company_transaction'
   | 'partner_advance'
+  | 'company_share'
   | 'branch_share'
   | 'salary'
   | 'ledger'
@@ -1107,18 +1149,26 @@ export type FinanceQueryType =
   | 'calculation_issue'
   | 'other';
 
+/**
+ * In the brief's order, which is the order the New Query dropdown shows.
+ *
+ * 'calculation_issue' is last and is NOT in the brief's list: queries raised
+ * before migration 95 carry it, so it stays selectable rather than becoming a
+ * value the UI can display but not re-pick.
+ */
 export const FINANCE_QUERY_TYPES = [
   'income',
   'expense',
   'company_transaction',
   'partner_advance',
+  'company_share',
   'branch_share',
   'salary',
   'ledger',
   'payment',
   'stock_finance_difference',
-  'calculation_issue',
   'other',
+  'calculation_issue',
 ] as const satisfies readonly FinanceQueryType[];
 
 export const FINANCE_QUERY_TYPE_LABELS: Record<FinanceQueryType, string> = {
@@ -1126,27 +1176,32 @@ export const FINANCE_QUERY_TYPE_LABELS: Record<FinanceQueryType, string> = {
   expense: 'Expense',
   company_transaction: 'Company Transaction',
   partner_advance: 'Partner Advance',
+  company_share: 'Company Share',
   branch_share: 'Branch Share',
   salary: 'Salary',
   ledger: 'Ledger',
   payment: 'Payment',
-  stock_finance_difference: 'Stock / Finance Difference',
+  stock_finance_difference: 'Stock / Finance Related',
   calculation_issue: 'Calculation Issue',
   other: 'Other',
 };
 
-export type FinanceQueryPriority = 'low' | 'medium' | 'high' | 'urgent';
+/**
+ * `normal` was `medium` until migration 95 renamed the value in place — the
+ * brief writes the four levels Low / Normal / High / Urgent.
+ */
+export type FinanceQueryPriority = 'low' | 'normal' | 'high' | 'urgent';
 
 export const FINANCE_QUERY_PRIORITIES = [
   'low',
-  'medium',
+  'normal',
   'high',
   'urgent',
 ] as const satisfies readonly FinanceQueryPriority[];
 
 export const FINANCE_QUERY_PRIORITY_LABELS: Record<FinanceQueryPriority, string> = {
   low: 'Low',
-  medium: 'Medium',
+  normal: 'Normal',
   high: 'High',
   urgent: 'Urgent',
 };
@@ -1155,9 +1210,65 @@ export const FINANCE_QUERY_PRIORITY_LABELS: Record<FinanceQueryPriority, string>
 export const FINANCE_QUERY_PRIORITY_RANK: Record<FinanceQueryPriority, number> = {
   urgent: 0,
   high: 1,
-  medium: 2,
+  normal: 2,
   low: 3,
 };
+
+/**
+ * §11's Resolution Type — what KIND of answer closed the query, as distinct from
+ * the status, which says only that it closed.
+ *
+ * Both are needed and neither derives the other: 'rejected' and 'duplicate' both
+ * end in the REJECTED status, and a query resolved because the figure was
+ * corrected ('fixed') reads very differently in a report from one resolved
+ * because the figure was right all along ('information_provided'). The status
+ * drives the workflow; this drives the reporting.
+ */
+export type FinanceResolutionType =
+  | 'fixed'
+  | 'information_provided'
+  | 'rejected'
+  | 'duplicate'
+  | 'other';
+
+export const FINANCE_RESOLUTION_TYPES = [
+  'fixed',
+  'information_provided',
+  'rejected',
+  'duplicate',
+  'other',
+] as const satisfies readonly FinanceResolutionType[];
+
+export const FINANCE_RESOLUTION_TYPE_LABELS: Record<FinanceResolutionType, string> = {
+  fixed: 'Fixed',
+  information_provided: 'Information Provided',
+  rejected: 'Rejected',
+  duplicate: 'Duplicate',
+  other: 'Other',
+};
+
+/**
+ * One resolution a query has already had, archived when it was REOPENED (§12).
+ *
+ * Appended to `finance_tickets.resolution_history` by POST /:id/reopen in the
+ * same UPDATE that clears the live resolution, so the answer being disputed is
+ * on the record before it stops being the current one. Never edited, never
+ * removed — reopening a query three times leaves three of these, oldest first.
+ */
+export interface FinanceTicketResolution {
+  /** The terminal status this resolution put the query into. */
+  status: FinanceTicketStatus;
+  resolutionType: FinanceResolutionType | null;
+  resolutionNote: string | null;
+  adminResponse: string | null;
+  resolvedBy: string | null;
+  resolvedByName: string | null;
+  resolvedAt: string | null;
+  /** When, and by whom, this resolution was overturned. */
+  reopenedAt: string;
+  reopenedByName: string;
+  reopenReason: string;
+}
 
 export interface FinanceTicket {
   id: string;
@@ -1199,12 +1310,20 @@ export interface FinanceTicket {
   respondedByName: string | null;
   respondedAt: string | null;
   resolutionNote: string | null;
+  /** §11's Resolution Type. Null until the query reaches a terminal status. */
+  resolutionType: FinanceResolutionType | null;
+  /**
+   * §6's internal note — the admin's working notes. Returned to an Admin only;
+   * `rowToApi` drops it for a Finance caller rather than relying on the UI not
+   * to render it.
+   */
+  internalNote: string | null;
 
   assignedTo: string | null;
   assignedToName: string | null;
   assignedAt: string | null;
 
-  /** Set when the raiser answers a `waiting_for_information` query. */
+  /** Set when the raiser answers a `waiting_for_finance` query. */
   informationReceivedAt: string | null;
 
   raisedBy: string | null;
@@ -1213,6 +1332,17 @@ export interface FinanceTicket {
   resolvedBy: string | null;
   resolvedByName: string | null;
   resolvedAt: string | null;
+
+  /**
+   * Every resolution this query has already had, oldest first (§12, migration
+   * 95). Empty until the first reopen; appended to, never rewritten.
+   */
+  resolutionHistory: FinanceTicketResolution[];
+  /** `resolutionHistory.length`, denormalised so the queue can show it. */
+  reopenCount: number;
+  reopenedAt: string | null;
+  reopenedByName: string | null;
+  reopenReason: string | null;
 
   /** Soft delete (§10). Only an admin ever sees a stamped query. */
   deletedAt: string | null;
