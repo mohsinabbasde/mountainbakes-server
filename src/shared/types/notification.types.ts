@@ -33,9 +33,18 @@ export type NotificationType =
   // Help Desk → Support Center queries (migration 25)
   | 'support_query' // a branch/production user raised a query → Admin
   | 'support_resolved' // Admin resolved/rejected or corrected the figures → raiser
-  // Finance Help Desk queries (migration 60) — a separate queue from the two above
-  | 'finance_query' // an Accountant/Finance Manager raised a query → Finance Admin
-  | 'finance_query_resolved' // Finance Admin resolved/rejected it → raiser
+  // Finance Help Desk queries (migration 60) — a separate queue from the two above.
+  //
+  // The TARGET of the first one changed in migration 94: a query now goes
+  // straight to the ADMIN, never to a Finance Admin first (§3 of the Help Desk
+  // brief). The value is unchanged because the notifications already delivered
+  // under it mean the same thing — "somebody raised a finance query" — and
+  // renaming an enum value would orphan every row carrying the old one.
+  | 'finance_query' // a Finance user raised a query → Admin
+  | 'finance_query_resolved' // Admin resolved/rejected/closed it → raiser
+  | 'finance_query_updated' // Admin moved it along (under review, needs info) → raiser
+  | 'finance_query_message' // either side added to the conversation → the other side
+  | 'finance_query_amended' // Admin changed or deleted the record behind it → raiser
   // Branch shift accounts (migration 65) — branch_manager asks, Admin decides
   | 'branch_user_requested' // a manager forwarded a request for a shift account → Admin
   | 'branch_user_reviewed' // Admin approved or rejected it → the requesting manager

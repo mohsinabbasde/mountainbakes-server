@@ -1028,35 +1028,379 @@ export const FINANCE_TICKET_PREFIX_MAP: Record<string, FinanceTicketReferenceTyp
   }),
 );
 
-export type FinanceTicketStatus = 'open' | 'resolved' | 'rejected';
+/**
+ * The six states a Help Desk query moves through (migration 94).
+ *
+ * Stored lowercase like every other status in this module; the brief writes them
+ * UPPER_SNAKE, which is a display convention and lives in the labels below.
+ *
+ *   open                    → raised, nobody has picked it up
+ *   under_review            → an admin is investigating the reference
+ *   waiting_for_information → the admin has asked the raiser something
+ *   resolved                → dealt with, correction applied or explained
+ *   rejected                → not an error, or out of scope
+ *   closed                  → finished and filed
+ */
+export type FinanceTicketStatus =
+  | 'open'
+  | 'under_review'
+  | 'waiting_for_information'
+  | 'resolved'
+  | 'rejected'
+  | 'closed';
+
+export const FINANCE_TICKET_STATUSES = [
+  'open',
+  'under_review',
+  'waiting_for_information',
+  'resolved',
+  'rejected',
+  'closed',
+] as const satisfies readonly FinanceTicketStatus[];
 
 export const FINANCE_TICKET_STATUS_LABELS: Record<FinanceTicketStatus, string> = {
   open: 'Open',
+  under_review: 'Under Review',
+  waiting_for_information: 'Waiting for Information',
   resolved: 'Resolved',
   rejected: 'Rejected',
+  closed: 'Closed',
+};
+
+/**
+ * The statuses that END a query.
+ *
+ * `finance_tickets_resolution_check` (migration 94) requires exactly these to
+ * carry a `resolvedAt`, and the API refuses to move a query out of one — a
+ * further problem with the same record is a new query, not a reopening, so the
+ * closing timestamp never has to be un-written.
+ */
+export const FINANCE_TICKET_TERMINAL_STATUSES = [
+  'resolved',
+  'rejected',
+  'closed',
+] as const satisfies readonly FinanceTicketStatus[];
+
+export function isFinanceTicketTerminal(status: FinanceTicketStatus): boolean {
+  return (FINANCE_TICKET_TERMINAL_STATUSES as readonly string[]).includes(status);
+}
+
+/**
+ * What the query is ABOUT, as chosen by the raiser.
+ *
+ * Deliberately not the same axis as {@link FinanceTicketReferenceType}, which is
+ * DERIVED from the reference number's prefix and says which table the record
+ * lives in. This says what kind of problem the raiser thinks they have — and the
+ * last two ('calculation_issue', 'other') routinely name no record at all, which
+ * is why a reference is optional from migration 94 onwards.
+ */
+export type FinanceQueryType =
+  | 'income'
+  | 'expense'
+  | 'company_transaction'
+  | 'partner_advance'
+  | 'branch_share'
+  | 'salary'
+  | 'ledger'
+  | 'payment'
+  | 'stock_finance_difference'
+  | 'calculation_issue'
+  | 'other';
+
+export const FINANCE_QUERY_TYPES = [
+  'income',
+  'expense',
+  'company_transaction',
+  'partner_advance',
+  'branch_share',
+  'salary',
+  'ledger',
+  'payment',
+  'stock_finance_difference',
+  'calculation_issue',
+  'other',
+] as const satisfies readonly FinanceQueryType[];
+
+export const FINANCE_QUERY_TYPE_LABELS: Record<FinanceQueryType, string> = {
+  income: 'Income',
+  expense: 'Expense',
+  company_transaction: 'Company Transaction',
+  partner_advance: 'Partner Advance',
+  branch_share: 'Branch Share',
+  salary: 'Salary',
+  ledger: 'Ledger',
+  payment: 'Payment',
+  stock_finance_difference: 'Stock / Finance Difference',
+  calculation_issue: 'Calculation Issue',
+  other: 'Other',
+};
+
+export type FinanceQueryPriority = 'low' | 'medium' | 'high' | 'urgent';
+
+export const FINANCE_QUERY_PRIORITIES = [
+  'low',
+  'medium',
+  'high',
+  'urgent',
+] as const satisfies readonly FinanceQueryPriority[];
+
+export const FINANCE_QUERY_PRIORITY_LABELS: Record<FinanceQueryPriority, string> = {
+  low: 'Low',
+  medium: 'Medium',
+  high: 'High',
+  urgent: 'Urgent',
+};
+
+/** Sort weight — urgent first. Used by the admin queue and the priority filter. */
+export const FINANCE_QUERY_PRIORITY_RANK: Record<FinanceQueryPriority, number> = {
+  urgent: 0,
+  high: 1,
+  medium: 2,
+  low: 3,
 };
 
 export interface FinanceTicket {
   id: string;
+  /**
+   * The brief's Query ID — `FIN-Q-20260901-0001`, date-scoped and restarting at
+   * 0001 each morning (migration 94).
+   *
+   * Queries raised before migration 94 carry their old `FQ-000001` number here
+   * instead of being renumbered: the old number is quoted in resolution notes
+   * and audit rows that already exist, and renumbering would orphan them.
+   */
+  queryNo: string;
+  /** The pre-migration-94 number. Kept for those existing rows; never displayed. */
   ticketNo: string;
-  referenceType: FinanceTicketReferenceType;
+
+  queryType: FinanceQueryType;
+  priority: FinanceQueryPriority;
+
+  /** Null for a query that names no record — a calculation issue, say. */
+  referenceType: FinanceTicketReferenceType | null;
   /** Null when the referenced row has since been removed; the snapshot survives. */
   referenceId: string | null;
-  referenceNo: string;
+  referenceNo: string | null;
+  /**
+   * The brief's separate "Ledger/Voucher ID" field: a secondary handle the
+   * raiser cites when it differs from the reference. Never resolved, only shown.
+   */
+  voucherRef: string | null;
   /** The record's figures as they stood when the query was raised. */
   referenceSnapshot: Record<string, unknown> | null;
+
   subject: string;
   message: string;
   status: FinanceTicketStatus;
+
+  /** The admin's written answer, distinct from the closing `resolutionNote`. */
+  adminResponse: string | null;
+  respondedBy: string | null;
+  respondedByName: string | null;
+  respondedAt: string | null;
   resolutionNote: string | null;
+
+  assignedTo: string | null;
+  assignedToName: string | null;
+  assignedAt: string | null;
+
+  /** Set when the raiser answers a `waiting_for_information` query. */
+  informationReceivedAt: string | null;
+
   raisedBy: string | null;
   raisedByName: string;
   raisedByRole: string | null;
   resolvedBy: string | null;
   resolvedByName: string | null;
   resolvedAt: string | null;
+
+  /** Soft delete (§10). Only an admin ever sees a stamped query. */
+  deletedAt: string | null;
+  deletedByName: string | null;
+  deleteReason: string | null;
+
   createdAt: string;
   updatedAt: string;
+
+  /** Populated by GET /api/finance/tickets/:id only — the list omits both. */
+  messages?: FinanceTicketMessage[];
+  amendments?: FinanceAmendment[];
+  attachments?: Attachment[];
+}
+
+/**
+ * One turn of the conversation on a query.
+ *
+ * Append-only in the database (migration 94): neither side can edit or delete a
+ * message, admin included. A thread where a party can retract what they said is
+ * not a record of a disagreement, and a disagreement about a financial
+ * correction is exactly what the thread holds.
+ */
+export interface FinanceTicketMessage {
+  id: string;
+  ticketId: string;
+  authorId: string | null;
+  authorName: string;
+  authorRole: string | null;
+  /**
+   * Which SIDE of the desk spoke. Stored at write time from the JWT rather than
+   * derived from `authorRole` at read time — deriving it would silently
+   * reattribute the whole thread the day somebody changes role.
+   */
+  authorSide: 'finance' | 'admin';
+  body: string;
+  createdAt: string;
+  attachments?: Attachment[];
+}
+
+/** The brief's verbs (§14), as recorded on an amendment. */
+export type FinanceAmendmentAction = 'edit' | 'amend' | 'overwrite' | 'delete';
+
+export const FINANCE_AMENDMENT_ACTION_LABELS: Record<FinanceAmendmentAction, string> = {
+  edit: 'Edit',
+  amend: 'Amend',
+  overwrite: 'Overwrite',
+  delete: 'Delete',
+};
+
+/**
+ * One correction an admin made to the books, and the query that justified it.
+ *
+ * Complements `FinanceAuditLog` rather than duplicating it. The trail answers
+ * "who did what, when, from where" across the whole module; this answers the
+ * narrower question an auditor asks out loud — "show me every correction ever
+ * made to a finance record, with the reason and the query behind it" — which is
+ * a report, not a filter over a JSON blob.
+ */
+export interface FinanceAmendment {
+  id: string;
+  ticketId: string;
+  queryNo: string;
+  referenceType: FinanceTicketReferenceType;
+  referenceId: string | null;
+  referenceNo: string;
+  action: FinanceAmendmentAction;
+  /** API (camelCase) field name, so the record reads like the screen that made it. */
+  field: string;
+  originalValue: string | null;
+  newValue: string | null;
+  /** Null when either side is not a number — a description change has no delta. */
+  difference: number | null;
+  reason: string;
+  adminId: string | null;
+  adminName: string;
+  ipAddress: string | null;
+  createdAt: string;
+}
+
+/**
+ * A field an admin may amend on a referenced record, per record type.
+ *
+ * This list is a MIRROR of the `case` arms in `amend_finance_record()`
+ * (migration 94) — it decides which inputs the admin's Amend dialog renders, and
+ * the function decides, again, whether to honour what comes back. Adding a field
+ * here without adding it there produces an input that 400s; the reverse produces
+ * a capability nobody can reach. The database is the boundary; this is the form.
+ *
+ * Derived columns are absent on purpose. `netSalary`, `totalAmount` and the two
+ * income shares each have a definition, and letting them be set directly would
+ * produce a row that either fails its own CHECK or, worse, passes and is wrong.
+ */
+export interface FinanceAmendableField {
+  key: string;
+  label: string;
+  kind: 'money' | 'text';
+  /** True when changing it re-posts the linked voucher (reversal + correction). */
+  movesLedger: boolean;
+}
+
+export const FINANCE_AMENDABLE_FIELDS: Record<FinanceTicketReferenceType, FinanceAmendableField[]> = {
+  ledger_entry: [
+    { key: 'amount', label: 'Amount', kind: 'money', movesLedger: true },
+  ],
+  finance_transaction: [
+    { key: 'amount', label: 'Amount', kind: 'money', movesLedger: true },
+    { key: 'description', label: 'Description', kind: 'text', movesLedger: false },
+  ],
+  salary_payment: [
+    { key: 'grossSalary', label: 'Gross Salary', kind: 'money', movesLedger: true },
+    { key: 'bonus', label: 'Bonus', kind: 'money', movesLedger: true },
+    { key: 'deductions', label: 'Deductions', kind: 'money', movesLedger: true },
+  ],
+  employee_advance: [
+    { key: 'advanceAmount', label: 'Advance', kind: 'money', movesLedger: true },
+    { key: 'bonusAmount', label: 'Bonus', kind: 'money', movesLedger: true },
+    { key: 'loanAmount', label: 'Loan', kind: 'money', movesLedger: true },
+  ],
+  partner_expense: [
+    { key: 'amount', label: 'Amount', kind: 'money', movesLedger: true },
+    { key: 'description', label: 'Description', kind: 'text', movesLedger: false },
+  ],
+  branch_share_payment: [
+    { key: 'amount', label: 'Share Amount', kind: 'money', movesLedger: true },
+    { key: 'bonus', label: 'Bonus', kind: 'money', movesLedger: true },
+  ],
+  income_approval: [
+    { key: 'totalAmount', label: 'Total Income', kind: 'money', movesLedger: false },
+    { key: 'branchExpenses', label: 'Branch Expenses', kind: 'money', movesLedger: false },
+  ],
+};
+
+// ---------------------------------------------------------------------------
+// Who may do what on the Help Desk
+// ---------------------------------------------------------------------------
+
+/**
+ * The Help Desk's own permission axis.
+ *
+ *   report  — raise a query, reply to one, attach a document, mark info received
+ *   respond — answer, assign, move the status, resolve, reject, close
+ *   modify  — edit, amend, overwrite or delete the FINANCE RECORD behind it
+ */
+export type FinanceHelpDeskPermission = 'view' | 'report' | 'respond' | 'modify';
+
+/**
+ * ADMIN, and only Admin, may change the books through the Help Desk.
+ *
+ * This is the brief's §6/§21 stated once, in the one place both the UI and the
+ * API read it from. `super_admin` is the whole of the admin side; every Finance
+ * role — `finance_admin` included — is on the reporting side.
+ *
+ * That last part is a deliberate reversal of migration 60, which gave the queue
+ * to `finance_admin`, and it is worth knowing why rather than discovering it: §3
+ * of the brief says a query must not go to another Finance user first, and a
+ * finance_admin is a Finance-module account. Its authority over the BOOKS
+ * elsewhere — approving a voucher, posting an entry — is untouched by this; only
+ * the Help Desk moved.
+ *
+ * Note what this function does NOT consult: `allowSuperAdminWrite`. That toggle
+ * (Finance Settings, off by default) guards a super admin writing to finance
+ * OUTSIDE this queue. The Help Desk is the sanctioned, audited channel for
+ * exactly those corrections — every one of them carries a Query ID and an
+ * amendment record — so gating it on a flag that ships off would leave every
+ * query unanswerable on a fresh install.
+ *
+ * NOT A SECURITY BOUNDARY on the client. It decides which buttons render;
+ * `requireFinanceHelpDeskAdmin()` on the API decides the same thing again from
+ * the JWT, which is where the real answer lives.
+ */
+export function financeHelpDeskCan(
+  role: UserRole | string | null | undefined,
+  permission: FinanceHelpDeskPermission,
+): boolean {
+  if (role === 'super_admin') return true;
+  if (!isFinanceRole(role)) return false;
+
+  // A Read Only Auditor sees the queue and says nothing into it — the same
+  // shape their access takes everywhere else in the module.
+  if (role === 'finance_auditor') return permission === 'view';
+
+  return permission === 'view' || permission === 'report';
+}
+
+/** Everyone who may open the Help Desk at all. */
+export function canAccessFinanceHelpDesk(role: UserRole | string | null | undefined): boolean {
+  return financeHelpDeskCan(role, 'view');
 }
 
 /** What GET /api/finance/tickets/lookup returns for a reference number. */

@@ -11,6 +11,7 @@ import {
   type LedgerEntry,
 } from '../shared';
 import { rowToApi } from '../utils/case';
+import { withoutDeleted } from '../utils/softDelete';
 import { getDayClosing } from './finance-ledger.service';
 import { getLedgerHeadByCode, round2 } from './finance-settings.service';
 
@@ -117,14 +118,16 @@ async function fetchEntries(
   to: string,
   extra?: { type?: 'income' | 'expense'; headIds?: string[] },
 ): Promise<{ entries: LedgerEntry[]; capped: boolean }> {
-  let query = supabaseAdmin
-    .from('ledger_entries')
-    .select('*')
-    .gte('entry_date', from)
-    .lte('entry_date', to)
-    .order('entry_date', { ascending: true })
-    .order('seq', { ascending: true })
-    .range(0, ROW_CAP - 1);
+  let query = withoutDeleted(
+    supabaseAdmin
+      .from('ledger_entries')
+      .select('*')
+      .gte('entry_date', from)
+      .lte('entry_date', to)
+      .order('entry_date', { ascending: true })
+      .order('seq', { ascending: true })
+      .range(0, ROW_CAP - 1),
+  );
 
   if (q.branchId) query = query.eq('branch_id', q.branchId);
   if (q.ledgerHeadId) query = query.eq('ledger_head_id', q.ledgerHeadId);
@@ -442,15 +445,17 @@ async function shareReport(
 ): Promise<FinanceReport> {
   const isCompany = q.type === 'company_share';
 
-  let query = supabaseAdmin
-    .from('finance_income_approvals')
-    .select('*')
-    .eq('status', 'approved')
-    .gte('business_date', from)
-    .lte('business_date', to)
-    .order('business_date', { ascending: true })
-    .order('branch_name', { ascending: true })
-    .range(0, ROW_CAP - 1);
+  let query = withoutDeleted(
+    supabaseAdmin
+      .from('finance_income_approvals')
+      .select('*')
+      .eq('status', 'approved')
+      .gte('business_date', from)
+      .lte('business_date', to)
+      .order('business_date', { ascending: true })
+      .order('branch_name', { ascending: true })
+      .range(0, ROW_CAP - 1),
+  );
   if (q.branchId) query = query.eq('branch_id', q.branchId);
 
   const { data, error } = await query;
@@ -509,13 +514,15 @@ async function salaryReport(
   to: string,
   by: string,
 ): Promise<FinanceReport> {
-  let query = supabaseAdmin
-    .from('salary_payments')
-    .select('*')
-    .neq('status', 'rejected')
-    .order('salary_month', { ascending: true })
-    .order('employee_name', { ascending: true })
-    .range(0, ROW_CAP - 1);
+  let query = withoutDeleted(
+    supabaseAdmin
+      .from('salary_payments')
+      .select('*')
+      .neq('status', 'rejected')
+      .order('salary_month', { ascending: true })
+      .order('employee_name', { ascending: true })
+      .range(0, ROW_CAP - 1),
+  );
 
   // Filter by salary month when given; otherwise by the date the money moved,
   // which is the axis the ledger and the P&L use.
@@ -588,15 +595,17 @@ async function partnerExpenseReport(
   to: string,
   by: string,
 ): Promise<FinanceReport> {
-  let query = supabaseAdmin
-    .from('partner_expenses')
-    .select('*')
-    .neq('status', 'rejected')
-    .gte('business_date', from)
-    .lte('business_date', to)
-    .order('business_date', { ascending: true })
-    .order('partner_name', { ascending: true })
-    .range(0, ROW_CAP - 1);
+  let query = withoutDeleted(
+    supabaseAdmin
+      .from('partner_expenses')
+      .select('*')
+      .neq('status', 'rejected')
+      .gte('business_date', from)
+      .lte('business_date', to)
+      .order('business_date', { ascending: true })
+      .order('partner_name', { ascending: true })
+      .range(0, ROW_CAP - 1),
+  );
   if (q.partnerName) query = query.eq('partner_name', q.partnerName);
 
   const { data, error } = await query;

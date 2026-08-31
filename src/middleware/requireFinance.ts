@@ -1,6 +1,6 @@
 import { Response, NextFunction } from 'express';
 import type { AuthRequest } from './auth';
-import { financeCan, type FinancePermission } from '../shared';
+import { financeCan, financeHelpDeskCan, isFinanceRole, type FinancePermission } from '../shared';
 import { getFinanceSettings } from '../services/finance-settings.service';
 
 /**
@@ -53,48 +53,65 @@ export function requireFinance(permission: FinancePermission) {
 }
 
 /**
- * Administering a Finance Help Desk query — edit, resolve/reject, delete.
+ * Administering a Finance Help Desk query — respond, assign, resolve, and change
+ * or delete the finance record behind it.
+ *
+ * THIS IS THE BRIEF'S §6 AND §21, AND IT IS THE ONE PLACE THEY ARE ENFORCED.
+ * Only an Admin may change the books through the Help Desk; a Finance user may
+ * report, view and discuss. Every control the UI hides is re-decided here from
+ * the JWT, because hiding a button is courtesy and refusing the request is the
+ * boundary.
  *
  * Deliberately NOT one of the five `FinancePermission`s. Those describe acts on
- * the BOOKS: `configure` is ledger heads and share percentages, `adjust` is
- * reversing a posted entry. Closing a query moves no money and touches no
- * ledger row, so routing it through either would overload a permission with a
- * meaning it does not have — and would silently hand ticket deletion to anyone
- * later granted `configure` for an unrelated reason.
+ * the BOOKS in the ordinary workflow: `configure` is ledger heads and share
+ * percentages, `adjust` is reversing a posted entry. Routing the Help Desk
+ * through either would overload a permission with a meaning it does not have,
+ * and would silently hand query deletion to anyone later granted `configure`
+ * for an unrelated reason.
  *
- * The rule is simply the one the brief states: the Finance Admin owns the
- * queue. Super Admin follows the same `allowSuperAdminWrite` toggle as the rest
- * of the module (off by default), read per request so a revoked grant applies
- * immediately.
+ * TWO THINGS CHANGED IN MIGRATION 94, both deliberate and both worth stating.
+ *
+ * 1. `finance_admin` NO LONGER PASSES. Migration 60 gave it the queue; §3 of the
+ *    brief now says a query must not be sent to another Finance user first, and
+ *    a finance_admin is a Finance-module account. Its authority over the books
+ *    elsewhere — approving a voucher, posting an entry — is untouched by this;
+ *    only the Help Desk moved. A finance_admin raising and discussing queries
+ *    still works, through `requireFinance('create')` like every other Finance
+ *    role.
+ *
+ * 2. `allowSuperAdminWrite` IS NOT CONSULTED. That toggle (Finance Settings, off
+ *    by default) guards a super admin writing to finance OUTSIDE this queue. The
+ *    Help Desk IS the sanctioned channel for those corrections — every one
+ *    carries a Query ID, a stated reason and a row in `finance_amendments` — so
+ *    gating it on a flag that ships off would leave every query on a fresh
+ *    install unanswerable, by the only role the brief names as the answerer.
+ *    Keeping the toggle here would not be "safer"; it would be a queue that
+ *    silently does not work.
+ *
+ * `financeHelpDeskCan(role, 'respond')` in the shared types is the same rule for
+ * the UI, and the two are meant to be read together.
  */
-export function requireFinanceTicketAdmin() {
-  return async (req: AuthRequest, res: Response, next: NextFunction) => {
+export function requireFinanceHelpDeskAdmin() {
+  return (req: AuthRequest, res: Response, next: NextFunction) => {
     if (!req.user) {
       res.status(401).json({ error: 'Unauthorized' });
       return;
     }
-    try {
-      if (req.user.role === 'finance_admin') {
-        next();
-        return;
-      }
-      if (req.user.role === 'super_admin') {
-        const { allowSuperAdminWrite } = await getFinanceSettings();
-        if (allowSuperAdminWrite) {
-          next();
-          return;
-        }
-        res.status(403).json({
-          error: 'Forbidden: Super Admin write access to finance is turned off in Finance Settings.',
-        });
-        return;
-      }
-      res.status(403).json({
-        error: 'Forbidden: only a Finance Admin may edit, resolve or delete a Help Desk query.',
-      });
-    } catch (err) {
-      next(err);
+    if (financeHelpDeskCan(req.user.role, 'respond')) {
+      next();
+      return;
     }
+    // The message distinguishes "you are in finance, but this is not yours" from
+    // "you are not in this module at all" — the first is a normal situation with
+    // a normal answer (raise it and an admin will act), and the person deserves
+    // to be told which.
+    const inModule = isFinanceRole(req.user.role);
+    res.status(403).json({
+      error: inModule
+        ? 'Forbidden: only an Admin may change, resolve or delete a Help Desk query or the ' +
+          'finance record behind it. Add a message to the query and an Admin will action it.'
+        : 'Forbidden: the Finance Help Desk is restricted to Finance and Admin accounts.',
+    });
   };
 }
 

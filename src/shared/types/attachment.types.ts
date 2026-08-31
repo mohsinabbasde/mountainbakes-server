@@ -18,6 +18,12 @@ export const ATTACHMENT_ENTITIES = [
   'production_order_demand',
   'production_order_verification',
   'production_order_special_item',
+  // Finance Help Desk (migration 94): the supporting document a raiser attaches
+  // to a query, and to each reply in its conversation. Two entities rather than
+  // one — a photo posted mid-thread belongs to the message that explains it, and
+  // flattening both onto the query would lose which reply it arrived with.
+  'finance_ticket',
+  'finance_ticket_message',
 ] as const;
 
 export type AttachmentEntity = (typeof ATTACHMENT_ENTITIES)[number];
@@ -33,6 +39,8 @@ export const ATTACHMENT_ENTITY_LABELS: Record<AttachmentEntity, string> = {
   production_order_demand: 'Demand',
   production_order_verification: 'Delivery verification',
   production_order_special_item: 'Special order item',
+  finance_ticket: 'Finance Help Desk query',
+  finance_ticket_message: 'Help Desk reply',
 };
 
 /**

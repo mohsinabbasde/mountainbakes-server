@@ -16,6 +16,7 @@ import {
   type UpdateLedgerHeadInput,
 } from '../shared';
 import { rowToApi } from '../utils/case';
+import { withoutDeleted } from '../utils/softDelete';
 import { invalidate } from '../utils/cache';
 import { attachmentKey, listAttachmentsAcross } from './attachments.service';
 import { getLedgerHeadByCode, round2 } from './finance-settings.service';
@@ -289,11 +290,13 @@ export async function queryLedger(q: LedgerQuery): Promise<LedgerPage> {
   const limit = Math.min(Math.max(Number(q.limit ?? 100), 1), 500);
   const offset = Math.max(Number(q.offset ?? 0), 0);
 
-  let query = supabaseAdmin
-    .from('ledger_entries')
-    .select('*')
-    .order('seq', { ascending: true })
-    .range(offset, offset + limit - 1);
+  let query = withoutDeleted(
+    supabaseAdmin
+      .from('ledger_entries')
+      .select('*')
+      .order('seq', { ascending: true })
+      .range(offset, offset + limit - 1),
+  );
 
   query = applyLedgerFilters(query, q);
 
@@ -376,7 +379,9 @@ function normaliseEntry(e: LedgerEntry): LedgerEntry {
 }
 
 export async function getLedgerEntry(id: string): Promise<LedgerEntry | null> {
-  const { data, error } = await supabaseAdmin.from('ledger_entries').select('*').eq('id', id).maybeSingle();
+  const { data, error } = await withoutDeleted(
+    supabaseAdmin.from('ledger_entries').select('*').eq('id', id),
+  ).maybeSingle();
   if (error) throw error;
   if (!data) return null;
   const [entry] = await withSourcePhotos([normaliseEntry(rowToApi<LedgerEntry>(data))]);
@@ -492,20 +497,24 @@ export async function closeFinanceDay(
 
   // Mark the day's entries locked. Permitted by the immutability trigger, which
   // allows `status` to move but nothing that carries a figure.
-  const { error: lockErr } = await supabaseAdmin
-    .from('ledger_entries')
-    .update({ status: 'locked' })
-    .eq('entry_date', businessDate)
-    .eq('status', 'posted');
+  const { error: lockErr } = await withoutDeleted(
+    supabaseAdmin
+      .from('ledger_entries')
+      .update({ status: 'locked' })
+      .eq('entry_date', businessDate)
+      .eq('status', 'posted'),
+  );
   if (lockErr) throw lockErr;
 
   // Documents settled on the day follow their entries into `locked`.
   for (const table of ['finance_transactions', 'salary_payments', 'partner_expenses', 'employee_advances']) {
-    const { error: docErr } = await supabaseAdmin
-      .from(table)
-      .update({ status: 'locked' })
-      .eq('business_date', businessDate)
-      .eq('status', 'posted');
+    const { error: docErr } = await withoutDeleted(
+      supabaseAdmin
+        .from(table)
+        .update({ status: 'locked' })
+        .eq('business_date', businessDate)
+        .eq('status', 'posted'),
+    );
     // A failure here leaves a posted document on a locked day — untidy but
     // harmless (the ledger is what reports read), so it is logged rather than
     // rolled back over an already-recorded closing.
@@ -518,26 +527,34 @@ export async function closeFinanceDay(
 /** Salaries carry no business_date, so they are excluded from the day check. */
 async function countPendingForDate(businessDate: string): Promise<number> {
   const [txns, partners, advances, income] = await Promise.all([
-    supabaseAdmin
-      .from('finance_transactions')
-      .select('id', { count: 'exact', head: true })
-      .eq('business_date', businessDate)
-      .in('status', ['draft', 'pending_approval']),
-    supabaseAdmin
-      .from('partner_expenses')
-      .select('id', { count: 'exact', head: true })
-      .eq('business_date', businessDate)
-      .in('status', ['draft', 'pending_approval']),
-    supabaseAdmin
-      .from('employee_advances')
-      .select('id', { count: 'exact', head: true })
-      .eq('business_date', businessDate)
-      .in('status', ['draft', 'pending_approval']),
-    supabaseAdmin
-      .from('finance_income_approvals')
-      .select('id', { count: 'exact', head: true })
-      .eq('business_date', businessDate)
-      .in('status', ['pending_verification', 'pending_approval']),
+    withoutDeleted(
+      supabaseAdmin
+        .from('finance_transactions')
+        .select('id', { count: 'exact', head: true })
+        .eq('business_date', businessDate)
+        .in('status', ['draft', 'pending_approval']),
+    ),
+    withoutDeleted(
+      supabaseAdmin
+        .from('partner_expenses')
+        .select('id', { count: 'exact', head: true })
+        .eq('business_date', businessDate)
+        .in('status', ['draft', 'pending_approval']),
+    ),
+    withoutDeleted(
+      supabaseAdmin
+        .from('employee_advances')
+        .select('id', { count: 'exact', head: true })
+        .eq('business_date', businessDate)
+        .in('status', ['draft', 'pending_approval']),
+    ),
+    withoutDeleted(
+      supabaseAdmin
+        .from('finance_income_approvals')
+        .select('id', { count: 'exact', head: true })
+        .eq('business_date', businessDate)
+        .in('status', ['pending_verification', 'pending_approval']),
+    ),
   ]);
   for (const r of [txns, partners, advances, income]) if (r.error) throw r.error;
   return (txns.count ?? 0) + (partners.count ?? 0) + (advances.count ?? 0) + (income.count ?? 0);
@@ -583,20 +600,24 @@ export async function getFinanceDashboard(businessDate = businessDateStr()): Pro
     await Promise.all([
       getDayClosing(businessDate),
       shareTotals(businessDate),
-      supabaseAdmin
-        .from('finance_income_approvals')
-        .select('total_amount')
-        .in('status', ['pending_verification', 'pending_approval']),
-      supabaseAdmin.from('finance_transactions').select('amount').in('status', ['draft', 'pending_approval']),
-      supabaseAdmin.from('partner_expenses').select('amount').in('status', ['draft', 'pending_approval']),
-      supabaseAdmin.from('salary_payments').select('net_salary').in('status', ['draft', 'pending_approval']),
-      supabaseAdmin.from('employee_advances').select('total_amount').in('status', ['draft', 'pending_approval']),
-      supabaseAdmin.from('ledger_entries').select('*').order('seq', { ascending: false }).limit(10),
-      supabaseAdmin
-        .from('ledger_entries')
-        .select('entry_date, debit, credit')
-        .gte('entry_date', trendFrom)
-        .lte('entry_date', businessDate),
+      withoutDeleted(
+        supabaseAdmin
+          .from('finance_income_approvals')
+          .select('total_amount')
+          .in('status', ['pending_verification', 'pending_approval']),
+      ),
+      withoutDeleted(supabaseAdmin.from('finance_transactions').select('amount').in('status', ['draft', 'pending_approval'])),
+      withoutDeleted(supabaseAdmin.from('partner_expenses').select('amount').in('status', ['draft', 'pending_approval'])),
+      withoutDeleted(supabaseAdmin.from('salary_payments').select('net_salary').in('status', ['draft', 'pending_approval'])),
+      withoutDeleted(supabaseAdmin.from('employee_advances').select('total_amount').in('status', ['draft', 'pending_approval'])),
+      withoutDeleted(supabaseAdmin.from('ledger_entries').select('*').order('seq', { ascending: false }).limit(10)),
+      withoutDeleted(
+        supabaseAdmin
+          .from('ledger_entries')
+          .select('entry_date, debit, credit')
+          .gte('entry_date', trendFrom)
+          .lte('entry_date', businessDate),
+      ),
     ]);
 
   for (const r of [pendingIncome, pendingTxns, pendingPartners, pendingSalaries, pendingAdvances, recent, trendRows]) {
@@ -660,11 +681,13 @@ async function shareTotals(businessDate: string): Promise<{ company: number; bra
     getLedgerHeadByCode(SYSTEM_LEDGER_HEAD_CODES.BRANCH_SHARE),
   ]);
 
-  const { data, error } = await supabaseAdmin
-    .from('ledger_entries')
-    .select('ledger_head_id, debit')
-    .eq('entry_date', businessDate)
-    .in('ledger_head_id', [company.id, branch.id]);
+  const { data, error } = await withoutDeleted(
+    supabaseAdmin
+      .from('ledger_entries')
+      .select('ledger_head_id, debit')
+      .eq('entry_date', businessDate)
+      .in('ledger_head_id', [company.id, branch.id]),
+  );
   if (error) throw error;
 
   let c = 0;

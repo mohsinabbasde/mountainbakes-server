@@ -19,6 +19,7 @@ import {
   type UpdateSalaryPaymentInput,
 } from '../shared';
 import { rowToApi } from '../utils/case';
+import { withoutDeleted } from '../utils/softDelete';
 import { bindAttachments, listAttachments, listAttachmentsFor } from './attachments.service';
 import { approveDocument, rejectDocument } from './finance-documents.service';
 import { getLedgerHeadByCode, round2 } from './finance-settings.service';
@@ -252,12 +253,14 @@ export interface SalaryQuery {
 }
 
 export async function listSalaryPayments(q: SalaryQuery): Promise<SalaryPayment[]> {
-  let query = supabaseAdmin
-    .from('salary_payments')
-    .select('*')
-    .order('salary_month', { ascending: false })
-    .order('employee_name', { ascending: true })
-    .limit(Math.min(Math.max(Number(q.limit ?? 300), 1), 1000));
+  let query = withoutDeleted(
+    supabaseAdmin
+      .from('salary_payments')
+      .select('*')
+      .order('salary_month', { ascending: false })
+      .order('employee_name', { ascending: true })
+      .limit(Math.min(Math.max(Number(q.limit ?? 300), 1), 1000)),
+  );
 
   if (q.status === 'pending') query = query.in('status', ['draft', 'pending_approval']);
   else if (q.status) query = query.eq('status', q.status);
@@ -291,7 +294,9 @@ function normalise(s: SalaryPayment): SalaryPayment {
 }
 
 export async function getSalaryPayment(id: string): Promise<SalaryPayment | null> {
-  const { data, error } = await supabaseAdmin.from('salary_payments').select('*').eq('id', id).maybeSingle();
+  const { data, error } = await withoutDeleted(
+    supabaseAdmin.from('salary_payments').select('*').eq('id', id),
+  ).maybeSingle();
   if (error) throw error;
   if (!data) return null;
   return {
@@ -367,6 +372,12 @@ export async function createSalaryPayment(
   const claimed = await claimAdvancesForSalary(salary.id, employee.id, input.recoverAdvanceIds);
   if (claimed.length !== input.recoverAdvanceIds.length) {
     // The FK is ON DELETE SET NULL, so this releases whatever it did claim.
+    //
+    // A HARD delete, and deliberately not routed through the soft-delete path
+    // migration 94 added: this is rolling back a row created a few statements
+    // ago that no other request has been able to see. Stamping it instead would
+    // leave a permanent "deleted salary payment" in the audit view for a payslip
+    // that never existed, which is noise an auditor has to learn to ignore.
     await supabaseAdmin.from('salary_payments').delete().eq('id', salary.id);
     throw Object.assign(
       new Error(
@@ -418,11 +429,9 @@ export async function updateSalaryPayment(id: string, input: UpdateSalaryPayment
     row['rejection_reason'] = null;
   }
 
-  const { data, error } = await supabaseAdmin
-    .from('salary_payments')
-    .update(row)
-    .eq('id', id)
-    .in('status', EDITABLE_DOC_STATUSES)
+  const { data, error } = await withoutDeleted(
+    supabaseAdmin.from('salary_payments').update(row).eq('id', id).in('status', EDITABLE_DOC_STATUSES),
+  )
     .select('*')
     .single();
   if (error) throw error;
@@ -430,11 +439,13 @@ export async function updateSalaryPayment(id: string, input: UpdateSalaryPayment
 }
 
 export async function submitSalaryPayment(id: string): Promise<SalaryPayment> {
-  const { data, error } = await supabaseAdmin
-    .from('salary_payments')
-    .update({ status: 'pending_approval', rejection_reason: null })
-    .eq('id', id)
-    .in('status', ['draft', 'rejected'])
+  const { data, error } = await withoutDeleted(
+    supabaseAdmin
+      .from('salary_payments')
+      .update({ status: 'pending_approval', rejection_reason: null })
+      .eq('id', id)
+      .in('status', ['draft', 'rejected']),
+  )
     .select('*')
     .single();
   if (error) throw Object.assign(new Error('Only a draft or rejected salary record can be submitted.'), { status: 409 });
@@ -482,7 +493,9 @@ export async function approveSalaryPayment(
   // Stamp the payment date if the approver did not set one — the ledger now
   // says the money moved today, and the payslip must agree with it.
   if (!doc.paymentDate) {
-    await supabaseAdmin.from('salary_payments').update({ payment_date: entry.entryDate }).eq('id', id);
+    await withoutDeleted(
+      supabaseAdmin.from('salary_payments').update({ payment_date: entry.entryDate }).eq('id', id),
+    );
   }
 
   // The advances this payslip claimed at creation are now actually recovered.
@@ -490,11 +503,13 @@ export async function approveSalaryPayment(
   // payslip intends to deduct them, this says the deduction reached the book.
   // Left as a stamp on the existing claim rather than a fresh one, so approving
   // twice cannot double-count and a failure here cannot un-recover anything.
-  const { error: recoverErr } = await supabaseAdmin
-    .from('employee_advances')
-    .update({ recovered_at: new Date().toISOString() })
-    .eq('recovered_by_salary_id', id)
-    .is('recovered_at', null);
+  const { error: recoverErr } = await withoutDeleted(
+    supabaseAdmin
+      .from('employee_advances')
+      .update({ recovered_at: new Date().toISOString() })
+      .eq('recovered_by_salary_id', id)
+      .is('recovered_at', null),
+  );
   // The deduction is already in the posted figure, so a failure here costs a
   // timestamp, not money. Logged rather than thrown: the approval happened.
   if (recoverErr) console.error(`[finance] could not stamp advance recovery for ${doc.salaryNo}:`, recoverErr.message);
@@ -568,10 +583,9 @@ async function withRecovery(rows: EmployeeAdvance[]): Promise<EmployeeAdvance[]>
     return rows.map((r) => ({ ...r, recoveredBySalaryNo: null, isRecovered: false }));
   }
 
-  const { data, error } = await supabaseAdmin
-    .from('salary_payments')
-    .select('id, salary_no, status')
-    .in('id', salaryIds);
+  const { data, error } = await withoutDeleted(
+    supabaseAdmin.from('salary_payments').select('id, salary_no, status').in('id', salaryIds),
+  );
   if (error) throw error;
 
   const byId = new Map(
@@ -593,12 +607,14 @@ async function withRecovery(rows: EmployeeAdvance[]): Promise<EmployeeAdvance[]>
 }
 
 export async function listEmployeeAdvances(q: AdvanceQuery): Promise<EmployeeAdvance[]> {
-  let query = supabaseAdmin
-    .from('employee_advances')
-    .select('*')
-    .order('business_date', { ascending: false })
-    .order('created_at', { ascending: false })
-    .limit(Math.min(Math.max(Number(q.limit ?? 300), 1), 1000));
+  let query = withoutDeleted(
+    supabaseAdmin
+      .from('employee_advances')
+      .select('*')
+      .order('business_date', { ascending: false })
+      .order('created_at', { ascending: false })
+      .limit(Math.min(Math.max(Number(q.limit ?? 300), 1), 1000)),
+  );
 
   if (q.outstandingOnly) query = query.in('status', ['posted', 'locked']);
   else if (q.status === 'pending') query = query.in('status', ['draft', 'pending_approval']);
@@ -630,7 +646,9 @@ export async function listEmployeeAdvances(q: AdvanceQuery): Promise<EmployeeAdv
 }
 
 export async function getEmployeeAdvance(id: string): Promise<EmployeeAdvance | null> {
-  const { data, error } = await supabaseAdmin.from('employee_advances').select('*').eq('id', id).maybeSingle();
+  const { data, error } = await withoutDeleted(
+    supabaseAdmin.from('employee_advances').select('*').eq('id', id),
+  ).maybeSingle();
   if (error) throw error;
   if (!data) return null;
   const [resolved] = await withRecovery([normaliseAdvance(rowToApi<EmployeeAdvance>(data))]);
@@ -655,13 +673,15 @@ export async function getEmployeeAdvanceSummary(employeeId: string): Promise<Emp
   if (empErr) throw empErr;
   if (!emp) throw Object.assign(new Error('Employee not found'), { status: 404 });
 
-  const { data, error } = await supabaseAdmin
-    .from('employee_advances')
-    .select('*')
-    .eq('employee_id', employeeId)
-    .in('status', ['posted', 'locked'])
-    .order('business_date', { ascending: true })
-    .order('created_at', { ascending: true });
+  const { data, error } = await withoutDeleted(
+    supabaseAdmin
+      .from('employee_advances')
+      .select('*')
+      .eq('employee_id', employeeId)
+      .in('status', ['posted', 'locked'])
+      .order('business_date', { ascending: true })
+      .order('created_at', { ascending: true }),
+  );
   if (error) throw error;
 
   const rows = await withRecovery(rowToApi<EmployeeAdvance[]>(data ?? []).map(normaliseAdvance));
@@ -778,11 +798,9 @@ export async function updateEmployeeAdvance(
     row['rejection_reason'] = null;
   }
 
-  const { data, error } = await supabaseAdmin
-    .from('employee_advances')
-    .update(row)
-    .eq('id', id)
-    .in('status', EDITABLE_DOC_STATUSES)
+  const { data, error } = await withoutDeleted(
+    supabaseAdmin.from('employee_advances').update(row).eq('id', id).in('status', EDITABLE_DOC_STATUSES),
+  )
     .select('*')
     .single();
   if (error) throw error;
@@ -791,11 +809,13 @@ export async function updateEmployeeAdvance(
 }
 
 export async function submitEmployeeAdvance(id: string): Promise<EmployeeAdvance> {
-  const { data, error } = await supabaseAdmin
-    .from('employee_advances')
-    .update({ status: 'pending_approval', rejection_reason: null })
-    .eq('id', id)
-    .in('status', ['draft', 'rejected'])
+  const { data, error } = await withoutDeleted(
+    supabaseAdmin
+      .from('employee_advances')
+      .update({ status: 'pending_approval', rejection_reason: null })
+      .eq('id', id)
+      .in('status', ['draft', 'rejected']),
+  )
     .select('*')
     .single();
   if (error) throw Object.assign(new Error('Only a draft or rejected advance can be submitted.'), { status: 409 });
@@ -875,11 +895,13 @@ async function claimAdvancesForSalary(
 
   // Which of the currently-held ones are held by a rejected payslip, and so are
   // fair game. Resolved first because the filter below has to name them.
-  const { data: held, error: heldErr } = await supabaseAdmin
-    .from('employee_advances')
-    .select('recovered_by_salary_id')
-    .in('id', advanceIds)
-    .not('recovered_by_salary_id', 'is', null);
+  const { data: held, error: heldErr } = await withoutDeleted(
+    supabaseAdmin
+      .from('employee_advances')
+      .select('recovered_by_salary_id')
+      .in('id', advanceIds)
+      .not('recovered_by_salary_id', 'is', null),
+  );
   if (heldErr) throw heldErr;
 
   const heldBy = Array.from(
@@ -887,21 +909,21 @@ async function claimAdvancesForSalary(
   );
   let releasable: string[] = [];
   if (heldBy.length > 0) {
-    const { data: claimers, error: claimerErr } = await supabaseAdmin
-      .from('salary_payments')
-      .select('id, status')
-      .in('id', heldBy)
-      .eq('status', 'rejected');
+    const { data: claimers, error: claimerErr } = await withoutDeleted(
+      supabaseAdmin.from('salary_payments').select('id, status').in('id', heldBy).eq('status', 'rejected'),
+    );
     if (claimerErr) throw claimerErr;
     releasable = (claimers ?? []).map((r) => r['id'] as string);
   }
 
-  let update = supabaseAdmin
-    .from('employee_advances')
-    .update({ recovered_by_salary_id: salaryId })
-    .in('id', advanceIds)
-    .eq('employee_id', employeeId)
-    .in('status', ['posted', 'locked']);
+  let update = withoutDeleted(
+    supabaseAdmin
+      .from('employee_advances')
+      .update({ recovered_by_salary_id: salaryId })
+      .in('id', advanceIds)
+      .eq('employee_id', employeeId)
+      .in('status', ['posted', 'locked']),
+  );
 
   update =
     releasable.length > 0
