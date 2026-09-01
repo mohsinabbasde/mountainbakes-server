@@ -21,12 +21,14 @@ import { router as expensesRouter } from './expenses.routes';
 import { router as branchClosingRouter } from './branch-closing.routes';
 import { router as stockRouter } from './stock.routes';
 import { router as reportsRouter } from './reports.routes';
+import { router as salesAnalyticsRouter } from './sales-analytics.routes';
 import { router as searchRouter } from './search.routes';
 import { router as supportRouter } from './support.routes';
 import { router as closingNotificationsRouter } from './closing-notifications.routes';
 import { router as specialEventsRouter } from './special-events.routes';
 import { router as settingsRouter } from './settings.routes';
 import { router as loginHistoryRouter } from './login-history.routes';
+import { router as loginAttemptsRouter } from './login-attempts.routes';
 import { router as businessDayRouter } from './business-day.routes';
 import { router as financeRouter } from './finance.routes';
 import { router as financeIncomeRouter, entriesRouter as financeEntriesRouter } from './finance-income.routes';
@@ -69,6 +71,10 @@ export function setupRoutes(app: Express) {
   app.use('/api/branch-closing', branchClosingRouter);
   app.use('/api/stock', stockRouter);
   app.use('/api/reports', reportsRouter);
+  // Daily Sales analytics. Its own prefix, not a path under /api/reports: it
+  // aggregates in Postgres (migration 100) rather than in Node, and it is read
+  // by a dashboard card that refetches on every filter change.
+  app.use('/api/sales-analytics', salesAnalyticsRouter);
   app.use('/api/search', searchRouter);
   app.use('/api/support', supportRouter);
   app.use('/api/closing-notifications', closingNotificationsRouter);
@@ -77,6 +83,11 @@ export function setupRoutes(app: Express) {
   // Login History. Opened and pinged by the client, because a static-export app
   // signs in to Supabase directly and this API never sees the login itself.
   app.use('/api/login-history', loginHistoryRouter);
+  // Its own mount rather than a path under login-history, because its POST is
+  // the one unauthenticated write in the API and that router applies
+  // `authenticate` to everything. Two postures, two routers — see the header of
+  // login-attempts.routes.ts.
+  app.use('/api/login-attempts', loginAttemptsRouter);
   app.use('/api/business-day', businessDayRouter);
   // Shared by finance and branch: one upload endpoint for every captured photo,
   // which decides what the caller may attach to from the `entity` field.

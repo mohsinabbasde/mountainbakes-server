@@ -20,8 +20,9 @@ import {
   endSession,
   listSessions,
   listActiveSessions,
-  listCountries,
+  listFilterOptions,
   getSession,
+  auditSessionView,
   revokeSession,
   revokeAllOtherSessions,
 } from '../services/login-history.service';
@@ -70,7 +71,10 @@ function isSecurityAdmin(role: string): boolean {
 router.post('/start', validate(StartLoginSessionSchema), async (req: AuthRequest, res, next) => {
   try {
     const user = req.user!;
-    const { resumeSessionId } = req.body as { resumeSessionId?: string };
+    const { resumeSessionId, screenSize } = req.body as {
+      resumeSessionId?: string;
+      screenSize?: string;
+    };
 
     // display_name and user_code are not in the JWT, and the history is read by
     // people who know staff by name and quote them by code. One extra read, on a
@@ -95,6 +99,10 @@ router.post('/start', validate(StartLoginSessionSchema), async (req: AuthRequest
       authSessionId: user.authSessionId,
       ipAddress: clientIp(headers, req.ip),
       userAgent: typeof headers['user-agent'] === 'string' ? (headers['user-agent'] as string) : null,
+      // The single body field that reaches a stored column. Shape-validated by
+      // the schema, labelled as device-reported in the UI, and used for nothing
+      // but display — see StartLoginSessionSchema for why it is the exception.
+      screenSize: screenSize ?? null,
       resumeSessionId,
     });
 
@@ -221,6 +229,15 @@ router.get('/', async (req: AuthRequest, res, next) => {
       from: q.from ?? null,
       to: q.to ?? null,
       suspiciousOnly: q.suspiciousOnly === 'true',
+      // Passed through for every caller, admin or not. They narrow within
+      // whatever scope the line above already decided, so a branch user filtering
+      // by branch still only ever sees their own sessions — the scope is not
+      // something a filter can widen.
+      branchId: q.branchId ?? null,
+      role: q.role ?? null,
+      city: q.city ?? null,
+      browser: q.browser ?? null,
+      deviceType: q.deviceType ?? null,
     };
 
     res.json(await listSessions({ filters, page: q.page, pageSize: q.pageSize, searchEmail: admin }));
@@ -230,16 +247,22 @@ router.get('/', async (req: AuthRequest, res, next) => {
 });
 
 /**
- * GET /api/login-history/countries — the values the country filter offers.
+ * GET /api/login-history/filters — the values the country, city and browser
+ * dropdowns offer.
  *
  * Its own endpoint rather than a field on the list response, because the list is
- * paged: deriving the dropdown from the current page would give a filter whose
- * options changed every time you used it.
+ * paged: deriving the dropdowns from the current page would give filters whose
+ * options changed every time you used one, and narrowed themselves out of
+ * existence as you went.
+ *
+ * Scoped like the list — a non-admin gets the facets of their own sessions, so
+ * the dropdowns cannot become a directory of every city the company has ever
+ * signed in from.
  */
-router.get('/countries', async (req: AuthRequest, res, next) => {
+router.get('/filters', async (req: AuthRequest, res, next) => {
   try {
     const user = req.user!;
-    res.json({ countries: await listCountries(isSecurityAdmin(user.role) ? null : user.uid) });
+    res.json(await listFilterOptions(isSecurityAdmin(user.role) ? null : user.uid));
   } catch (err) {
     next(err);
   }
@@ -256,7 +279,7 @@ router.get('/countries', async (req: AuthRequest, res, next) => {
  */
 router.get('/active', requireRole('super_admin'), async (_req: AuthRequest, res, next) => {
   try {
-    res.json(await listActiveSessions({ userId: null }));
+    res.json(await listActiveSessions({ userId: null, revealEmail: true }));
   } catch (err) {
     next(err);
   }
@@ -287,6 +310,20 @@ router.get('/:id', async (req: AuthRequest, res, next) => {
       res.status(404).json({ error: 'Session not found' });
       return;
     }
+
+    // Audited, and ONLY when an admin opens somebody else's. This is the view
+    // that reveals the activated address, the IP and the location together, so
+    // "who looked at whose session" is a question the trail has to answer about
+    // the admins themselves. An admin reading their own record is not a
+    // privileged act, and logging it would bury the rows that are.
+    //
+    // After the 404 above, so a refused read never writes an audit row claiming
+    // somebody saw something they did not. Fire-and-forget inside — the response
+    // does not wait on it.
+    if (admin && session.userId !== user.uid) {
+      auditSessionView(session, { id: user.uid, name: await resolveAdminName(user.uid, user.email) });
+    }
+
     res.json(session);
   } catch (err) {
     next(err);

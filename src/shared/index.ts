@@ -14,6 +14,7 @@ export * from './types/stock.types';
 export * from './types/notification.types';
 export * from './types/settings.types';
 export * from './types/report.types';
+export * from './types/sales-analytics.types';
 
 export * from './types/audit.types';
 export * from './types/business-day.types';

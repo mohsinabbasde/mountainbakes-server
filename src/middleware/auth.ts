@@ -3,6 +3,80 @@ import { supabaseAdmin } from '../config/supabase';
 import { USER_ROLES, type UserRole } from '../shared';
 
 /**
+ * Revoked GoTrue sessions this process has already seen.
+ *
+ * WHY THIS CACHE EXISTS AT ALL. The check below runs on EVERY authenticated
+ * request in the app, and an uncached version would add a database round-trip to
+ * each one — a real cost paid on every screen to catch a condition that is rare
+ * by construction. So the answer is remembered, asymmetrically:
+ *
+ *   * A revocation is remembered FOREVER (until the process restarts). It cannot
+ *     be undone — `revoke_auth_session` deletes the GoTrue row and there is no
+ *     un-revoke — so a cached `true` can never go stale in the dangerous
+ *     direction.
+ *   * "Not revoked" is remembered for one minute only, and that TTL is the
+ *     enforcement lag: a session revoked by an admin keeps working for at most a
+ *     minute after its next cached negative, against the up-to-an-hour window
+ *     that existed when the access token's own lifetime was the only bound.
+ *
+ * BOUNDED. The negative map is capped and cleared wholesale rather than evicted
+ * entry by entry; the cost of a cold cache is one extra query per live session,
+ * which is not worth an LRU to avoid. The revoked set is not capped because its
+ * membership is the number of sessions an admin has ever ended on this dyno,
+ * which is small and self-limiting.
+ *
+ * PER-PROCESS, like `utils/cache.ts` and for the same reason: the deploy is a
+ * single dyno. On a horizontally scaled API each instance would learn about a
+ * revocation independently, within its own TTL — still bounded, still far better
+ * than a token lifetime, and worth swapping for Redis if that day comes.
+ */
+const revokedSessions = new Set<string>();
+const notRevokedUntil = new Map<string, number>();
+const NEGATIVE_TTL_MS = 60_000;
+const NEGATIVE_CACHE_MAX = 2_000;
+
+/**
+ * Has an admin signed this GoTrue session out?
+ *
+ * FAILS OPEN, deliberately and in exactly one direction: a database error
+ * answers "not revoked". This runs in front of every request in the app, so a
+ * transient failure here that failed CLOSED would sign the entire company out of
+ * a working system to enforce a revocation that has probably not happened. The
+ * revocation still stands at GoTrue — the session row is deleted, so the browser
+ * dies at its next token refresh regardless of this check — and this is the
+ * faster of two mechanisms, not the only one.
+ */
+async function isRevoked(authSessionId: string | null): Promise<boolean> {
+  if (!authSessionId) return false;
+  if (revokedSessions.has(authSessionId)) return true;
+
+  const fresh = notRevokedUntil.get(authSessionId);
+  if (fresh !== undefined && fresh > Date.now()) return false;
+
+  const { data, error } = await supabaseAdmin
+    .from('login_sessions')
+    .select('id')
+    .eq('auth_session_id', authSessionId)
+    .not('revoked_at', 'is', null)
+    .limit(1);
+
+  if (error) {
+    console.error('[auth] revocation check failed', error.message);
+    return false;
+  }
+
+  if ((data?.length ?? 0) > 0) {
+    revokedSessions.add(authSessionId);
+    notRevokedUntil.delete(authSessionId);
+    return true;
+  }
+
+  if (notRevokedUntil.size >= NEGATIVE_CACHE_MAX) notRevokedUntil.clear();
+  notRevokedUntil.set(authSessionId, Date.now() + NEGATIVE_TTL_MS);
+  return false;
+}
+
+/**
  * Driven off the shared USER_ROLES list rather than a literal copy. The literal
  * version had to be remembered when the four Finance Ledger roles were added in
  * migration 51 — and forgetting it fails CLOSED but silently: a correctly
@@ -101,15 +175,54 @@ export async function authenticate(req: AuthRequest, res: Response, next: NextFu
     return;
   }
 
+  // Safe here and nowhere earlier: `getUser` above has already verified this
+  // exact token. See sessionIdFromToken.
+  const authSessionId = sessionIdFromToken(token);
+
+  /*
+   * A session an admin has ended does not get to keep working.
+   *
+   * WHY THIS IS NEEDED WHEN THE GoTrue SESSION IS ALREADY DELETED. A Supabase
+   * ACCESS token is stateless: it carries its own signature and expiry, and
+   * `getUser` above accepts it on those alone. Deleting the session behind it
+   * kills the REFRESH — the browser cannot mint another token — but the one it
+   * is holding stays valid until it lapses, up to an hour later. Without this
+   * check, "sign this device out" means "sign it out within the hour", which is
+   * not what the button says and not what an admin acting on a suspected
+   * compromise needs.
+   *
+   * THE THIRD OF THREE MECHANISMS, and the only one that covers every request:
+   *
+   *   1. `revoke_auth_session` deletes the GoTrue session — permanent, but
+   *      invisible until a refresh falls due.
+   *   2. The Login History ping answers 403 and the client signs itself out —
+   *      fast, but only for a client that keeps pinging and chooses to obey.
+   *   3. This — every protected endpoint, regardless of what the client does.
+   *
+   * A tampered client that stops pinging defeats (2) and is stopped here.
+   *
+   * ANSWERED WITH THE SAME `session_revoked` CODE the ping uses, so the frontend
+   * has one revocation path rather than two: `apiCall` lifts `body.details` onto
+   * its error, the client recognises the code and tears the session down. 401
+   * rather than 403 because the credential itself is no longer good — which is
+   * also what makes the frontend's existing refresh-and-retry do the right thing
+   * and give up.
+   */
+  if (await isRevoked(authSessionId)) {
+    res.status(401).json({
+      error: 'This session was signed out by an administrator',
+      details: { code: 'session_revoked' },
+    });
+    return;
+  }
+
   req.user = {
     uid: data.user.id,
     email: data.user.email ?? '',
     role: meta.role,
     branchId: meta.branchId ?? null,
     branchName: meta.branchName ?? null,
-    // Safe here and nowhere earlier: `getUser` above has already verified this
-    // exact token. See sessionIdFromToken.
-    authSessionId: sessionIdFromToken(token),
+    authSessionId,
   };
   next();
 }

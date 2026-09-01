@@ -21,6 +21,8 @@
  * and the columns stay null while everything else keeps working.
  */
 
+import type { LocationSource } from '../shared';
+
 const DEFAULT_URL = 'https://ipapi.co/{ip}/json/';
 
 /**
@@ -59,9 +61,39 @@ export interface GeoLocation {
    * London address is exactly the row a security screen exists to surface.
    */
   timezone: string | null;
+  /**
+   * Centroid of whatever the provider matched — a city, or a network block.
+   *
+   * NOT WHERE ANYBODY WAS STANDING, and the reason `source` below exists. ipapi.co
+   * returns the middle of the city it assigns the address to, so every login from
+   * a city shares one pair of coordinates. Stored because "same city" and "same
+   * point" are different questions when comparing two sessions, and shown only
+   * next to the source that qualifies it.
+   */
+  latitude: number | null;
+  longitude: number | null;
+  /**
+   * How the answer was obtained — 'IP' when the provider resolved it, 'UNKNOWN'
+   * when it did not.
+   *
+   * Returned rather than assumed by the caller, so a row's `location_source`
+   * column can never disagree with whether a lookup actually succeeded. The
+   * third value the column accepts, 'DEVICE_GPS', can never come from here:
+   * this module only ever asks a database about an address.
+   */
+  source: LocationSource;
 }
 
-const EMPTY: GeoLocation = { country: null, countryCode: null, city: null, region: null, timezone: null };
+const EMPTY: GeoLocation = {
+  country: null,
+  countryCode: null,
+  city: null,
+  region: null,
+  timezone: null,
+  latitude: null,
+  longitude: null,
+  source: 'UNKNOWN',
+};
 
 const cache = new Map<string, { at: number; value: GeoLocation }>();
 
@@ -82,6 +114,28 @@ function isUnresolvable(ip: string): boolean {
   // IPv6 unique-local: fc00::/7.
   if (/^f[cd]/i.test(ip)) return true;
   return false;
+}
+
+/**
+ * A coordinate, or null.
+ *
+ * Providers variously send a number, a numeric string, or an empty string, and
+ * `Number('')` is 0 — which would place every unresolved address in the Gulf of
+ * Guinea. So an empty value is rejected before conversion, and the result is
+ * range-checked: a value outside ±90 / ±180 is not a coordinate, whatever it is.
+ */
+function coord(value: unknown, limit: number): number | null {
+  if (typeof value !== 'number' && typeof value !== 'string') return null;
+  if (typeof value === 'string' && !value.trim()) return null;
+  const n = Number(value);
+  if (!Number.isFinite(n) || Math.abs(n) > limit) return null;
+  return n;
+}
+
+/** ipinfo.io's `loc: "24.8607,67.0011"` — index 0 is latitude, 1 is longitude. */
+function locPart(loc: unknown, index: 0 | 1): string | null {
+  if (typeof loc !== 'string') return null;
+  return loc.split(',')[index]?.trim() || null;
 }
 
 /** Empty string, 'null', 'undefined' and 'Unknown' all mean "the provider does not know". */
@@ -129,14 +183,28 @@ export async function lookupIp(ip: string | null | undefined): Promise<GeoLocati
       // spellings are read so a GEOIP_URL swap keeps working, which is the whole
       // reason the other fields are read in pairs too.
       timezone: clean(body['timezone']) ?? clean(body['timeZone']),
+      // `latitude`/`longitude` on ipapi.co and freeipapi.com; ipinfo.io packs
+      // both into one `loc: "24.86,67.01"` string, which is read here too so a
+      // GEOIP_URL swap keeps working — the same pair-of-spellings treatment
+      // every other field above gets.
+      latitude: coord(body['latitude'] ?? body['lat'] ?? locPart(body['loc'], 0), 90),
+      longitude: coord(body['longitude'] ?? body['lon'] ?? locPart(body['loc'], 1), 180),
+      // Set only on an answer that resolved something. A response that came back
+      // 200 with every field empty is not a location, and calling it one would
+      // put 'IP' on a row that knows nothing.
+      source: 'IP',
     };
+    // A 200 with every field empty is not a location. Returning EMPTY rather
+    // than a `source: 'IP'` row of nulls is what keeps `location_source` honest:
+    // it must say 'IP' only where an address really did resolve to somewhere.
+    //
+    // This is also the "do not cache a blank answer" guard it replaced — caching
+    // one would hold a transient rate-limit response for a day and blank every
+    // subsequent login from that IP.
+    if (!value.country && !value.city) return EMPTY;
 
-    // Only a useful answer is cached. Caching a blank one would hold a transient
-    // rate-limit response for a day and blank every subsequent login from that IP.
-    if (value.country || value.city) {
-      if (cache.size >= CACHE_MAX) cache.clear();
-      cache.set(ip, { at: Date.now(), value });
-    }
+    if (cache.size >= CACHE_MAX) cache.clear();
+    cache.set(ip, { at: Date.now(), value });
     return value;
   } catch {
     // Timeout, DNS failure, non-JSON body — all the same outcome. Not logged at

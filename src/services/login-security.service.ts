@@ -1,5 +1,6 @@
 import { supabaseAdmin } from '../config/supabase';
 import { logAudit } from './audit.service';
+import { countRecentFailures } from './login-attempts.service';
 import { notify } from './push.service';
 import { describeDevice, type ParsedUserAgent } from '../utils/userAgent';
 
@@ -71,6 +72,26 @@ const MIN_HISTORY = 3;
  */
 const IMPOSSIBLE_TRAVEL_MS = 6 * 60 * 60 * 1000;
 
+/**
+ * How many refused attempts on the same address, in the hours before a
+ * successful one, are worth mentioning.
+ *
+ * Five in six hours. A person who has forgotten their password tries three or
+ * four times and then uses the reset link, so five is above ordinary human
+ * fumbling; and because the rule fires on a SUCCESSFUL sign-in that followed
+ * them, what it describes is "somebody eventually got in after a run of
+ * failures" — which is the shape of both a guessed password and a genuinely
+ * forgetful morning, and is therefore reported rather than acted on.
+ *
+ * REMEMBER WHERE THOSE ROWS COME FROM. `login_attempts` is client-reported and
+ * forgeable (see its own module note), so this count can be inflated by anybody
+ * who can reach the API. That is survivable precisely because the consequence is
+ * a sentence on an admin's screen; it would not be survivable if it locked
+ * anything.
+ */
+const FAILED_ATTEMPT_THRESHOLD = 5;
+const FAILED_ATTEMPT_WINDOW_HOURS = 6;
+
 /** The prior-session facts the rules run over. One query feeds all of them. */
 interface HistoryRow {
   country: string | null;
@@ -102,6 +123,8 @@ const NOT_SUSPICIOUS: SuspicionVerdict = { isSuspicious: false, reason: null };
  */
 export async function detectSuspicion(params: {
   userId: string;
+  /** The address that authenticated. Used ONLY to count refused attempts against it. */
+  email: string | null;
   country: string | null;
   device: ParsedUserAgent;
 }): Promise<SuspicionVerdict> {
@@ -165,6 +188,29 @@ export async function detectSuspicion(params: {
             `signed in from ${lastKnown.country} ${hours}h earlier — an unlikely journey`,
           );
         }
+      }
+    }
+
+    // ── Rule 4: this sign-in worked, but several before it did not ──
+    // The one rule that reads outside `login_sessions`, because a failed attempt
+    // never produces a session row — which is exactly why it is worth checking:
+    // nothing else in this detector can see the difference between a first
+    // attempt and a fifth.
+    //
+    // Its own try/catch inside the outer one. The failed-attempt table is newer
+    // than this detector and less load-bearing than any other read here, so a
+    // problem with it must cost this rule and not the three that already have
+    // their answers.
+    if (params.email) {
+      try {
+        const failures = await countRecentFailures(params.email, FAILED_ATTEMPT_WINDOW_HOURS);
+        if (failures >= FAILED_ATTEMPT_THRESHOLD) {
+          reasons.push(
+            `${failures} failed sign-in attempts on this address in the previous ${FAILED_ATTEMPT_WINDOW_HOURS} hours`,
+          );
+        }
+      } catch (err) {
+        console.error('[login-security] failed-attempt count failed', err);
       }
     }
 

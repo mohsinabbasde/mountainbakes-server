@@ -34,6 +34,21 @@ export interface ParsedUserAgent {
   os: string | null;
   osVersion: string | null;
   deviceType: LoginDeviceType | null;
+  /**
+   * The device model, where the agent names one. Null far more often than not.
+   *
+   * Only Android really carries this — `(Linux; Android 14; SM-A546E)` — and
+   * even there it is a sales code rather than a name anybody uses. It is worth
+   * having anyway: it is the only field that tells one of a person's two
+   * identical-looking Android sessions from the other, which is the exact
+   * question an admin asks when the same account is live twice.
+   *
+   * iPhones and iPads deliberately do not report a model, and desktop browsers
+   * never have. Null is the honest answer for all of them — deriving something
+   * model-shaped from the OS name would produce a column that looked specific
+   * and meant nothing.
+   */
+  deviceName: string | null;
 }
 
 const EMPTY: ParsedUserAgent = {
@@ -42,6 +57,7 @@ const EMPTY: ParsedUserAgent = {
   os: null,
   osVersion: null,
   deviceType: null,
+  deviceName: null,
 };
 
 /**
@@ -108,6 +124,32 @@ const WINDOWS_NAMES: Record<string, string> = {
  */
 const BOT = /\b(bot|crawler|spider|crawling|headless|phantomjs|puppeteer|playwright|curl|wget|python-requests|axios|okhttp)\b/i;
 
+/**
+ * The model out of an Android agent, or null.
+ *
+ * Android's device token is the last segment of the platform bracket, after the
+ * version: `(Linux; Android 14; SM-A546E Build/UP1A.231005.007)`. The build tag
+ * is dropped — it is a firmware id nobody reads — and so are the two tokens that
+ * are not models at all: `wv` marks a WebView, and `K` is what Chrome 110+ sends
+ * on Android instead of the real model, as an anti-fingerprinting measure. Both
+ * would otherwise fill the column with a value that looks like a device name.
+ *
+ * Capped at 60 characters. The bracket is unvalidated header content, and this
+ * is the one part of it copied into its own column.
+ */
+function androidModel(ua: string): string | null {
+  const bracket = /\(([^)]*)\)/.exec(ua)?.[1];
+  if (!bracket || !/\bAndroid\b/.test(bracket)) return null;
+
+  const parts = bracket.split(';').map((p) => p.trim());
+  const afterVersion = parts.findIndex((p) => /^Android\b/.test(p));
+  if (afterVersion < 0) return null;
+
+  const model = parts[afterVersion + 1]?.replace(/\s+Build\/.*$/i, '').trim();
+  if (!model || model === 'wv' || model === 'K') return null;
+  return model.slice(0, 60);
+}
+
 /** Underscored Apple versions ('17_4_1') read as dotted ones. */
 function dot(version: string | undefined): string | null {
   return version ? version.replace(/_/g, '.') : null;
@@ -173,7 +215,14 @@ export function parseUserAgent(ua: string | null | undefined): ParsedUserAgent {
     break;
   }
 
-  return { browser, browserVersion, os, osVersion, deviceType: classify(s) };
+  return {
+    browser,
+    browserVersion,
+    os,
+    osVersion,
+    deviceType: classify(s),
+    deviceName: androidModel(s),
+  };
 }
 
 /**

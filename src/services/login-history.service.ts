@@ -48,9 +48,40 @@ import { alertSuspiciousLogin, detectSuspicion } from './login-security.service'
  */
 const STALE_AFTER_MS = 10 * 60 * 1000;
 
+/**
+ * Silence after which a still-open session is called idle rather than active.
+ *
+ * Three missed pings, against the five that make it expired. Configurable
+ * through `LOGIN_SESSION_IDLE_MINUTES` because what counts as "gone quiet"
+ * depends on how the shops actually work — a till that is used in bursts and a
+ * back-office laptop that sits open all day want different answers, and the
+ * right number is discovered in operation rather than argued about here.
+ *
+ * WHAT IT DOES NOT MEAN. Not "the person stepped away": the ping is on a timer
+ * and fires whether or not anybody is typing, so it reports that the TAB is
+ * open, never that somebody is at it. Idle means the tab stopped checking in —
+ * backgrounded, asleep, or on bad signal — which is the honest reading and the
+ * one the UI gives.
+ *
+ * Clamped between one minute and the stale threshold. Above it, nothing would
+ * ever be idle because the session would already read as expired; below a
+ * minute, a session would flicker between active and idle inside a single ping
+ * interval.
+ */
+const IDLE_AFTER_MS = (() => {
+  const raw = Number(process.env['LOGIN_SESSION_IDLE_MINUTES']);
+  const minutes = Number.isFinite(raw) && raw > 0 ? raw : 6;
+  return Math.min(Math.max(minutes, 1), STALE_AFTER_MS / 60_000) * 60_000;
+})();
+
 /** The moment before which an un-ended session counts as expired. */
 function staleCutoff(): string {
   return new Date(Date.now() - STALE_AFTER_MS).toISOString();
+}
+
+/** The moment before which a still-open session counts as idle. */
+function idleCutoff(): string {
+  return new Date(Date.now() - IDLE_AFTER_MS).toISOString();
 }
 
 /**
@@ -63,7 +94,8 @@ function staleCutoff(): string {
 const COLUMNS = `
   id, user_id, user_code, user_email, user_name, user_role, branch_id, branch_name,
   auth_session_id, ip_address, user_agent, browser, browser_version, os, os_version,
-  device_type, country, country_code, city, region, timezone,
+  device_type, device_name, screen_size,
+  country, country_code, city, region, timezone, location_source, latitude, longitude,
   login_at, last_seen_at, ended_at, end_reason,
   revoked_at, revoked_by_name, revoke_reason, is_suspicious, suspicious_reason,
   business_date
@@ -107,22 +139,35 @@ function derive(row: Record<string, unknown>): {
   const finish = endedAt ?? lastSeen;
   const durationMs = Number.isFinite(loginAt) && Number.isFinite(finish) ? Math.max(0, finish - loginAt) : 0;
 
+  const quietFor = Date.now() - lastSeen;
   const state: LoginSessionState = row['revokedAt']
     ? 'revoked'
     : endedAt
       ? 'ended'
-      : Date.now() - lastSeen > STALE_AFTER_MS
+      : quietFor > STALE_AFTER_MS
         ? 'expired'
-        : 'active';
+        : quietFor > IDLE_AFTER_MS
+          ? 'idle'
+          : 'active';
 
-  // Only a live session can be ended, and only one whose GoTrue session we
-  // recorded can be ended for real. A row from before migration 98 has no
-  // `auth_session_id`, so revoking it could do nothing but relabel our own
-  // bookkeeping while the browser carried on — the button says so rather than
-  // pretending, by not being offered.
-  const canRevoke = state === 'active' && Boolean(row['authSessionId']);
+  // Only a LIVE session can be ended — which is both 'active' and 'idle', since
+  // an idle session is one whose tab merely went quiet and is, if anything, the
+  // likelier of the two to be the one an admin wants gone.
+  //
+  // And only one whose GoTrue session we recorded can be ended for real. A row
+  // from before migration 98 has no `auth_session_id`, so revoking it could do
+  // nothing but relabel our own bookkeeping while the browser carried on — the
+  // button says so rather than pretending, by not being offered.
+  const canRevoke = (state === 'active' || state === 'idle') && Boolean(row['authSessionId']);
 
   return { state, durationMs, canRevoke };
+}
+
+/** A PostgREST `numeric` (a string) as a number, or null. */
+function num(value: unknown): number | null {
+  if (value === null || value === undefined || value === '') return null;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
 }
 
 /**
@@ -135,7 +180,7 @@ function derive(row: Record<string, unknown>): {
  * forgets the argument leaks nothing.
  */
 function toApi(row: unknown, revealEmail = false): LoginSession {
-  const { businessDate, userEmail, ...rest } = rowToApi<Record<string, unknown>>(row);
+  const { businessDate, userEmail, latitude, longitude, ...rest } = rowToApi<Record<string, unknown>>(row);
   const email = typeof userEmail === 'string' ? userEmail : '';
 
   const base = {
@@ -143,6 +188,14 @@ function toApi(row: unknown, revealEmail = false): LoginSession {
     date: businessDate,
     userEmail: revealEmail ? email : maskEmail(email),
     emailMasked: !revealEmail,
+    // COERCED, and this is not defensive typing for its own sake: PostgREST
+    // serialises `numeric` as a STRING to preserve exactness, so these arrive as
+    // '24.860700' and would be typed `number` while being nothing of the kind.
+    // The client calls `.toFixed()` on them; a string would throw in a dialog
+    // rather than fail visibly here. `branch_locations` is read the same way in
+    // geofence.service.ts, for the same reason.
+    latitude: num(latitude),
+    longitude: num(longitude),
   } as Record<string, unknown>;
 
   return { ...base, ...derive(base) } as unknown as LoginSession;
@@ -165,6 +218,14 @@ function toApi(row: unknown, revealEmail = false): LoginSession {
  * Reads OUR table, not GoTrue's. The `auth.sessions` row is already gone by
  * then, and the service-role client cannot see that schema anyway; the revoked
  * `login_sessions` row is the durable record that the revocation happened.
+ *
+ * NOT MADE REDUNDANT BY THE SAME CHECK IN `authenticate`, which now runs in
+ * front of every request in the app. That one is CACHED — a negative answer is
+ * held for a minute, which is the enforcement lag it trades for not querying on
+ * every request — and it fails open on a database error. This one is uncached
+ * and runs on the two endpoints where being a minute late actually matters: the
+ * one that opens a session row, and the one that keeps it alive. A revoked
+ * browser must not be able to reload into a brand-new row inside that window.
  */
 async function isAuthSessionRevoked(authSessionId: string | null): Promise<boolean> {
   if (!authSessionId) return false;
@@ -215,6 +276,12 @@ export async function startSession(params: {
   authSessionId: string | null;
   ipAddress: string | null;
   userAgent: string | null;
+  /**
+   * Reported by the browser, e.g. '1920x1080'. The one field on this row that
+   * comes from a request body — see the note on `StartLoginSessionSchema` for
+   * why that is acceptable here and nowhere else in this feature.
+   */
+  screenSize?: string | null;
   resumeSessionId?: string | undefined;
 }): Promise<LoginSession> {
   if (await isAuthSessionRevoked(params.authSessionId)) throw new SessionRevokedError();
@@ -256,6 +323,10 @@ export async function startSession(params: {
   // itself and found its own country familiar.
   const verdict = await detectSuspicion({
     userId: params.userId,
+    // The address off the verified token, not off a body — and used for one
+    // thing only: counting the refused attempts recorded against it. It is never
+    // used to identify the account, which is what `userId` above is for.
+    email: params.email,
     country: geo.country,
     device,
   });
@@ -278,11 +349,20 @@ export async function startSession(params: {
       os: device.os,
       os_version: device.osVersion,
       device_type: device.deviceType,
+      device_name: device.deviceName,
+      screen_size: params.screenSize ?? null,
       country: geo.country,
       country_code: geo.countryCode,
       city: geo.city,
       region: geo.region,
       timezone: geo.timezone,
+      // Taken from the lookup's own verdict rather than inferred from whether
+      // `country` came back non-null. Same fact, one source: a caller deciding
+      // it separately is how a row ends up claiming 'IP' for a location nothing
+      // ever resolved.
+      location_source: geo.source,
+      latitude: geo.latitude,
+      longitude: geo.longitude,
       is_suspicious: verdict.isSuspicious,
       suspicious_reason: verdict.reason,
       business_date: businessDateStr(),
@@ -417,14 +497,19 @@ export async function listSessions(opts: {
   page: number;
   pageSize: number;
   /**
-   * Whether this caller may SEARCH by email address.
+   * Whether this caller may search by, and read, the activated address.
    *
-   * Note there is no `revealEmail` here: the list masks every address for
-   * everybody, admin included. The address is shown only by `getSession`, which
-   * is a deliberate click into a detail view rather than a column sitting open
-   * on a shop-floor tablet. Searching is separable from seeing, and an admin
-   * genuinely needs to find "which sessions belong to this address" — hence the
-   * one flag rather than the two collapsed into each other.
+   * ONE FLAG FOR BOTH, and only a super admin gets it. An earlier revision
+   * separated them — searchable but never shown, on the grounds that the list is
+   * opened on shared shop-floor tablets. That reasoning still holds for the
+   * people it was about, and they are precisely the callers this flag is false
+   * for: every non-admin is pinned to their OWN sessions, where a masked address
+   * hides nothing from them that they do not already know, and a super admin
+   * reading the whole company's history needs to see which account each row
+   * belongs to without opening twenty-five dialogs to find out.
+   *
+   * Non-admins therefore still get `u***@example.com`, and the column is still
+   * secondary to `user_code`, which is the identifier the screen is read by.
    */
   searchEmail: boolean;
 }): Promise<LoginHistoryPage> {
@@ -444,6 +529,21 @@ export async function listSessions(opts: {
   if (filters.country) q = q.eq('country', filters.country);
   if (filters.suspiciousOnly) q = q.eq('is_suspicious', true);
 
+  // The narrowings added for the Login History screen's filter bar. Every one is
+  // an exact match on a column denormalised onto the row AT SIGN-IN — so
+  // filtering by branch finds the sessions somebody opened while they worked for
+  // that branch, not the sessions of whoever works there today. That is the
+  // useful reading for a security screen, and it is the reason none of these
+  // joins `users`.
+  if (filters.branchId) q = q.eq('branch_id', filters.branchId);
+  if (filters.role) q = q.eq('user_role', filters.role);
+  if (filters.city) q = q.eq('city', filters.city);
+  // Browser NAME, never the version: 'Chrome' matches every Chrome, where
+  // 'Chrome 140' would split one browser across a new filter value every six
+  // weeks and make the dropdown useless within a year.
+  if (filters.browser) q = q.eq('browser', filters.browser);
+  if (filters.deviceType) q = q.eq('device_type', filters.deviceType);
+
   // The state filter, in SQL. It has to be here rather than applied to the page
   // after it is fetched, or `total` would count rows the page then discarded and
   // the pager would promise pages that come back empty.
@@ -453,7 +553,13 @@ export async function listSessions(opts: {
   // "over", which is just the inverse of `active` and answers nothing new.
   if (filters.state === 'revoked') q = q.not('revoked_at', 'is', null);
   else if (filters.state === 'ended') q = q.not('ended_at', 'is', null).is('revoked_at', null);
-  else if (filters.state === 'active') q = q.is('ended_at', null).gte('last_seen_at', staleCutoff());
+  else if (filters.state === 'active') q = q.is('ended_at', null).gte('last_seen_at', idleCutoff());
+  // The band between the two cutoffs — quiet enough to be idle, not quiet enough
+  // to be over. Expressed as two bounds rather than "not active and not
+  // expired", so the SQL says the same thing `derive()` does and the two cannot
+  // drift into disagreeing about one row.
+  else if (filters.state === 'idle')
+    q = q.is('ended_at', null).lt('last_seen_at', idleCutoff()).gte('last_seen_at', staleCutoff());
   else if (filters.state === 'expired') q = q.is('ended_at', null).lt('last_seen_at', staleCutoff());
 
   if (filters.search) {
@@ -473,8 +579,8 @@ export async function listSessions(opts: {
   if (error) throw error;
 
   return {
-    // Always masked. See `searchEmail` above.
-    sessions: (data ?? []).map((r) => toApi(r)),
+    // Revealed to a super admin, masked for everyone else. See `searchEmail`.
+    sessions: (data ?? []).map((r) => toApi(r, opts.searchEmail)),
     total: count ?? 0,
     page: opts.page,
     pageSize: opts.pageSize,
@@ -498,7 +604,19 @@ export async function listSessions(opts: {
  */
 export async function listActiveSessions(opts: {
   userId: string | null;
+  /**
+   * True for the super-admin roster. This endpoint has no non-admin caller
+   * today — the route is `requireRole('super_admin')` — but the flag is passed
+   * explicitly rather than assumed, so the day a scoped version is added it has
+   * to decide, instead of inheriting an admin's visibility by omission.
+   */
+  revealEmail: boolean;
 }): Promise<ActiveSessionsResponse> {
+  // The STALE cutoff, not the idle one: an idle session is still a live session
+  // whose tab has merely gone quiet, and dropping it out of the roster would
+  // hide exactly the second device somebody left signed in at home — which is
+  // the thing this screen exists to surface. Each row carries its own `state`,
+  // so the list distinguishes the two without excluding either.
   let q = supabaseAdmin
     .from('login_sessions')
     .select(COLUMNS)
@@ -511,10 +629,11 @@ export async function listActiveSessions(opts: {
   const { data, error } = await q;
   if (error) throw error;
 
-  // Masked, like the history list and for the same reason: this is a roster read
-  // at a glance, and the staff code identifies the account for everything it is
-  // used for. The address is one click away in the detail dialog.
-  const sessions = (data ?? []).map((r) => toApi(r));
+  // The roster is super-admin-only, and its whole job is to answer "WHICH
+  // account is live in three countries at once" — which is a question about an
+  // identity, so the identity is shown. The staff code is still the primary
+  // handle and the address sits under it.
+  const sessions = (data ?? []).map((r) => toApi(r, opts.revealEmail));
 
   // Keyed by user id, falling back to the staff code and then the row id. The
   // fallbacks matter for a deleted account: `user_id` is null on every one of
@@ -578,19 +697,86 @@ export async function getSession(sessionId: string, revealEmail: boolean): Promi
 }
 
 /**
- * The distinct countries that appear in the history, for the filter dropdown.
+ * Record that an admin opened somebody else's session detail.
  *
- * Read from the rows rather than kept as a lookup table, because the set is
- * whatever the geo provider has said so far — there is no canonical list to
- * maintain, and a hardcoded one would be missing the country somebody actually
- * signed in from. Capped and de-duplicated in memory: PostgREST has no
- * `select distinct`, and the alternative is a database view for a dropdown.
+ * THE ONLY AUDITED READ IN THIS APP, and it earns the exception. This view is
+ * where one person sees another's activated email address, IP address and
+ * resolved location together — the most sensitive thing the product shows
+ * anybody. An audit trail that records who ENDED a session but not who READ one
+ * watches the admins' actions and not their access, and access is the half that
+ * leaves no other trace.
+ *
+ * NOT CALLED WHEN AN ADMIN OPENS THEIR OWN SESSION. The route decides that, and
+ * it matters: a log filled with rows about people reading their own record is a
+ * log nobody reads, which buries the rows that mean something.
+ *
+ * FIRE-AND-FORGET AND SILENT ON FAILURE. It runs alongside a read that has
+ * already succeeded; failing the admin's dialog because the audit write did not
+ * land would trade a working screen for a bookkeeping row. Logged to the console
+ * so a persistent failure is visible to an operator rather than to nobody.
  */
-export async function listCountries(userId: string | null): Promise<string[]> {
+export function auditSessionView(
+  session: LoginSession,
+  admin: Admin,
+): void {
+  void logAudit({
+    action: 'session_viewed',
+    adminId: admin.id,
+    adminName: admin.name,
+    targetUserId: session.userId,
+    targetUserName: session.userName,
+    targetUserRole: session.userRole,
+    // The staff code and the device, never the email address. An audit row is
+    // read by more people over a longer period than the dialog that produced it,
+    // and copying the address into it would spread exactly what the dialog is
+    // careful about.
+    details: [
+      session.userCode ?? 'unknown staff ID',
+      describeDevice({
+        browser: session.browser,
+        browserVersion: session.browserVersion,
+        os: session.os,
+        osVersion: session.osVersion,
+        deviceType: session.deviceType,
+        deviceName: session.deviceName,
+      }),
+      [session.city, session.country].filter(Boolean).join(', ') || 'unresolved location',
+    ].join(' · '),
+  }).catch((err) => console.error('[login-history] session_viewed audit failed', err));
+}
+
+/**
+ * The values the country, city and browser dropdowns offer.
+ *
+ * READ FROM THE ROWS, not from a lookup table, because there is no canonical
+ * list to maintain: the countries are whatever the geo provider has said so far
+ * and the browsers are whatever the parser has recognised. A hardcoded list
+ * would be missing the one somebody actually signed in from — which is the only
+ * value a filter is ever used to find.
+ *
+ * ONE QUERY FOR THREE DROPDOWNS. Three would be three round-trips to produce
+ * three de-duplications of the same 2,000 rows, and PostgREST has no
+ * `select distinct` to do any of them in SQL — so the rows come back once and
+ * are reduced in memory. The 2,000-row window is the same one the single-column
+ * version used: recent enough to describe what the filters need to offer, small
+ * enough not to read the table into the dyno to populate a `<select>`.
+ *
+ * CAPPED PER FACET as well. A filter list is scanned by eye; past a few dozen
+ * entries it is worse than a search box, and an unbounded one would let a
+ * garbage user agent add an entry per login.
+ */
+export interface LoginFilterOptions {
+  countries: string[];
+  cities: string[];
+  browsers: string[];
+}
+
+const FACET_LIMIT = 60;
+
+export async function listFilterOptions(userId: string | null): Promise<LoginFilterOptions> {
   let q = supabaseAdmin
     .from('login_sessions')
-    .select('country')
-    .not('country', 'is', null)
+    .select('country, city, browser')
     .order('login_at', { ascending: false })
     .limit(2000);
   if (userId) q = q.eq('user_id', userId);
@@ -598,8 +784,17 @@ export async function listCountries(userId: string | null): Promise<string[]> {
   const { data, error } = await q;
   if (error) throw error;
 
-  const seen = new Set((data ?? []).map((r) => (r as { country: string }).country));
-  return [...seen].sort((a, b) => a.localeCompare(b));
+  const rows = (data ?? []) as Array<{ country: string | null; city: string | null; browser: string | null }>;
+  const facet = (pick: (r: (typeof rows)[number]) => string | null): string[] =>
+    [...new Set(rows.map(pick).filter((v): v is string => !!v))]
+      .sort((a, b) => a.localeCompare(b))
+      .slice(0, FACET_LIMIT);
+
+  return {
+    countries: facet((r) => r.country),
+    cities: facet((r) => r.city),
+    browsers: facet((r) => r.browser),
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -855,6 +1050,7 @@ function describeRevocation(
     os: row.os,
     osVersion: null,
     deviceType: null,
+    deviceName: null,
   });
   const where = [row.city, row.country].filter(Boolean).join(', ') || 'unresolved location';
   return [row.user_code ?? 'unknown staff ID', device, where, reason ? `reason: ${reason}` : null]

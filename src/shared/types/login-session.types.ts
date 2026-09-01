@@ -18,25 +18,48 @@ import type { UserRole } from './user.types';
 /**
  * How a session stands right now.
  *
- * Three of these four are DERIVED ON READ, not stored:
+ * Four of these five are DERIVED ON READ, not stored:
  *
  *   active   — pinged recently and not closed
+ *   idle     — still open, but has missed a few pings
  *   ended    — the user signed out (the spec's LOGGED_OUT)
  *   expired  — no ping for long enough; the tab was closed, not signed out
  *   revoked  — an admin ended it
  *
  * `expired` in particular cannot be a stored value: moving a row into it would
  * need a sweeper, and every scheduler in this app is switched off, so the column
- * would be wrong for exactly the sessions it exists to describe.
+ * would be wrong for exactly the sessions it exists to describe. `idle` has the
+ * same problem twice over, since a row would have to move into it AND back out
+ * again as soon as the next ping landed.
+ *
+ * WHAT `idle` HONESTLY MEANS, because it is easy to over-read: the tab has gone
+ * quiet, NOT that the person stepped away. The ping rides a timer and fires
+ * whether or not anybody is typing, so a ping proves the tab is open and nothing
+ * more — a missed one means the tab was backgrounded, the laptop slept, or the
+ * signal dropped. It is the tier between "checked in a moment ago" and "gone
+ * long enough to call it closed", and it is worth having precisely because
+ * collapsing it into `active` makes a roster of live sessions overstate how many
+ * people are actually at a screen.
  *
  * Note what is NOT here: `suspicious`. A suspicious session is still an active
  * one, and making suspicion a state would drop it out of the Active Sessions
  * list — the screen an admin opens because of it. It is `isSuspicious` below.
  */
-export type LoginSessionState = 'active' | 'ended' | 'expired' | 'revoked';
+export type LoginSessionState = 'active' | 'idle' | 'ended' | 'expired' | 'revoked';
 
 /** Coarse device class, parsed from the user agent at insert. */
 export type LoginDeviceType = 'desktop' | 'mobile' | 'tablet' | 'bot' | 'unknown';
+
+/**
+ * Where a recorded location came from — the difference between a guess about a
+ * network and an observation of a device.
+ *
+ * Kept as data on the row rather than as a sentence in a page header, because a
+ * reader who arrives at one session detail without having read the header would
+ * otherwise have no way to tell which kind of claim they are looking at. See
+ * `LoginSession.locationSource`.
+ */
+export type LocationSource = 'IP' | 'DEVICE_GPS' | 'UNKNOWN';
 
 export interface LoginSession {
   id: string;
@@ -84,6 +107,20 @@ export interface LoginSession {
   os: string | null;
   osVersion: string | null;
   deviceType: LoginDeviceType | null;
+  /**
+   * Device model where the user agent carries one (mostly Android), else null.
+   * A guess read from an untrusted string, like every other parsed field here.
+   */
+  deviceName: string | null;
+  /**
+   * Screen dimensions as the BROWSER reported them, e.g. '1920x1080'.
+   *
+   * Reported by JavaScript the page ran rather than read from a header, so it is
+   * forgeable in a way even the user agent is not. It earns its place by
+   * answering what a user agent cannot — which of this person's two identical
+   * phones this is — and the UI labels it as reported by the device.
+   */
+  screenSize: string | null;
 
   // ── Location, resolved from the IP once, when the session opened ──
   // Null whenever the lookup was skipped, refused or timed out — a normal
@@ -95,6 +132,26 @@ export interface LoginSession {
   region: string | null;
   /** IANA zone of where the IP resolves, e.g. 'Asia/Karachi'. Not the browser's own. */
   timezone: string | null;
+  /**
+   * How country/city/region/latitude/longitude were obtained.
+   *
+   * READ THIS BEFORE PRESENTING ANY OF THEM AS A PLACE A PERSON WAS. 'IP' is a
+   * commercial database's opinion about which network an address belongs to —
+   * accurate to a city at best, wherever the exit node is on a VPN, and
+   * routinely a whole country wrong on mobile carriers. 'DEVICE_GPS' would be a
+   * consented browser fix, precise to metres; nothing writes it today.
+   * 'UNKNOWN' means the lookup was skipped, refused, rate-limited or timed out.
+   */
+  locationSource: LocationSource;
+  /**
+   * Centroid of whatever `locationSource` resolved, or null.
+   *
+   * For source=IP this is the middle of a city or a network block — NOT where
+   * anybody was standing. A map pin drawn on it without saying so is a lie the
+   * data does not support.
+   */
+  latitude: number | null;
+  longitude: number | null;
 
   loginAt: string;      // ISO UTC
   lastSeenAt: string;   // ISO UTC — bumped by every ping
@@ -124,6 +181,10 @@ export interface LoginSession {
   durationMs: number;
   /**
    * Whether an admin could actually end this session.
+   *
+   * True for `idle` as well as `active` — an idle session is a live one whose
+   * tab has gone quiet, and it is if anything the more likely of the two to be
+   * the one somebody wants ended.
    *
    * False for a session that is already over, and false for one with no
    * `authSessionId` — a pre-migration-98 row cannot be revoked at GoTrue, and
@@ -225,4 +286,126 @@ export interface LoginHistoryFilters {
   from?: string | null;
   to?: string | null;
   suspiciousOnly?: boolean;
+
+  // Every one of these is an EXACT match on a denormalised column, not a search.
+  // They exist because an admin narrowing a list by branch, by role or by
+  // browser is answering a different question from the one the search box
+  // answers, and folding them into it would make each of them a substring match
+  // that also hit three other columns.
+  /** The branch the account belonged to AT SIGN-IN, from the row, not from `users` today. */
+  branchId?: string | null;
+  role?: string | null;
+  city?: string | null;
+  /** Browser NAME only — 'Chrome', never 'Chrome 140'. Versions would fragment the filter. */
+  browser?: string | null;
+  deviceType?: LoginDeviceType | null;
+}
+
+/**
+ * A sign-in that did not work.
+ *
+ * SEPARATE FROM `LoginSession` BECAUSE IT IS A DIFFERENT FACT. There is no
+ * session, no Mountain Bakes account and no authenticated identity here — the
+ * whole point is that authentication did not happen. The only handle on the row
+ * is the address that was TYPED, which is not the same thing as an account: it
+ * may be a typo, an ex-employee's address, or one that never existed.
+ *
+ * REPORTED BY THE CLIENT AND THEREFORE FORGEABLE. A static-export app
+ * authenticates against Supabase directly, so the API never observes the
+ * failure and the browser has to post it — from an endpoint that by definition
+ * cannot require a token. Treat a row here as "somebody said this happened",
+ * which is enough to notice an unexplained burst and not enough to act against
+ * an account automatically. Nothing in the app locks anybody out on this.
+ *
+ * NEVER CONTAINS CREDENTIAL MATERIAL — not the password, not a hash, not its
+ * length. There is no field here that could hold one.
+ */
+export interface LoginAttempt {
+  id: string;
+  /** The address as typed, lower-cased. NOT resolved to an account — see above. */
+  email: string;
+  reason: LoginAttemptReason;
+
+  ipAddress: string | null;
+  userAgent: string | null;
+  browser: string | null;
+  browserVersion: string | null;
+  os: string | null;
+  osVersion: string | null;
+  deviceType: LoginDeviceType | null;
+
+  country: string | null;
+  countryCode: string | null;
+  city: string | null;
+  region: string | null;
+  timezone: string | null;
+  locationSource: LocationSource;
+
+  attemptedAt: string;
+  /** Business date of the attempt, 'YYYY-MM-DD' (Karachi). */
+  date: string;
+}
+
+/**
+ * Why an attempt was refused.
+ *
+ * A CLOSED SET, so the column can be filtered and counted, and so that rewording
+ * a message on the login screen never rewrites history. The prose an admin reads
+ * is built from these codes in the UI.
+ *
+ * `invalid_credentials` covers a wrong address AND a wrong password, because
+ * Supabase deliberately does not say which — and neither should this. Splitting
+ * them would turn the failed-login screen into an account-existence oracle for
+ * anybody who could read it.
+ */
+export type LoginAttemptReason =
+  | 'invalid_credentials'
+  | 'account_disabled'
+  | 'email_not_confirmed'
+  | 'rate_limited'
+  | 'no_role'
+  | 'invalid_session'
+  | 'expired_token'
+  | 'unknown';
+
+export const LOGIN_ATTEMPT_REASONS = [
+  'invalid_credentials',
+  'account_disabled',
+  'email_not_confirmed',
+  'rate_limited',
+  'no_role',
+  'invalid_session',
+  'expired_token',
+  'unknown',
+] as const satisfies readonly LoginAttemptReason[];
+
+/** What each refusal is called on screen. */
+export const LOGIN_ATTEMPT_REASON_LABELS: Record<LoginAttemptReason, string> = {
+  invalid_credentials: 'Invalid email or password',
+  account_disabled: 'Account disabled',
+  email_not_confirmed: 'Email not confirmed',
+  rate_limited: 'Too many attempts',
+  no_role: 'No role assigned',
+  invalid_session: 'Invalid session',
+  expired_token: 'Expired token',
+  unknown: 'Unknown',
+};
+
+/** One page of failed attempts. Paged in SQL, like the history list. */
+export interface LoginAttemptsPage {
+  attempts: LoginAttempt[];
+  total: number;
+  page: number;
+  pageSize: number;
+}
+
+/** Filters the failed-attempts list accepts. Every one applied in SQL. */
+export interface LoginAttemptFilters {
+  /** Substring of the attempted address. */
+  search?: string | null;
+  reason?: LoginAttemptReason | null;
+  country?: string | null;
+  /** Business dates, inclusive, 'YYYY-MM-DD'. */
+  from?: string | null;
+  to?: string | null;
 }
