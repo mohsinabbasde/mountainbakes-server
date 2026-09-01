@@ -151,8 +151,11 @@ top_products as (
   -- product_id is nullable (ON DELETE SET NULL keeps sales history when a
   -- product is deleted), so a null falls back to the name snapshot rather than
   -- collapsing every deleted product into one bucket.
+  -- Aggregated as text: there is no max(uuid) in Postgres, and the value is
+  -- only ever emitted as a string. Every row in a group carries the same
+  -- product_id (or none at all), so max() picks that one value exactly.
   select coalesce(i.product_id::text, 'name:' || i.product_name) as group_key,
-         max(i.product_id)                                       as product_id,
+         max(i.product_id::text)                                 as product_id,
          min(i.product_name)                                     as product_name,
          coalesce(min(i.category_name), '')                      as category_name,
          sum(i.qty)                                              as qty,
@@ -223,7 +226,7 @@ select jsonb_build_object(
       from payment), '[]'::jsonb),
   'topProducts', coalesce((
     select jsonb_agg(jsonb_build_object(
-             'productId',    coalesce(product_id::text, ''),
+             'productId',    coalesce(product_id, ''),
              'productName',  product_name,
              'categoryName', category_name,
              'qty',          qty,
