@@ -23,6 +23,7 @@ import {
   FinanceTicketStatusSchema,
   ReopenFinanceTicketSchema,
   financeHelpDeskCan,
+  isFinanceRecordAmendable,
   isFinanceTicketTerminal,
   type FinanceAmendmentAction,
   type FinanceAuditEntity,
@@ -33,7 +34,11 @@ import {
   type FinanceTicketStatus,
 } from '../shared';
 import { notify } from '../services/push.service';
-import { logFinanceAudit, requestFingerprint } from '../services/finance-audit.service';
+import {
+  financeTicketAuditTrail,
+  logFinanceAudit,
+  requestFingerprint,
+} from '../services/finance-audit.service';
 import { bindAttachments, listAttachments, listAttachmentsFor } from '../services/attachments.service';
 import { rowToApi } from '../utils/case';
 import { withoutDeleted } from '../utils/softDelete';
@@ -206,6 +211,30 @@ async function getTicket(id: string) {
   return data;
 }
 
+/**
+ * Why a referenced record cannot be changed from the Finance Help Desk.
+ *
+ * Only ever true of a SALE today (migration 96): it resolves, it snapshots, and
+ * it is corrected in the Support Center — through `edit_sale_items`, which
+ * rewrites the lines, recomputes the order's totals and reconciles branch
+ * stock. The message says where to go, because "nothing on this record can be
+ * changed" on its own reads as "and nowhere else either".
+ */
+function informationalReferenceMessage(
+  referenceType: FinanceTicketReferenceType,
+  referenceNo: unknown,
+): string {
+  const ref = typeof referenceNo === 'string' && referenceNo ? referenceNo : 'That record';
+  if (referenceType === 'order') {
+    return (
+      `${ref} is a sale, and a sale is corrected in the Support Center — where the line items, ` +
+      'the totals and the branch stock are reconciled together. It is shown here so the query ' +
+      'carries the figures; change it there, and answer this query with what was done.'
+    );
+  }
+  return `Nothing on ${ref} can be changed directly from the Help Desk.`;
+}
+
 /** May this caller read this query at all? */
 function canSee(req: AuthRequest, ticket: Record<string, unknown>): boolean {
   if (seesWholeQueue(req.user!.role)) return true;
@@ -321,20 +350,29 @@ router.get('/:id', requireFinance('view'), async (req: AuthRequest, res, next) =
 
     const isAdmin = financeHelpDeskCan(req.user!.role, 'respond');
 
-    const [{ data: messages, error: msgErr }, { data: amendments, error: amdErr }, ticketPhotos] =
-      await Promise.all([
-        supabaseAdmin
-          .from('finance_ticket_messages')
-          .select('*')
-          .eq('ticket_id', ticket.id)
-          .order('created_at', { ascending: true }),
-        supabaseAdmin
-          .from('finance_amendments')
-          .select('*')
-          .eq('ticket_id', ticket.id)
-          .order('created_at', { ascending: false }),
-        listAttachments('finance_ticket', ticket.id),
-      ]);
+    const [
+      { data: messages, error: msgErr },
+      { data: amendments, error: amdErr },
+      ticketPhotos,
+      auditTrail,
+    ] = await Promise.all([
+      supabaseAdmin
+        .from('finance_ticket_messages')
+        .select('*')
+        .eq('ticket_id', ticket.id)
+        .order('created_at', { ascending: true }),
+      supabaseAdmin
+        .from('finance_amendments')
+        .select('*')
+        .eq('ticket_id', ticket.id)
+        .order('created_at', { ascending: false }),
+      listAttachments('finance_ticket', ticket.id),
+      // §14's Audit History. Built from the trail rather than from the two
+      // lists above: those say what the query LOOKS LIKE now, and the history
+      // has to say what it went through — including the edits that left no
+      // trace on the current row.
+      financeTicketAuditTrail(ticket.id as string, isAdmin),
+    ]);
     if (msgErr) throw msgErr;
     if (amdErr) throw amdErr;
 
@@ -356,6 +394,9 @@ router.get('/:id', requireFinance('view'), async (req: AuthRequest, res, next) =
         // checks. A raiser sees it too: §7 gives them the Admin response, and a
         // response of "corrected to Rs.45,000" is not readable without it.
         amendments: rowToApi(amendments ?? []),
+        // §14. Every change this query has been through, oldest first, already
+        // redacted for the caller — see financeTicketAuditTrail.
+        auditTrail,
         // The record as it stands NOW, beside the snapshot of how it stood when
         // the query was raised. Admin-only: it is the working copy the Amend
         // dialog reads its current values from, and a raiser has no use for it.
@@ -1150,7 +1191,7 @@ router.post(
         res.status(400).json({
           error: allowed.length
             ? `"${field}" cannot be changed on this record. Try: ${allowed.map((f) => f.key).join(', ')}.`
-            : 'Nothing on this record can be changed directly.',
+            : informationalReferenceMessage(referenceType, ticket['reference_no']),
         });
         return;
       }
@@ -1260,6 +1301,15 @@ router.delete(
       const referenceType = ticket['reference_type'] as FinanceTicketReferenceType | null;
       if (!referenceType || !ticket['reference_id']) {
         res.status(409).json({ error: `Query ${ticket['query_no']} names no finance record to delete.` });
+        return;
+      }
+      // Checked HERE rather than left to the function. `soft_delete_finance_record`
+      // does refuse an informational reference — but by raising `unknown finance
+      // reference type`, which reaches the admin as a 500 and reads like a bug
+      // rather than like the answer, which is "that record is not deleted from
+      // this desk".
+      if (!isFinanceRecordAmendable(referenceType)) {
+        res.status(409).json({ error: informationalReferenceMessage(referenceType, ticket['reference_no']) });
         return;
       }
 

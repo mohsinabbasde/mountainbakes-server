@@ -999,6 +999,14 @@ export const FINANCE_TICKET_REFERENCES = {
   employee_advance:     { prefix: 'ADV', table: 'employee_advances',         refColumn: 'advance_no',   label: 'Employee Advance' },
   partner_expense:      { prefix: 'PEX', table: 'partner_expenses',         refColumn: 'expense_no',   label: 'Partner Expense' },
   branch_share_payment: { prefix: 'BSP', table: 'branch_share_payments',    refColumn: 'payment_no',   label: 'Branch Share' },
+  // §15's Sale ID (migration 96). The only referencable record here that is not
+  // a finance document: it resolves and snapshots like the rest, and is
+  // INFORMATIONAL ONLY — `FINANCE_AMENDABLE_FIELDS.order` is empty, which every
+  // layer reads as "nothing here can be changed from this desk". A sale is
+  // corrected in the Support Center, through `edit_sale_items`, which rewrites
+  // the lines and reconciles stock; a second path to the same rewrite is the
+  // duplicate support architecture the brief rules out.
+  order:                { prefix: 'MB',  table: 'orders',                   refColumn: 'order_number', label: 'Sale' },
 } as const;
 
 export type FinanceTicketReferenceType = keyof typeof FINANCE_TICKET_REFERENCES;
@@ -1020,6 +1028,7 @@ export const FINANCE_TICKET_REFERENCE_LABELS: Record<FinanceTicketReferenceType,
   employee_advance: 'Employee Advance',
   partner_expense: 'Partner Expense',
   branch_share_payment: 'Branch Share',
+  order: 'Sale',
 };
 
 /**
@@ -1273,12 +1282,15 @@ export interface FinanceTicketResolution {
 export interface FinanceTicket {
   id: string;
   /**
-   * The brief's Query ID — `FIN-Q-20260901-0001`, date-scoped and restarting at
-   * 0001 each morning (migration 94).
+   * The brief's Query ID — `FIN-HD-20260901-00001`, date-scoped and restarting
+   * at 00001 each morning (migration 95).
    *
-   * Queries raised before migration 94 carry their old `FQ-000001` number here
-   * instead of being renumbered: the old number is quoted in resolution notes
-   * and audit rows that already exist, and renumbering would orphan them.
+   * Issued by the DATABASE (`app.next_finance_query_no()`, the column's
+   * default), never by the client. Queries raised before migration 95 keep the
+   * number they were given — `FQ-000001` (migration 60) or
+   * `FIN-Q-20260901-0001` (migration 94) — instead of being renumbered: the old
+   * number is quoted in resolution notes and audit rows that already exist, and
+   * renumbering would orphan every one of them.
    */
   queryNo: string;
   /** The pre-migration-94 number. Kept for those existing rows; never displayed. */
@@ -1356,6 +1368,69 @@ export interface FinanceTicket {
   messages?: FinanceTicketMessage[];
   amendments?: FinanceAmendment[];
   attachments?: Attachment[];
+  /**
+   * §14's Audit History — every change this query has been through, oldest
+   * first, ready to render as a timeline. Populated by GET
+   * /api/finance/tickets/:id only.
+   *
+   * Built by the server from two sources it already keeps (`finance_audit_logs`
+   * for the query, `finance_amendments` for the records corrected under it)
+   * rather than assembled in the client, because the two are ordered against
+   * each other by timestamp and because one of them needs REDACTING for a
+   * Finance caller — and a redaction the client performs is not one.
+   */
+  auditTrail?: FinanceTicketAuditEntry[];
+}
+
+/**
+ * One field that moved, as the Audit History shows it.
+ *
+ * Both sides are strings: the trail stores whatever the column held — a number,
+ * a status code, a note — and the timeline's job is to display it, not to
+ * re-type it. `null` means the field was empty on that side, which reads as "—"
+ * and is different from the empty string a cleared note leaves behind.
+ */
+export interface FinanceTicketAuditChange {
+  /** Human label — "Priority", "Amount", "Resolution". Never a column name. */
+  field: string;
+  from: string | null;
+  to: string | null;
+}
+
+/**
+ * One line of §14's Audit History.
+ *
+ *     03:10 — Query Created
+ *     03:15 — Admin Opened Query
+ *     03:20 — Amount Amended        50,000 → 55,000
+ *     03:25 — Query Resolved
+ *
+ * The conversation is deliberately NOT folded in here. A message is not a change
+ * to the record, it is the discussion around one, and the popup already shows
+ * the thread in full directly below — merging them would print every message
+ * twice and bury the four lines that say what actually happened.
+ */
+export interface FinanceTicketAuditEntry {
+  /** The underlying audit-log or amendment row's id; unique across both. */
+  id: string;
+  /**
+   * Which trail the entry came from: `query` is a change to the Help Desk query
+   * itself, `record` a correction to the finance record behind it. They are
+   * different acts with different consequences — one moves a ticket, the other
+   * moves the books — and §8 is about being able to tell them apart afterwards.
+   */
+  source: 'query' | 'record';
+  at: string;
+  /** The raw action, for colour-coding. `FinanceAuditAction | FinanceAmendmentAction`. */
+  action: string;
+  /** What happened, in the brief's own words — "Query Created", "Amount Amended". */
+  summary: string;
+  actorName: string;
+  actorRole: string | null;
+  /** Empty when the entry records an event rather than a field moving. */
+  changes: FinanceTicketAuditChange[];
+  /** §8's stated reason, when the action required one. */
+  reason: string | null;
 }
 
 /**
@@ -1474,7 +1549,34 @@ export const FINANCE_AMENDABLE_FIELDS: Record<FinanceTicketReferenceType, Financ
     { key: 'totalAmount', label: 'Total Income', kind: 'money', movesLedger: false },
     { key: 'branchExpenses', label: 'Branch Expenses', kind: 'money', movesLedger: false },
   ],
+  /**
+   * A sale is REFERENCABLE but not amendable from this desk (migration 96).
+   *
+   * Empty rather than absent: `Record<FinanceTicketReferenceType, …>` makes the
+   * next reference type a compile error until somebody decides this question
+   * for it, which is the point. Correcting a sale rewrites `order_items`,
+   * recomputes the order's totals, moves the customer's spend and reconciles
+   * branch stock — `edit_sale_items`, from the Support Center — and a second
+   * route into that is a second thing to keep correct.
+   */
+  order: [],
 };
+
+/**
+ * May the Help Desk change the record behind a query at all?
+ *
+ * One test, read by the UI (which button to offer), by the amend route and by
+ * the delete-record route — so a reference that is informational stays
+ * informational at every layer instead of at whichever ones remembered.
+ *
+ * A query with no reference answers `false` too: there is no record to touch.
+ */
+export function isFinanceRecordAmendable(
+  referenceType: FinanceTicketReferenceType | null | undefined,
+): boolean {
+  if (!referenceType) return false;
+  return (FINANCE_AMENDABLE_FIELDS[referenceType] ?? []).length > 0;
+}
 
 // ---------------------------------------------------------------------------
 // Who may do what on the Help Desk
