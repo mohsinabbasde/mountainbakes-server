@@ -18,7 +18,50 @@ export interface AuthRequest extends Request {
     role: UserRole;
     branchId: string | null;
     branchName: string | null;
+    /**
+     * The GoTrue session this token belongs to (`session_id` claim).
+     *
+     * Login History records it so an admin can later revoke THIS browser rather
+     * than every browser the account owns, and the ping uses it to notice that
+     * the session it is pinging for has been revoked underneath it.
+     *
+     * Null when the claim is absent — a token minted by an older GoTrue, or one
+     * issued for a flow that has no session behind it. Callers must treat that
+     * as "this session cannot be revoked", never as "revoke everything".
+     */
+    authSessionId: string | null;
   };
+}
+
+/**
+ * Read the `session_id` claim out of an access token.
+ *
+ * DECODING, NOT VERIFYING — and that is only safe because of where it is called:
+ * strictly after `supabaseAdmin.auth.getUser(token)` has already verified the
+ * signature and expiry against Supabase. At that point the payload is known
+ * authentic and pulling one more claim out of it is free, where a second
+ * round-trip to learn it would not be. Calling this anywhere else, on a token
+ * that has not been through `getUser`, would be trusting a string the caller
+ * wrote.
+ *
+ * `getUser` does not return the session id itself, which is the whole reason
+ * this exists.
+ *
+ * Every failure returns null. A malformed segment, a payload that is not JSON, a
+ * claim that is not a string: all of them mean "no session id", and none of them
+ * may throw — a token that verified must not then be rejected because an
+ * optional claim was unreadable.
+ */
+function sessionIdFromToken(token: string): string | null {
+  try {
+    const payload = token.split('.')[1];
+    if (!payload) return null;
+    const json = Buffer.from(payload, 'base64url').toString('utf8');
+    const claims = JSON.parse(json) as { session_id?: unknown };
+    return typeof claims.session_id === 'string' && claims.session_id ? claims.session_id : null;
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -64,6 +107,9 @@ export async function authenticate(req: AuthRequest, res: Response, next: NextFu
     role: meta.role,
     branchId: meta.branchId ?? null,
     branchName: meta.branchName ?? null,
+    // Safe here and nowhere earlier: `getUser` above has already verified this
+    // exact token. See sessionIdFromToken.
+    authSessionId: sessionIdFromToken(token),
   };
   next();
 }

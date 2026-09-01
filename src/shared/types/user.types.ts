@@ -83,6 +83,13 @@ export type UserStatus = 'active' | 'inactive' | 'suspended';
 
 export interface User {
   id: string;
+  /**
+   * Mountain Bakes staff ID — `MBU-000125`. Allocated by Postgres on insert
+   * (migration 98) and never reassigned, so it is safe to print, quote and
+   * search by. `MBU-`, not `MB-`: `MB-######` has meant a sales order since
+   * migration 03 and one namespace cannot mean two things.
+   */
+  userCode: string;
   email: string;
   displayName: string;
   phone: string;

@@ -49,9 +49,19 @@ export interface GeoLocation {
   countryCode: string | null;
   city: string | null;
   region: string | null;
+  /**
+   * IANA zone the ADDRESS resolves to, e.g. 'Asia/Karachi'.
+   *
+   * Emphatically not the browser's own `Intl.DateTimeFormat().resolvedOptions()
+   * .timeZone`, which is client-reported and edited in a settings pane. This one
+   * is derived from the same lookup as the city, which is what makes the
+   * disagreement worth showing: a session whose device claims Karachi from a
+   * London address is exactly the row a security screen exists to surface.
+   */
+  timezone: string | null;
 }
 
-const EMPTY: GeoLocation = { country: null, countryCode: null, city: null, region: null };
+const EMPTY: GeoLocation = { country: null, countryCode: null, city: null, region: null, timezone: null };
 
 const cache = new Map<string, { at: number; value: GeoLocation }>();
 
@@ -115,6 +125,10 @@ export async function lookupIp(ip: string | null | undefined): Promise<GeoLocati
       countryCode: clean(body['country_code']) ?? clean(body['countryCode']),
       city: clean(body['city']),
       region: clean(body['region']) ?? clean(body['regionName']),
+      // `timezone` on ipapi.co and ipinfo.io, `timeZone` on freeipapi.com — both
+      // spellings are read so a GEOIP_URL swap keeps working, which is the whole
+      // reason the other fields are read in pairs too.
+      timezone: clean(body['timezone']) ?? clean(body['timeZone']),
     };
 
     // Only a useful answer is cached. Caching a blank one would hold a transient

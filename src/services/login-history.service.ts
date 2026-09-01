@@ -1,17 +1,38 @@
 import { supabaseAdmin } from '../config/supabase';
-import { businessDateStr, businessDaysAgoStr, type LoginSession, type LoginSessionState } from '../shared';
+import {
+  businessDateStr,
+  businessDaysAgoStr,
+  type ActiveSessionGroup,
+  type ActiveSessionsResponse,
+  type LoginHistoryFilters,
+  type LoginHistoryPage,
+  type LoginSession,
+  type LoginSessionState,
+  type RevokeSessionResult,
+  type UserRole,
+} from '../shared';
 import { rowToApi } from '../utils/case';
+import { maskEmail } from '../utils/mask';
+import { parseUserAgent, describeDevice } from '../utils/userAgent';
 import { lookupIp } from './geoip.service';
+import { logAudit } from './audit.service';
+import { alertSuspiciousLogin, detectSuspicion } from './login-security.service';
 
 /**
- * Login History — opening, keeping and reading sessions.
+ * Login History & Active Sessions — opening, keeping, reading and ending
+ * sessions.
  *
- * The client drives all three because it has to: the app is a static export
- * that signs in to Supabase from the browser, so the API is never in the request
- * path of a login and cannot observe one. Everything identifying still comes off
- * the verified JWT here, never off the body.
+ * The client drives the first three because it has to: the app is a static
+ * export that signs in to Supabase from the browser, so the API is never in the
+ * request path of a login and cannot observe one. Everything identifying still
+ * comes off the verified JWT here, never off the body.
  *
- * See the header of migration 20260822000085 for the table's own reasoning.
+ * The fourth — ending somebody else's session — is the half added by migration
+ * 98, and it is the only part of this module that CHANGES anything outside its
+ * own table. See `revokeSession` for why it takes two mechanisms rather than one.
+ *
+ * See the headers of migrations 20260822000085 and 20260901000098 for the
+ * table's own reasoning.
  */
 
 /**
@@ -27,24 +48,57 @@ import { lookupIp } from './geoip.service';
  */
 const STALE_AFTER_MS = 10 * 60 * 1000;
 
+/** The moment before which an un-ended session counts as expired. */
+function staleCutoff(): string {
+  return new Date(Date.now() - STALE_AFTER_MS).toISOString();
+}
+
+/**
+ * Every column the API reads.
+ *
+ * Written out rather than `*` since migration 98 widened the table: `*` would
+ * quietly start shipping any column added later, and the next column added here
+ * is as likely to be something an admin should not see as not.
+ */
+const COLUMNS = `
+  id, user_id, user_code, user_email, user_name, user_role, branch_id, branch_name,
+  auth_session_id, ip_address, user_agent, browser, browser_version, os, os_version,
+  device_type, country, country_code, city, region, timezone,
+  login_at, last_seen_at, ended_at, end_reason,
+  revoked_at, revoked_by_name, revoke_reason, is_suspicious, suspicious_reason,
+  business_date
+`;
+
 /** Row shape as stored, before `rowToApi`. */
 interface SessionRow {
   id: string;
   user_id: string | null;
   last_seen_at: string;
   ended_at: string | null;
+  revoked_at?: string | null;
+  auth_session_id?: string | null;
 }
 
 /**
- * Fill in the two fields the table does not store.
+ * Fill in the three fields the table does not store.
  *
- * Duration is `coalesce(ended, last seen) − login` — for a signed-out session
- * that is exact, and for one that simply went quiet it is the last moment the
- * tab was known to be open, which is the most that can honestly be claimed.
- * Clamped at zero because clock skew between the dyno and Postgres could
- * otherwise produce a negative.
+ * Duration is `coalesce(ended, last seen) − login` — for a signed-out or revoked
+ * session that is exact, and for one that simply went quiet it is the last
+ * moment the tab was known to be open, which is the most that can honestly be
+ * claimed. Clamped at zero because clock skew between the dyno and Postgres
+ * could otherwise produce a negative.
+ *
+ * ORDER OF THE STATE TESTS MATTERS. `revoked` is checked before `ended` because
+ * a revoked row carries BOTH — `ended_at` so every duration calculation keeps
+ * working untouched, `revoked_at` so the history can say who ended it. Testing
+ * `ended` first would report every revocation as an ordinary sign-out and lose
+ * the distinction the audit trail exists for.
  */
-function derive(row: Record<string, unknown>): { state: LoginSessionState; durationMs: number } {
+function derive(row: Record<string, unknown>): {
+  state: LoginSessionState;
+  durationMs: number;
+  canRevoke: boolean;
+} {
   const loginAt = Date.parse(String(row['loginAt']));
   const lastSeen = Date.parse(String(row['lastSeenAt']));
   const endedAtRaw = row['endedAt'];
@@ -53,19 +107,86 @@ function derive(row: Record<string, unknown>): { state: LoginSessionState; durat
   const finish = endedAt ?? lastSeen;
   const durationMs = Number.isFinite(loginAt) && Number.isFinite(finish) ? Math.max(0, finish - loginAt) : 0;
 
-  const state: LoginSessionState = endedAt
-    ? 'ended'
-    : Date.now() - lastSeen > STALE_AFTER_MS
-      ? 'expired'
-      : 'active';
+  const state: LoginSessionState = row['revokedAt']
+    ? 'revoked'
+    : endedAt
+      ? 'ended'
+      : Date.now() - lastSeen > STALE_AFTER_MS
+        ? 'expired'
+        : 'active';
 
-  return { state, durationMs };
+  // Only a live session can be ended, and only one whose GoTrue session we
+  // recorded can be ended for real. A row from before migration 98 has no
+  // `auth_session_id`, so revoking it could do nothing but relabel our own
+  // bookkeeping while the browser carried on — the button says so rather than
+  // pretending, by not being offered.
+  const canRevoke = state === 'active' && Boolean(row['authSessionId']);
+
+  return { state, durationMs, canRevoke };
 }
 
-function toApi(row: unknown): LoginSession {
-  const { businessDate, ...rest } = rowToApi<Record<string, unknown>>(row);
-  const base = { ...rest, date: businessDate } as Record<string, unknown>;
+/**
+ * Row → API shape, deciding email visibility on the way.
+ *
+ * `revealEmail` is passed in by the caller rather than read from a global,
+ * because the same row is legitimately shown both ways in one request: an admin
+ * viewing their own session detail sees the address, the table behind the dialog
+ * does not. Defaulting it to FALSE is the important part — a new call site that
+ * forgets the argument leaks nothing.
+ */
+function toApi(row: unknown, revealEmail = false): LoginSession {
+  const { businessDate, userEmail, ...rest } = rowToApi<Record<string, unknown>>(row);
+  const email = typeof userEmail === 'string' ? userEmail : '';
+
+  const base = {
+    ...rest,
+    date: businessDate,
+    userEmail: revealEmail ? email : maskEmail(email),
+    emailMasked: !revealEmail,
+  } as Record<string, unknown>;
+
   return { ...base, ...derive(base) } as unknown as LoginSession;
+}
+
+// ---------------------------------------------------------------------------
+// Opening, keeping and closing — the client-driven half
+// ---------------------------------------------------------------------------
+
+/**
+ * Has this GoTrue session been revoked by an admin?
+ *
+ * Checked on BOTH `startSession` and `touchSession`, which is not redundant. The
+ * ping catches an open tab; this catches the reload. Without the check on start,
+ * a browser an admin has just signed out would reload, find its access token
+ * still valid for the rest of its lifetime, open a brand-new `login_sessions`
+ * row and reappear in the Active Sessions list as though nothing had happened —
+ * the revocation would look undone from the one screen built to confirm it.
+ *
+ * Reads OUR table, not GoTrue's. The `auth.sessions` row is already gone by
+ * then, and the service-role client cannot see that schema anyway; the revoked
+ * `login_sessions` row is the durable record that the revocation happened.
+ */
+async function isAuthSessionRevoked(authSessionId: string | null): Promise<boolean> {
+  if (!authSessionId) return false;
+  const { data, error } = await supabaseAdmin
+    .from('login_sessions')
+    .select('id')
+    .eq('auth_session_id', authSessionId)
+    .not('revoked_at', 'is', null)
+    .limit(1);
+  // Fail OPEN. A failed read here must not lock somebody out of an app they are
+  // legitimately signed in to; the revocation still stands at GoTrue, which is
+  // the mechanism that does not depend on this query succeeding.
+  if (error) return false;
+  return (data?.length ?? 0) > 0;
+}
+
+/** Raised when a revoked browser tries to carry on. The routes turn it into a 403. */
+export class SessionRevokedError extends Error {
+  status = 403;
+  constructor() {
+    super('This session was signed out by an administrator');
+  }
 }
 
 /**
@@ -88,12 +209,16 @@ export async function startSession(params: {
   email: string;
   name: string;
   role: string;
+  userCode: string | null;
   branchId: string | null;
   branchName: string | null;
+  authSessionId: string | null;
   ipAddress: string | null;
   userAgent: string | null;
   resumeSessionId?: string | undefined;
 }): Promise<LoginSession> {
+  if (await isAuthSessionRevoked(params.authSessionId)) throw new SessionRevokedError();
+
   if (params.resumeSessionId) {
     const { data, error } = await supabaseAdmin
       .from('login_sessions')
@@ -111,8 +236,11 @@ export async function startSession(params: {
 
     if (live) {
       const resumed = await touchSession(existing.id, params.userId);
-      if (resumed) return resumed;
-      // Fell through: the row was closed between the two reads. Open a new one.
+      if (resumed.status === 'ok') return resumed.session;
+      // Fell through: the row was closed or revoked between the two reads. A
+      // revocation is re-raised rather than silently opening a fresh session,
+      // which would be the reload hole isAuthSessionRevoked closes above.
+      if (resumed.status === 'revoked') throw new SessionRevokedError();
     }
   }
 
@@ -121,60 +249,126 @@ export async function startSession(params: {
   // it to. `lookupIp` cannot throw and is capped at ~2.8s, so the worst case is
   // a login that takes an extra moment to record — never one that fails to be.
   const geo = await lookupIp(params.ipAddress);
+  const device = parseUserAgent(params.userAgent);
+
+  // Judged BEFORE the insert, against a history that does not yet include this
+  // session. Doing it afterwards would mean every login compared itself with
+  // itself and found its own country familiar.
+  const verdict = await detectSuspicion({
+    userId: params.userId,
+    country: geo.country,
+    device,
+  });
 
   const { data, error } = await supabaseAdmin
     .from('login_sessions')
     .insert({
       user_id: params.userId,
+      user_code: params.userCode,
       user_email: params.email,
       user_name: params.name,
       user_role: params.role,
       branch_id: params.branchId,
       branch_name: params.branchName,
+      auth_session_id: params.authSessionId,
       ip_address: params.ipAddress,
       user_agent: params.userAgent,
+      browser: device.browser,
+      browser_version: device.browserVersion,
+      os: device.os,
+      os_version: device.osVersion,
+      device_type: device.deviceType,
       country: geo.country,
       country_code: geo.countryCode,
       city: geo.city,
       region: geo.region,
+      timezone: geo.timezone,
+      is_suspicious: verdict.isSuspicious,
+      suspicious_reason: verdict.reason,
       business_date: businessDateStr(),
     })
-    .select('*')
+    .select(COLUMNS)
     .single();
   if (error) throw error;
 
-  return toApi(data);
+  // Fire-and-forget, deliberately. The login is recorded; whether an admin was
+  // told about it is a second, lesser fact, and awaiting the notification write
+  // would put its latency inside somebody's sign-in.
+  if (verdict.isSuspicious && verdict.reason) {
+    void alertSuspiciousLogin({
+      sessionId: (data as { id: string }).id,
+      userId: params.userId,
+      userCode: params.userCode,
+      userName: params.name,
+      userRole: params.role,
+      country: geo.country,
+      city: geo.city,
+      device,
+      reason: verdict.reason,
+    });
+  }
+
+  // The caller is the session's own owner, so there is nothing to hide from them.
+  return toApi(data, true);
 }
 
+/** What a ping found. The three outcomes need three different client reactions. */
+export type PingOutcome =
+  | { status: 'ok'; session: LoginSession }
+  | { status: 'revoked' }
+  | { status: 'gone' };
+
 /**
- * Bump `last_seen_at`. Returns null if there was no live session to bump.
+ * Bump `last_seen_at`.
  *
  * Guarded on `user_id` and on `ended_at is null` in the UPDATE itself rather
  * than read-then-write: a ping racing a sign-out must not resurrect a session
  * that has just been closed, and a predicate in the statement is the only way to
  * decide that atomically from here.
+ *
+ * WHEN THE UPDATE MATCHES NOTHING there are two very different reasons, and this
+ * is the one place that can tell them apart. Either the session is simply over —
+ * the client should drop its id and open a fresh one — or an admin revoked it,
+ * and the client must sign itself out instead. Collapsing both into "not found",
+ * as this did before migration 98, would let a revoked browser answer the
+ * revocation by opening a new session; that is the hole this second read closes,
+ * and it is why the ping is the practical enforcement of a revocation rather
+ * than the GoTrue delete, which is invisible until a token refresh falls due.
  */
-export async function touchSession(sessionId: string, userId: string): Promise<LoginSession | null> {
+export async function touchSession(sessionId: string, userId: string): Promise<PingOutcome> {
   const { data, error } = await supabaseAdmin
     .from('login_sessions')
     .update({ last_seen_at: new Date().toISOString() })
     .eq('id', sessionId)
     .eq('user_id', userId)
     .is('ended_at', null)
-    .select('*')
+    .select(COLUMNS)
     .maybeSingle();
   if (error) throw error;
-  return data ? toApi(data) : null;
+  if (data) return { status: 'ok', session: toApi(data, true) };
+
+  const { data: closed } = await supabaseAdmin
+    .from('login_sessions')
+    .select('revoked_at')
+    .eq('id', sessionId)
+    .eq('user_id', userId)
+    .maybeSingle();
+
+  return (closed as { revoked_at: string | null } | null)?.revoked_at
+    ? { status: 'revoked' }
+    : { status: 'gone' };
 }
 
 /**
  * Close a session on an explicit sign-out.
  *
  * `end_reason` is always 'logout' here — 'expired' exists in the check
- * constraint for a sweeper that does not exist yet, and is never written by this
- * path. Idempotent through the same `ended_at is null` predicate: signing out
- * twice, or a retry, leaves the first end time standing rather than stretching
- * the session to the second call.
+ * constraint for a sweeper that does not exist yet, and 'revoked' is written
+ * only by `revokeSession`. Idempotent through the same `ended_at is null`
+ * predicate: signing out twice, or a retry, leaves the first end time standing
+ * rather than stretching the session to the second call. The same predicate is
+ * what stops a sign-out from overwriting a revocation and erasing who performed
+ * it.
  */
 export async function endSession(sessionId: string, userId: string): Promise<void> {
   const now = new Date().toISOString();
@@ -187,28 +381,483 @@ export async function endSession(sessionId: string, userId: string): Promise<voi
   if (error) throw error;
 }
 
+// ---------------------------------------------------------------------------
+// Reading — the admin half
+// ---------------------------------------------------------------------------
+
 /**
- * The history, newest first.
+ * Make a search term safe to drop into PostgREST's `or` filter.
+ *
+ * That filter is a comma-separated, parenthesised mini-language parsed as a
+ * STRING, so a comma or a bracket in the term does not fail — it silently
+ * changes which columns are searched. `%` and `_` are `ilike` wildcards and are
+ * stripped for the same reason: a term of `%` would match every row and read as
+ * a broken filter rather than as the user having typed a wildcard.
+ */
+function safeSearch(term: string): string {
+  return term.replace(/[,()%_\\*"']/g, ' ').trim();
+}
+
+/**
+ * The history, newest first, one page at a time.
+ *
+ * PAGED IN SQL, not in the browser. The screen this feeds can be asked for every
+ * account's sessions at once, and the previous version's answer — fetch a capped
+ * 500 rows and filter them client-side — meant the cap silently truncated the
+ * result the moment the table outgrew it, with no indication that anything was
+ * missing. Every filter below is therefore applied in the query, and `total` is
+ * the count of rows matching it, so the pager can be honest.
  *
  * `userId` null means every user — the caller decides that, and only a super
  * admin is allowed to pass it (see the route). Everyone else is pinned to their
  * own id, which is what makes this table safe to put on every dashboard.
  */
 export async function listSessions(opts: {
-  userId: string | null;
-  days: number;
-  limit: number;
-}): Promise<LoginSession[]> {
+  filters: LoginHistoryFilters;
+  page: number;
+  pageSize: number;
+  /**
+   * Whether this caller may SEARCH by email address.
+   *
+   * Note there is no `revealEmail` here: the list masks every address for
+   * everybody, admin included. The address is shown only by `getSession`, which
+   * is a deliberate click into a detail view rather than a column sitting open
+   * on a shop-floor tablet. Searching is separable from seeing, and an admin
+   * genuinely needs to find "which sessions belong to this address" — hence the
+   * one flag rather than the two collapsed into each other.
+   */
+  searchEmail: boolean;
+}): Promise<LoginHistoryPage> {
+  const { filters } = opts;
+
   let q = supabaseAdmin
     .from('login_sessions')
-    .select('*')
-    .gte('business_date', businessDaysAgoStr(opts.days - 1))
-    .order('login_at', { ascending: false })
-    .range(0, opts.limit - 1);
+    // `count: 'exact'` rather than 'estimated': the numbers here are small enough
+    // that an exact count is cheap, and an estimate that disagrees with the rows
+    // on screen reads as a bug to the person looking at both.
+    .select(COLUMNS, { count: 'exact' })
+    .order('login_at', { ascending: false });
+
+  if (filters.userId) q = q.eq('user_id', filters.userId);
+  if (filters.from) q = q.gte('business_date', filters.from);
+  if (filters.to) q = q.lte('business_date', filters.to);
+  if (filters.country) q = q.eq('country', filters.country);
+  if (filters.suspiciousOnly) q = q.eq('is_suspicious', true);
+
+  // The state filter, in SQL. It has to be here rather than applied to the page
+  // after it is fetched, or `total` would count rows the page then discarded and
+  // the pager would promise pages that come back empty.
+  //
+  // `ended` deliberately excludes revoked rows even though a revoked row also
+  // carries `ended_at`: lumping them together would make this filter mean
+  // "over", which is just the inverse of `active` and answers nothing new.
+  if (filters.state === 'revoked') q = q.not('revoked_at', 'is', null);
+  else if (filters.state === 'ended') q = q.not('ended_at', 'is', null).is('revoked_at', null);
+  else if (filters.state === 'active') q = q.is('ended_at', null).gte('last_seen_at', staleCutoff());
+  else if (filters.state === 'expired') q = q.is('ended_at', null).lt('last_seen_at', staleCutoff());
+
+  if (filters.search) {
+    const term = safeSearch(filters.search);
+    if (term) {
+      // Email is searchable ONLY for an admin. Leaving it in for everyone else
+      // would turn the search box into an oracle: type an address, and whether a
+      // row comes back tells you whether that account exists — even though the
+      // column itself comes back masked, so nothing appears to have leaked.
+      const cols = ['user_code', 'user_name', ...(opts.searchEmail ? ['user_email'] : [])];
+      q = q.or(cols.map((c) => `${c}.ilike.%${term}%`).join(','));
+    }
+  }
+
+  const from = (opts.page - 1) * opts.pageSize;
+  const { data, error, count } = await q.range(from, from + opts.pageSize - 1);
+  if (error) throw error;
+
+  return {
+    // Always masked. See `searchEmail` above.
+    sessions: (data ?? []).map((r) => toApi(r)),
+    total: count ?? 0,
+    page: opts.page,
+    pageSize: opts.pageSize,
+    scope: filters.userId ? 'self' : 'all',
+  };
+}
+
+/**
+ * Everything currently live, grouped by account.
+ *
+ * THE GROUPING IS THE FEATURE. A flat list answers "who is online"; grouped by
+ * account it answers "is anybody signed in from three countries at once", which
+ * is the question the screen exists for and the reason this endpoint is separate
+ * from the history list rather than a filter on it.
+ *
+ * Grouped in JavaScript rather than in SQL because the set is small by
+ * construction — only sessions pinged within the last ten minutes qualify, which
+ * is at most the number of tabs the company has open — and because the same rows
+ * are needed both grouped and individually. A `group by` would need a second
+ * query to get the sessions back.
+ */
+export async function listActiveSessions(opts: {
+  userId: string | null;
+}): Promise<ActiveSessionsResponse> {
+  let q = supabaseAdmin
+    .from('login_sessions')
+    .select(COLUMNS)
+    .is('ended_at', null)
+    .gte('last_seen_at', staleCutoff())
+    .order('last_seen_at', { ascending: false });
 
   if (opts.userId) q = q.eq('user_id', opts.userId);
 
   const { data, error } = await q;
   if (error) throw error;
-  return (data ?? []).map(toApi);
+
+  // Masked, like the history list and for the same reason: this is a roster read
+  // at a glance, and the staff code identifies the account for everything it is
+  // used for. The address is one click away in the detail dialog.
+  const sessions = (data ?? []).map((r) => toApi(r));
+
+  // Keyed by user id, falling back to the staff code and then the row id. The
+  // fallbacks matter for a deleted account: `user_id` is null on every one of
+  // its rows, so keying on it alone would collapse every deleted account's
+  // sessions into one bogus group.
+  const byUser = new Map<string, LoginSession[]>();
+  for (const s of sessions) {
+    const key = s.userId ?? s.userCode ?? s.id;
+    const bucket = byUser.get(key);
+    if (bucket) bucket.push(s);
+    else byUser.set(key, [s]);
+  }
+
+  const groups: ActiveSessionGroup[] = [...byUser.values()].map((rows) => {
+    const head = rows[0]!;
+    const countries = [...new Set(rows.map((r) => r.country).filter((c): c is string => !!c))];
+    return {
+      userId: head.userId,
+      userCode: head.userCode,
+      userName: head.userName,
+      userEmail: head.userEmail,
+      emailMasked: head.emailMasked,
+      userRole: head.userRole as UserRole | null,
+      branchName: head.branchName,
+      sessions: rows,
+      sessionCount: rows.length,
+      countries,
+      // Two RESOLVED countries. A session whose lookup failed contributes
+      // nothing rather than counting as a different place — otherwise a geo
+      // provider outage would light up the multi-country warning for everybody
+      // who happened to sign in during it.
+      multiCountry: countries.length > 1,
+      hasSuspicious: rows.some((r) => r.isSuspicious),
+      lastSeenAt: head.lastSeenAt,
+    };
+  });
+
+  // Most recently seen first, and within that the accounts with the most
+  // sessions — so a person live on four devices sorts above one on a single tab.
+  groups.sort((a, b) => b.lastSeenAt.localeCompare(a.lastSeenAt) || b.sessionCount - a.sessionCount);
+
+  return {
+    groups,
+    totalSessions: sessions.length,
+    totalUsers: groups.length,
+    multiCountryUsers: groups.filter((g) => g.multiCountry).length,
+    scope: opts.userId ? 'self' : 'all',
+  };
+}
+
+/** One session in full, for the detail dialog. */
+export async function getSession(sessionId: string, revealEmail: boolean): Promise<LoginSession> {
+  const { data, error } = await supabaseAdmin
+    .from('login_sessions')
+    .select(COLUMNS)
+    .eq('id', sessionId)
+    .maybeSingle();
+  if (error) throw error;
+  if (!data) throw Object.assign(new Error('Session not found'), { status: 404 });
+  return toApi(data, revealEmail);
+}
+
+/**
+ * The distinct countries that appear in the history, for the filter dropdown.
+ *
+ * Read from the rows rather than kept as a lookup table, because the set is
+ * whatever the geo provider has said so far — there is no canonical list to
+ * maintain, and a hardcoded one would be missing the country somebody actually
+ * signed in from. Capped and de-duplicated in memory: PostgREST has no
+ * `select distinct`, and the alternative is a database view for a dropdown.
+ */
+export async function listCountries(userId: string | null): Promise<string[]> {
+  let q = supabaseAdmin
+    .from('login_sessions')
+    .select('country')
+    .not('country', 'is', null)
+    .order('login_at', { ascending: false })
+    .limit(2000);
+  if (userId) q = q.eq('user_id', userId);
+
+  const { data, error } = await q;
+  if (error) throw error;
+
+  const seen = new Set((data ?? []).map((r) => (r as { country: string }).country));
+  return [...seen].sort((a, b) => a.localeCompare(b));
+}
+
+// ---------------------------------------------------------------------------
+// Ending somebody else's session — the admin half that changes something
+// ---------------------------------------------------------------------------
+
+interface Admin {
+  id: string;
+  name: string;
+}
+
+/**
+ * End one session, for real.
+ *
+ * TWO MECHANISMS, AND BOTH ARE NECESSARY.
+ *
+ *   1. `revoke_auth_session` deletes the GoTrue session, which cascades away its
+ *      refresh token. The browser is out for good — but not immediately: a
+ *      Supabase ACCESS token is stateless and stays valid until it expires, so
+ *      there is a window of up to one token lifetime in which the revoked
+ *      browser can still call the API.
+ *   2. Marking the row revoked closes that window from the other side. The ping
+ *      every open tab already sends answers 403 on a revoked row and the client
+ *      signs itself out, so the practical lag is the two-minute ping tick.
+ *
+ * Neither is sufficient alone. The ping can be ignored by a tampered client that
+ * simply stops pinging; the GoTrue delete is invisible until a refresh falls
+ * due. Together they cover each other, which is the whole reason this function
+ * does two things instead of one.
+ *
+ * ORDER IS DELIBERATE: GoTrue first, our row second. If the process dies between
+ * them, the session is genuinely dead and our record merely says it is still
+ * open — a history that understates. The reverse order would leave a row marked
+ * revoked over a browser that was never actually signed out, which is a history
+ * that LIES in the direction an admin would act on.
+ */
+export async function revokeSession(
+  sessionId: string,
+  admin: Admin,
+  reason: string | null,
+): Promise<RevokeSessionResult> {
+  const { data, error } = await supabaseAdmin
+    .from('login_sessions')
+    .select('id, user_id, user_code, user_name, user_role, auth_session_id, ended_at, browser, os, country, city')
+    .eq('id', sessionId)
+    .maybeSingle();
+  if (error) throw error;
+  if (!data) throw Object.assign(new Error('Session not found'), { status: 404 });
+
+  const row = data as SessionRow & {
+    user_code: string | null;
+    user_name: string;
+    user_role: string | null;
+    browser: string | null;
+    os: string | null;
+    country: string | null;
+    city: string | null;
+  };
+
+  // 409 rather than a silent success. "Sign out" on a session that already ended
+  // is a stale screen, and telling the admin so is what prompts a refresh —
+  // reporting success would leave them believing they acted on something.
+  if (row.ended_at) {
+    throw Object.assign(new Error('That session has already ended'), { status: 409 });
+  }
+
+  let authSessionsEnded = 0;
+  if (row.auth_session_id) {
+    const { data: killed, error: rpcError } = await supabaseAdmin.rpc('revoke_auth_session', {
+      p_auth_session_id: row.auth_session_id,
+    });
+    // Logged, not thrown. If GoTrue refuses, marking our row revoked still ejects
+    // the browser on its next ping, and abandoning the whole revocation because
+    // the stronger of the two mechanisms failed would leave the admin with
+    // nothing at all.
+    if (rpcError) console.error('[login-history] revoke_auth_session failed', rpcError.message);
+    else if (killed === true) authSessionsEnded = 1;
+  }
+
+  const now = new Date().toISOString();
+  const { data: updated, error: updateError } = await supabaseAdmin
+    .from('login_sessions')
+    .update({
+      ended_at: now,
+      end_reason: 'revoked',
+      revoked_at: now,
+      revoked_by: admin.id,
+      revoked_by_name: admin.name,
+      revoke_reason: reason,
+    })
+    .eq('id', sessionId)
+    // Same predicate as `endSession`: a revocation racing a sign-out must not
+    // stretch a session that has already closed.
+    .is('ended_at', null)
+    .select('id');
+  if (updateError) throw updateError;
+
+  const revoked = updated?.length ?? 0;
+
+  await logAudit({
+    action: 'session_revoked',
+    adminId: admin.id,
+    adminName: admin.name,
+    targetUserId: row.user_id,
+    targetUserName: row.user_name,
+    targetUserRole: row.user_role,
+    details: describeRevocation(row, reason),
+  });
+
+  return { revoked, authSessionsEnded };
+}
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * End every session for one account, sparing at most one.
+ *
+ * NOT A LOOP OVER `revokeSession`, and the difference is the point. The SQL
+ * function deletes GoTrue sessions by `user_id`, so it also reaches sessions
+ * `login_sessions` never recorded — one opened before the history feature
+ * shipped, one whose /start call was lost to a dropped connection, one from a
+ * client that never called the API at all. "Sign out everywhere" that only signs
+ * out the sessions we happen to know about is a promise the button cannot keep.
+ *
+ * THE SPARED SESSION IS THE CALLER'S OWN, AND THE SERVER DECIDES IT. An admin
+ * clearing their own account's other devices must not eject the browser they are
+ * sitting in — that ends with them locked out mid-incident, which is the worst
+ * possible moment. `keep.authSessionId` is therefore filled in by the route from
+ * the caller's own verified token, never from the request body, so the
+ * protection holds even for a client that forgot to ask for it.
+ *
+ * `keep.sessionId` remains as the explicit, client-supplied form and is verified
+ * to belong to the SAME user before it is honoured. Without that check an admin
+ * could pass a session id belonging to somebody else and spare nothing, while
+ * believing they had kept a tab alive.
+ */
+export async function revokeAllOtherSessions(
+  targetUserId: string,
+  keep: {
+    /** A `login_sessions` id the caller asked to spare. Verified to be the target's. */
+    sessionId: string | null;
+    /** The caller's own GoTrue session, off their verified token. Never from a body. */
+    authSessionId: string | null;
+  },
+  admin: Admin,
+  reason: string | null,
+): Promise<RevokeSessionResult> {
+  let keepAuthSessionId: string | null = keep.authSessionId;
+  if (!keepAuthSessionId && keep.sessionId) {
+    const { data } = await supabaseAdmin
+      .from('login_sessions')
+      .select('auth_session_id, user_id')
+      .eq('id', keep.sessionId)
+      .maybeSingle();
+    const row = data as SessionRow | null;
+    if (row?.user_id === targetUserId) keepAuthSessionId = row.auth_session_id ?? null;
+  }
+  // Shape-checked before it is interpolated into the `or` filter below, which is
+  // a string mini-language rather than a parameterised query. The value comes
+  // from our own column or a verified token, so this is belt and braces — but a
+  // filter built by string concatenation gets the check regardless of provenance.
+  if (keepAuthSessionId && !UUID.test(keepAuthSessionId)) keepAuthSessionId = null;
+
+  const { data: killed, error: rpcError } = await supabaseAdmin.rpc('revoke_all_auth_sessions', {
+    p_user_id: targetUserId,
+    p_keep_auth_session_id: keepAuthSessionId,
+  });
+  if (rpcError) console.error('[login-history] revoke_all_auth_sessions failed', rpcError.message);
+  const authSessionsEnded = typeof killed === 'number' ? killed : 0;
+
+  const now = new Date().toISOString();
+  let update = supabaseAdmin
+    .from('login_sessions')
+    .update({
+      ended_at: now,
+      end_reason: 'revoked',
+      revoked_at: now,
+      revoked_by: admin.id,
+      revoked_by_name: admin.name,
+      revoke_reason: reason,
+    })
+    .eq('user_id', targetUserId)
+    .is('ended_at', null);
+
+  if (keep.sessionId) update = update.neq('id', keep.sessionId);
+  if (keepAuthSessionId) {
+    // `neq` alone would MISS the null rows: in SQL `auth_session_id <> '…'` is
+    // NULL for a null column, not true, so every pre-migration-98 session would
+    // survive a "sign out everywhere" — silently, and exactly for the sessions
+    // that are hardest to end by other means.
+    update = update.or(`auth_session_id.is.null,auth_session_id.neq.${keepAuthSessionId}`);
+  }
+
+  const { data: updated, error: updateError } = await update.select('id, user_name, user_role, user_code');
+  if (updateError) throw updateError;
+
+  const rows = (updated ?? []) as Array<{ user_name: string; user_role: string | null; user_code: string | null }>;
+  const revoked = rows.length;
+  const head = rows[0];
+
+  // Named from the rows we just closed where possible, and from a lookup only
+  // when there were none — the audit row must still say WHO was signed out even
+  // if every session had already expired and nothing matched the update.
+  const target = head ?? (await lookupUserForAudit(targetUserId));
+
+  await logAudit({
+    action: 'all_sessions_revoked',
+    adminId: admin.id,
+    adminName: admin.name,
+    targetUserId,
+    targetUserName: target?.user_name ?? 'Unknown account',
+    targetUserRole: target?.user_role ?? null,
+    details: [
+      `${revoked} recorded session${revoked === 1 ? '' : 's'} ended`,
+      `${authSessionsEnded} authentication session${authSessionsEnded === 1 ? '' : 's'} deleted`,
+      keepAuthSessionId ? 'the acting session kept' : 'every session ended',
+      reason ? `reason: ${reason}` : null,
+    ]
+      .filter(Boolean)
+      .join(' · '),
+  });
+
+  return { revoked, authSessionsEnded };
+}
+
+async function lookupUserForAudit(
+  userId: string,
+): Promise<{ user_name: string; user_role: string | null; user_code: string | null } | null> {
+  const { data } = await supabaseAdmin
+    .from('users')
+    .select('display_name, role, user_code')
+    .eq('id', userId)
+    .maybeSingle();
+  const u = data as { display_name: string | null; role: string | null; user_code: string | null } | null;
+  return u ? { user_name: u.display_name ?? 'Unknown account', user_role: u.role, user_code: u.user_code } : null;
+}
+
+/**
+ * The `details` line on a revocation audit row.
+ *
+ * Names the staff code, the device and the location rather than only the session
+ * UUID, because the audit log is read months later by somebody who no longer has
+ * the session list open — and a UUID alone means the row cannot be understood
+ * without a second lookup into a table that may by then have been pruned.
+ */
+function describeRevocation(
+  row: { user_code: string | null; browser: string | null; os: string | null; country: string | null; city: string | null },
+  reason: string | null,
+): string {
+  const device = describeDevice({
+    browser: row.browser,
+    browserVersion: null,
+    os: row.os,
+    osVersion: null,
+    deviceType: null,
+  });
+  const where = [row.city, row.country].filter(Boolean).join(', ') || 'unresolved location';
+  return [row.user_code ?? 'unknown staff ID', device, where, reason ? `reason: ${reason}` : null]
+    .filter(Boolean)
+    .join(' · ');
 }

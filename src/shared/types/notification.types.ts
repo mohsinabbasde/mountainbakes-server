@@ -54,7 +54,9 @@ export type NotificationType =
   | 'event_demand_due' // the branch demand deadline is tomorrow → branch
   | 'event_demand_submitted' // a branch submitted its advance demand → Production
   | 'event_demand_reviewed' // Production/Admin approved or rejected a demand → branch
-  | 'event_production_updated'; // a preparation stage moved → Admin
+  | 'event_production_updated' // a preparation stage moved → Admin
+  // Session security (migration 97/98)
+  | 'security_alert'; // a sign-in tripped the suspicion detector → Admin
 
 export interface Notification {
   id: string;

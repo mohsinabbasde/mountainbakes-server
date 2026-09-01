@@ -3,7 +3,17 @@ import type { AuditAction } from '../shared';
 
 export interface AuditInput {
   action: AuditAction;
-  adminId: string;
+  /**
+   * Who did it — null when nobody did.
+   *
+   * Nullable since migration 98's `suspicious_login`, the first entry written by
+   * the system rather than by a person: a sign-in tripped a detector, and there
+   * is no admin to name. Writing the flagged user's own id here would be worse
+   * than a null, because every other row means "this account performed the
+   * action" and the flagged user did not perform their own flagging.
+   */
+  adminId: string | null;
+  /** Display name of the actor, or a plain description of the system when adminId is null. */
   adminName: string;
   targetUserId?: string | null;
   targetUserName?: string | null;
