@@ -25,7 +25,11 @@ import type { DailySaleRecord, DailySaleSummary } from '../types/daily-sale.type
  * printout by one counted figure is not a cosmetic problem.
  */
 export interface DailySaleDifferences {
-  /** null where nothing was counted — which is not the same as nothing being wrong. */
+  /**
+   * Counted cash minus CASH ON TABLE — not minus gross takings.
+   *
+   * null where nothing was counted, which is not the same as nothing being wrong.
+   */
   cashDifference: number | null;
   easypaisaDifference: number | null;
   bankDifference: number | null;
@@ -33,7 +37,10 @@ export interface DailySaleDifferences {
   overallDifference: number;
   /** The payment breakdown re-added. Should equal the total sale. */
   paymentTotal: number;
-  /** What the drawer should physically hold: cash taken less cash paid out of it. */
+  /**
+   * Cash on Table — what the drawer should physically hold: cash taken, less cash
+   * paid out of it. This is the figure `cashDifference` reconciles against.
+   */
   expectedCashInHand: number;
 }
 
@@ -55,9 +62,9 @@ export interface DailySaleManualFigures {
   manualBank: number | null;
 }
 
-/** `manual − auto`, or null when nothing was counted. */
-function diff(manual: number | null, auto: number): number | null {
-  return manual === null || manual === undefined ? null : round2(manual - auto);
+/** `manual − expected`, or null when nothing was counted. */
+function diff(manual: number | null, expected: number): number | null {
+  return manual === null || manual === undefined ? null : round2(manual - expected);
 }
 
 /** Money to two places. Guards the float drift that a chain of subtractions invites. */
@@ -69,7 +76,17 @@ export function computeDailySaleDifferences(
   auto: DailySaleAutoFigures,
   manual: DailySaleManualFigures,
 ): DailySaleDifferences {
-  const cashDifference = diff(manual.manualCash, auto.autoCash);
+  // What should physically be in the drawer, and therefore what a counted note
+  // total is checked against. Cash is the ONLY method netted against expenses —
+  // money paid out of the till never reaches the bank or the aggregator, so
+  // subtracting it from those would invent a discrepancy rather than remove one.
+  const expectedCashInHand = round2(auto.autoCash - auto.cashExpense);
+
+  // Against CASH ON TABLE, not gross takings (migration 102). The person counting
+  // is counting notes, and the day's cash expenses have already left the drawer —
+  // comparing against gross would report a shortfall equal to the expenses on
+  // every record, every day, and bury the discrepancies that are real.
+  const cashDifference = diff(manual.manualCash, expectedCashInHand);
   const easypaisaDifference = diff(manual.manualEasypaisa, auto.autoEasypaisa);
   const bankDifference = diff(manual.manualBank, auto.autoBank);
 
@@ -80,14 +97,13 @@ export function computeDailySaleDifferences(
     overallDifference: round2(
       (cashDifference ?? 0) + (easypaisaDifference ?? 0) + (bankDifference ?? 0),
     ),
+    // Gross, and it must stay gross: this is the payment breakdown re-added, and
+    // it has to keep equalling the day's total sale. A breakdown whose rows do
+    // not sum to their own heading is worse than one with a row missing.
     paymentTotal: round2(
       auto.autoCash + auto.autoEasypaisa + auto.autoFoodpanda + auto.autoBank + auto.autoOther,
     ),
-    // NOT folded into `cashDifference`. §9 compares a count against the GROSS
-    // cash taken; this is the separate figure a person can check the drawer
-    // against. Conflating them would make every day with a cash expense read as
-    // short by exactly that expense — see the comment on the generated column.
-    expectedCashInHand: round2(auto.autoCash - auto.cashExpense),
+    expectedCashInHand,
   };
 }
 

@@ -183,6 +183,7 @@ export interface DailySaleRecord {
   fedAt: string | null;
 
   // ── DIFFERENCE — derived in the database, never sent by a client. ──
+  /** Counted cash minus `expectedCashInHand` (Cash on Table), not minus `autoCash`. */
   cashDifference: number | null;
   easypaisaDifference: number | null;
   bankDifference: number | null;
@@ -190,7 +191,10 @@ export interface DailySaleRecord {
   overallDifference: number;
   /** The payment breakdown re-added. Should equal `autoTotalSale`. */
   paymentTotal: number;
-  /** What the drawer should hold: `autoCash − cashExpense`. */
+  /**
+   * Cash on Table — what the drawer should hold: `autoCash − cashExpense`.
+   * The counted cash is reconciled against THIS, not against `autoCash`.
+   */
   expectedCashInHand: number;
 
   status: DailySaleRecordStatus;
