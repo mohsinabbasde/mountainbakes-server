@@ -19,6 +19,7 @@ import { router as branchDiscountsRouter } from './branch-discounts.routes';
 import { router as productionReportsRouter } from './production-reports.routes';
 import { router as expensesRouter } from './expenses.routes';
 import { router as branchClosingRouter } from './branch-closing.routes';
+import { router as dailySaleRouter } from './daily-sale.routes';
 import { router as stockRouter } from './stock.routes';
 import { router as reportsRouter } from './reports.routes';
 import { router as salesAnalyticsRouter } from './sales-analytics.routes';
@@ -69,6 +70,11 @@ export function setupRoutes(app: Express) {
   app.use('/api/production-reports', productionReportsRouter);
   app.use('/api/expenses', expensesRouter);
   app.use('/api/branch-closing', branchClosingRouter);
+  // Daily Sale Record — the branch's daily reconciliation of system sales against
+  // physically counted receipts. Its own prefix rather than a path under
+  // /api/branch-closing: that surface writes nothing and locks nothing, while this
+  // one is a signed, audited record with a status machine behind it.
+  app.use('/api/daily-sale-records', dailySaleRouter);
   app.use('/api/stock', stockRouter);
   app.use('/api/reports', reportsRouter);
   // Daily Sales analytics. Its own prefix, not a path under /api/reports: it
