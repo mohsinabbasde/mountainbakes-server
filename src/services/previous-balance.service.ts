@@ -14,6 +14,21 @@ import { resolveShareSplit } from '../shared';
  */
 export interface PreviousOrderBalance {
   previous: { demandNumber: string; date: string } | null;
+  /**
+   * What the previous demand was ASKED for — its lines at requested quantity.
+   *
+   * The counterpart to `deliveredValue`, which is the same lines at approved
+   * quantity. The pair is what makes a short delivery legible on the slip: the
+   * branch ordered this much, that much actually went out, and the share is taken
+   * from the second. Nothing bills against this figure — it is context for the
+   * one that does.
+   *
+   * Valued on the same basis as `deliveredValue`, deliberately. Two adjacent
+   * figures on a document settled in cash have to be comparable, and a difference
+   * between them must mean a difference in QUANTITY rather than in how each was
+   * priced. See the note on the valuation basis where they are both computed.
+   */
+  orderedValue: number;
   deliveredValue: number;
   companySharePct: number;
   companyShareValue: number;
@@ -62,7 +77,7 @@ export async function getPreviousOrderBalance(orderId: string): Promise<Previous
   // 'rejected' never will, so both are skipped when walking back.
   const { data: prev, error: prevErr } = await supabaseAdmin
     .from('production_orders')
-    .select('id, demand_number, business_date, submitted_at, items:production_order_items(product_id, approved_qty)')
+    .select('id, demand_number, business_date, submitted_at, items:production_order_items(product_id, qty, approved_qty)')
     .eq('branch_id', order.branch_id)
     .in('status', ['awaiting_verification', 'approved'])
     .lt('submitted_at', order.submitted_at)
@@ -87,15 +102,36 @@ export async function getPreviousOrderBalance(orderId: string): Promise<Previous
 
   if (!prev) {
     return {
-      previous: null, deliveredValue: 0, companySharePct,
+      previous: null, orderedValue: 0, deliveredValue: 0, companySharePct,
       companyShareValue: 0, returnsValue: 0, returnItems: [],
       discountsValue: 0, discountItems: [], amountToCollect: 0,
     };
   }
 
-  const prevItems = (prev.items ?? []) as { product_id: string | null; approved_qty: number | string | null }[];
+  const prevItems = (prev.items ?? []) as {
+    product_id: string | null;
+    qty: number | string | null;
+    approved_qty: number | string | null;
+  }[];
   const productIds = [...new Set(prevItems.map((i) => i.product_id).filter((p): p is string => !!p))];
 
+  // Ordered and delivered, from one pass over one price map.
+  //
+  // ON THE VALUATION BASIS: both use the CURRENT `products.price`, which is what
+  // this service has always done for `deliveredValue`. `orderedValue` follows it
+  // rather than reading the line's snapshotted `unit_price`, because these two
+  // print next to each other and settle in cash: valued differently, a price
+  // change since the delivery would make ordered and delivered differ for a
+  // reason that has nothing to do with quantity, which is the only thing their
+  // difference is read as meaning.
+  //
+  // That the shared basis is the current price rather than the snapshot is a
+  // separate question, and a live one — `unit_price` is written onto the line
+  // precisely so a later price change cannot rewrite what an order was worth
+  // (see the note in production-orders.routes.ts). Changing it here would move
+  // `companyShareValue` and `amountToCollect`, i.e. money actually collected, so
+  // it is not changed as a side effect of adding a field.
+  let orderedValue = 0;
   let deliveredValue = 0;
   if (productIds.length > 0) {
     const { data: products, error: prodErr } = await supabaseAdmin
@@ -104,10 +140,11 @@ export async function getPreviousOrderBalance(orderId: string): Promise<Previous
       .in('id', productIds);
     if (prodErr) throw prodErr;
     const priceById = new Map((products ?? []).map((p) => [p.id as string, Number(p.price ?? 0)]));
-    deliveredValue = prevItems.reduce(
-      (a, i) => a + Number(i.approved_qty ?? 0) * (i.product_id ? (priceById.get(i.product_id) ?? 0) : 0),
-      0,
-    );
+    for (const i of prevItems) {
+      const price = i.product_id ? (priceById.get(i.product_id) ?? 0) : 0;
+      orderedValue += Number(i.qty ?? 0) * price;
+      deliveredValue += Number(i.approved_qty ?? 0) * price;
+    }
   }
 
   // Returns that came back during the period this slip bills for: after the
@@ -187,6 +224,7 @@ export async function getPreviousOrderBalance(orderId: string): Promise<Previous
 
   return {
     previous: { demandNumber: prev.demand_number, date: prev.business_date },
+    orderedValue,
     deliveredValue,
     companySharePct,
     companyShareValue,
