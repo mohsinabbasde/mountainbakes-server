@@ -101,7 +101,22 @@ export interface LoginSession {
    * for that — never the staff code in its place.
    */
   userEmail: string;
-  /** True when `userEmail` above was masked before it was sent. */
+  /**
+   * The Google account the session was signed in WITH, when it was signed in
+   * with Google; null otherwise. A different fact from `userEmail` again: that
+   * is the Mountain Bakes account, this is the Google identity that vouched
+   * for it at sign-in — arifsiksavi@gmail.com beside ahmed@mountainbakes.com.
+   *
+   * Filled by the API from the verified token's identities, only for a session
+   * whose `amr` claim says it was opened through OAuth. A password login, an
+   * account with no Google identity, or a project with the Google provider off
+   * all give null — shown as "Not recorded". A website cannot read which Google
+   * account the browser profile is signed into, and nothing here pretends to.
+   *
+   * Masked under the same rule as `userEmail` (see `emailMasked`).
+   */
+  browserEmail: string | null;
+  /** True when `userEmail` / `browserEmail` above were masked before being sent. */
   emailMasked: boolean;
   userName: string;
   userRole: UserRole | null;

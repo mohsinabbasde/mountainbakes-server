@@ -93,7 +93,7 @@ function idleCutoff(): string {
  * is as likely to be something an admin should not see as not.
  */
 const COLUMNS = `
-  id, user_id, user_code, user_email, user_name, user_role, branch_id, branch_name,
+  id, user_id, user_code, user_email, browser_email, user_name, user_role, branch_id, branch_name,
   auth_session_id, ip_address, user_agent, browser, browser_version, os, os_version,
   device_type, device_name, screen_size,
   country, country_code, city, region, timezone, location_source, latitude, longitude,
@@ -220,13 +220,19 @@ function mayRevealEmail(viewer: Viewer | undefined, userId: unknown): boolean {
  * row without an address goes out as '' and the UI says "Not recorded".
  */
 function toApi(row: unknown, revealEmail = false): LoginSession {
-  const { businessDate, userEmail, latitude, longitude, ...rest } = rowToApi<Record<string, unknown>>(row);
+  const { businessDate, userEmail, browserEmail, latitude, longitude, ...rest } =
+    rowToApi<Record<string, unknown>>(row);
   const email = typeof userEmail === 'string' ? userEmail : '';
+  // The Google account the session was opened with, or null — see migration
+  // 103. Masked under the same rule as the account address, and never
+  // substituted: null stays null, so the UI can say "Not recorded".
+  const google = typeof browserEmail === 'string' && browserEmail ? browserEmail : null;
 
   const base = {
     ...rest,
     date: businessDate,
     userEmail: revealEmail ? email : maskEmail(email),
+    browserEmail: google === null ? null : revealEmail ? google : maskEmail(google),
     emailMasked: !revealEmail,
     // COERCED, and this is not defensive typing for its own sake: PostgREST
     // serialises `numeric` as a STRING to preserve exactness, so these arrive as
@@ -308,6 +314,12 @@ export class SessionRevokedError extends Error {
 export async function startSession(params: {
   userId: string;
   email: string;
+  /**
+   * The verified Google account this session was signed in WITH, or null. The
+   * route derives it from the token's identities and `amr` claim — never from
+   * the body — and passes null for a password login. See migration 103.
+   */
+  browserEmail: string | null;
   name: string;
   role: string;
   userCode: string | null;
@@ -377,6 +389,7 @@ export async function startSession(params: {
       user_id: params.userId,
       user_code: params.userCode,
       user_email: params.email,
+      browser_email: params.browserEmail,
       user_name: params.name,
       user_role: params.role,
       branch_id: params.branchId,
@@ -608,7 +621,7 @@ export async function listSessions(opts: {
       // would turn the search box into an oracle: type an address, and whether a
       // row comes back tells you whether that account exists — even though the
       // column itself comes back masked, so nothing appears to have leaked.
-      const cols = ['user_code', 'user_name', ...(opts.searchEmail ? ['user_email'] : [])];
+      const cols = ['user_code', 'user_name', ...(opts.searchEmail ? ['user_email', 'browser_email'] : [])];
       q = q.or(cols.map((c) => `${c}.ilike.%${term}%`).join(','));
     }
   }

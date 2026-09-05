@@ -104,38 +104,85 @@ export interface AuthRequest extends Request {
      * as "this session cannot be revoked", never as "revoke everything".
      */
     authSessionId: string | null;
+    /**
+     * How THIS session was authenticated, from the token's `amr` claim —
+     * 'password', 'oauth', 'otp', 'magiclink', ... Empty when the claim is absent.
+     *
+     * Login History reads it to decide whether the Google identity below was the
+     * one used to sign in, or merely one linked to the account.
+     */
+    authMethods: string[];
+    /**
+     * The verified email of the Google identity linked to this account, or null.
+     *
+     * Read off `getUser().identities`, which Supabase populates from the provider
+     * at sign-in / link time — never from a request body, never from anything
+     * the browser reports about itself. A website cannot see which Google
+     * account the Chrome profile is signed into; this is the account the person
+     * authenticated to US with, which is the only thing worth recording.
+     */
+    googleEmail: string | null;
   };
 }
 
 /**
- * Read the `session_id` claim out of an access token.
+ * Read the `session_id` and `amr` claims out of an access token.
  *
  * DECODING, NOT VERIFYING — and that is only safe because of where it is called:
  * strictly after `supabaseAdmin.auth.getUser(token)` has already verified the
  * signature and expiry against Supabase. At that point the payload is known
- * authentic and pulling one more claim out of it is free, where a second
- * round-trip to learn it would not be. Calling this anywhere else, on a token
+ * authentic and pulling two more claims out of it is free, where a second
+ * round-trip to learn them would not be. Calling this anywhere else, on a token
  * that has not been through `getUser`, would be trusting a string the caller
  * wrote.
  *
- * `getUser` does not return the session id itself, which is the whole reason
- * this exists.
+ * `getUser` returns neither claim, which is the whole reason this exists.
+ * `session_id` is the GoTrue session Login History revokes by. `amr` is GoTrue's
+ * list of how the session was authenticated, newest first — `[{ method:
+ * 'oauth', timestamp }]` for a Google sign-in, `'password'` for the form — and
+ * is what lets a session record the Google account it was opened WITH rather
+ * than one that merely happens to be linked to the account.
  *
- * Every failure returns null. A malformed segment, a payload that is not JSON, a
- * claim that is not a string: all of them mean "no session id", and none of them
- * may throw — a token that verified must not then be rejected because an
- * optional claim was unreadable.
+ * Every failure is a null or an empty list. A malformed segment, a payload that
+ * is not JSON, a claim of the wrong shape: none of them may throw — a token that
+ * verified must not then be rejected because an optional claim was unreadable.
  */
-function sessionIdFromToken(token: string): string | null {
+function claimsFromToken(token: string): { sessionId: string | null; authMethods: string[] } {
   try {
     const payload = token.split('.')[1];
-    if (!payload) return null;
+    if (!payload) return { sessionId: null, authMethods: [] };
     const json = Buffer.from(payload, 'base64url').toString('utf8');
-    const claims = JSON.parse(json) as { session_id?: unknown };
-    return typeof claims.session_id === 'string' && claims.session_id ? claims.session_id : null;
+    const claims = JSON.parse(json) as { session_id?: unknown; amr?: unknown };
+    const sessionId =
+      typeof claims.session_id === 'string' && claims.session_id ? claims.session_id : null;
+    const authMethods = Array.isArray(claims.amr)
+      ? claims.amr
+          .map((a) => (a && typeof a === 'object' ? (a as { method?: unknown }).method : null))
+          .filter((m): m is string => typeof m === 'string' && m.length > 0)
+      : [];
+    return { sessionId, authMethods };
   } catch {
-    return null;
+    return { sessionId: null, authMethods: [] };
   }
+}
+
+/**
+ * The verified email of the account's Google identity, if it has one.
+ *
+ * Supabase writes `identity_data` from the provider's own claims when the
+ * identity is created or refreshed; `email_verified` is Google's assertion, and
+ * an identity that lacks it or says false is not trusted here. Null when there
+ * is no Google identity at all — the ordinary case for a password-only account.
+ */
+function googleEmailOf(user: { identities?: Array<{ provider?: string; identity_data?: Record<string, unknown> }> | null }): string | null {
+  for (const identity of user.identities ?? []) {
+    if (identity.provider !== 'google') continue;
+    const data = identity.identity_data ?? {};
+    const email = typeof data['email'] === 'string' ? data['email'].trim().toLowerCase() : '';
+    if (!email || data['email_verified'] === false) continue;
+    return email;
+  }
+  return null;
 }
 
 /**
@@ -176,8 +223,8 @@ export async function authenticate(req: AuthRequest, res: Response, next: NextFu
   }
 
   // Safe here and nowhere earlier: `getUser` above has already verified this
-  // exact token. See sessionIdFromToken.
-  const authSessionId = sessionIdFromToken(token);
+  // exact token. See claimsFromToken.
+  const { sessionId: authSessionId, authMethods } = claimsFromToken(token);
 
   /*
    * A session an admin has ended does not get to keep working.
@@ -223,6 +270,8 @@ export async function authenticate(req: AuthRequest, res: Response, next: NextFu
     branchId: meta.branchId ?? null,
     branchName: meta.branchName ?? null,
     authSessionId,
+    authMethods,
+    googleEmail: googleEmailOf(data.user),
   };
   next();
 }
