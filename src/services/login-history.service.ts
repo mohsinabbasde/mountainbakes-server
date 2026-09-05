@@ -9,6 +9,7 @@ import {
   type LoginSession,
   type LoginSessionState,
   type LoginStatus,
+  type GeoPosition,
   type RevokeSessionResult,
   type UserRole,
 } from '../shared';
@@ -16,6 +17,7 @@ import { rowToApi } from '../utils/case';
 import { maskEmail } from '../utils/mask';
 import { parseUserAgent, describeDevice } from '../utils/userAgent';
 import { lookupIp } from './geoip.service';
+import { reverseGeocode } from './geocode.service';
 import { logAudit } from './audit.service';
 import { alertSuspiciousLogin, detectSuspicion } from './login-security.service';
 
@@ -96,7 +98,7 @@ const COLUMNS = `
   id, user_id, user_code, user_email, browser_email, user_name, user_role, branch_id, branch_name,
   auth_session_id, ip_address, user_agent, browser, browser_version, os, os_version,
   device_type, device_name, screen_size,
-  country, country_code, city, region, timezone, location_source, latitude, longitude,
+  country, country_code, city, region, area, timezone, location_source, latitude, longitude,
   login_at, last_seen_at, ended_at, end_reason,
   revoked_at, revoked_by_name, revoke_reason, is_suspicious, suspicious_reason,
   business_date
@@ -334,6 +336,13 @@ export async function startSession(params: {
    * why that is acceptable here and nowhere else in this feature.
    */
   screenSize?: string | null;
+  /**
+   * The device's own position, off the `X-Geo-Position` header the browser
+   * attaches once location has been granted — or null. When present it wins
+   * over the IP lookup for the location block and is reverse-geocoded for the
+   * neighbourhood; see `deviceLocation`.
+   */
+  position?: GeoPosition | null;
   resumeSessionId?: string | undefined;
 }): Promise<LoginSession> {
   if (await isAuthSessionRevoked(params.authSessionId)) throw new SessionRevokedError();
@@ -354,7 +363,7 @@ export async function startSession(params: {
       Date.now() - Date.parse(existing.last_seen_at) <= STALE_AFTER_MS;
 
     if (live) {
-      const resumed = await touchSession(existing.id, params.userId);
+      const resumed = await touchSession(existing.id, params.userId, params.position ?? null);
       if (resumed.status === 'ok') return resumed.session;
       // Fell through: the row was closed or revoked between the two reads. A
       // revocation is re-raised rather than silently opening a fresh session,
@@ -369,6 +378,11 @@ export async function startSession(params: {
   // a login that takes an extra moment to record — never one that fails to be.
   const geo = await lookupIp(params.ipAddress);
   const device = parseUserAgent(params.userAgent);
+  // The device fix, when the browser sent one, resolved to a place name. Runs
+  // beside the IP lookup rather than instead of it: the IP answer is what the
+  // suspicion detector compares countries with, and the fallback for any field
+  // the geocoder could not name.
+  const fix = await deviceLocation(params.position ?? null);
 
   // Judged BEFORE the insert, against a history that does not yet include this
   // session. Doing it afterwards would mean every login compared itself with
@@ -404,18 +418,21 @@ export async function startSession(params: {
       device_type: device.deviceType,
       device_name: device.deviceName,
       screen_size: params.screenSize ?? null,
-      country: geo.country,
-      country_code: geo.countryCode,
-      city: geo.city,
-      region: geo.region,
+      // The device fix where there is one, the IP answer otherwise — field by
+      // field, so a geocoder that named the neighbourhood but not the region
+      // still leaves the region the IP lookup knew. `location_source` follows
+      // whichever supplied the coordinates, taken from that lookup's own
+      // verdict rather than inferred: a caller deciding it separately is how a
+      // row ends up claiming a source for a location nothing ever resolved.
+      country: fix?.country ?? geo.country,
+      country_code: fix?.countryCode ?? geo.countryCode,
+      city: fix?.city ?? geo.city,
+      region: fix?.region ?? geo.region,
+      area: fix?.area ?? null,
       timezone: geo.timezone,
-      // Taken from the lookup's own verdict rather than inferred from whether
-      // `country` came back non-null. Same fact, one source: a caller deciding
-      // it separately is how a row ends up claiming 'IP' for a location nothing
-      // ever resolved.
-      location_source: geo.source,
-      latitude: geo.latitude,
-      longitude: geo.longitude,
+      location_source: fix ? 'DEVICE_GPS' : geo.source,
+      latitude: fix ? fix.latitude : geo.latitude,
+      longitude: fix ? fix.longitude : geo.longitude,
       is_suspicious: verdict.isSuspicious,
       suspicious_reason: verdict.reason,
       business_date: businessDateStr(),
@@ -445,6 +462,79 @@ export async function startSession(params: {
   return toApi(data, true);
 }
 
+/**
+ * A device position resolved to a place, or null when there is no position or
+ * the geocoder named nothing — in which case the IP answer stands alone. The
+ * coordinates are the device's own, never the geocoder's centroid, so the
+ * `DEVICE_GPS` row says where the device was, not where the neighbourhood is.
+ */
+async function deviceLocation(position: GeoPosition | null): Promise<{
+  latitude: number;
+  longitude: number;
+  area: string | null;
+  city: string | null;
+  region: string | null;
+  country: string | null;
+  countryCode: string | null;
+} | null> {
+  if (!position) return null;
+  const place = await reverseGeocode(position);
+  // A fix the geocoder could not name is still a fix — the coordinates are
+  // real and the source is honest — so it is kept, with the place fields null
+  // for the IP answer to fill.
+  return {
+    latitude: position.latitude,
+    longitude: position.longitude,
+    area: place.area,
+    city: place.city,
+    region: place.region,
+    country: place.country,
+    countryCode: place.countryCode,
+  };
+}
+
+/**
+ * The columns a ping should write to lift a row from its IP city to the
+ * device's neighbourhood — or nothing, when the row already has a device fix.
+ * Reads one row first so the geocoder is asked only for a session that can use
+ * the answer; the geocoder's own cache absorbs the rest.
+ */
+async function locationUpgrade(
+  sessionId: string,
+  userId: string,
+  position: GeoPosition,
+): Promise<Record<string, unknown>> {
+  const { data } = await supabaseAdmin
+    .from('login_sessions')
+    .select('location_source, country, country_code, city, region')
+    .eq('id', sessionId)
+    .eq('user_id', userId)
+    .maybeSingle();
+  const row = data as {
+    location_source: string;
+    country: string | null;
+    country_code: string | null;
+    city: string | null;
+    region: string | null;
+  } | null;
+  if (!row || row.location_source === 'DEVICE_GPS') return {};
+
+  const fix = await deviceLocation(position);
+  if (!fix) return {};
+  return {
+    location_source: 'DEVICE_GPS',
+    latitude: fix.latitude,
+    longitude: fix.longitude,
+    area: fix.area,
+    // Field by field again: the geocoder's answer where it has one, the IP's
+    // where it does not, so an upgrade never blanks a city the row already knew.
+    city: fix.city ?? row.city,
+    region: fix.region ?? row.region,
+    country: fix.country ?? row.country,
+    country_code: fix.countryCode ?? row.country_code,
+  };
+}
+
 /** What a ping found. The three outcomes need three different client reactions. */
 export type PingOutcome =
   | { status: 'ok'; session: LoginSession }
@@ -468,10 +558,22 @@ export type PingOutcome =
  * and it is why the ping is the practical enforcement of a revocation rather
  * than the GoTrue delete, which is invisible until a token refresh falls due.
  */
-export async function touchSession(sessionId: string, userId: string): Promise<PingOutcome> {
+export async function touchSession(
+  sessionId: string,
+  userId: string,
+  position: GeoPosition | null = null,
+): Promise<PingOutcome> {
+  // A session usually opens BEFORE the browser has a location — the fix is
+  // asked for on the sales screen, the session on the first render — so the
+  // first ping that carries one is the moment the row can be upgraded from the
+  // IP's city to the device's neighbourhood. Once, and only upwards: a row that
+  // already holds a device fix is left alone, so a phone wandering during a
+  // session keeps the place it signed in from.
+  const upgrade = position ? await locationUpgrade(sessionId, userId, position) : {};
+
   const { data, error } = await supabaseAdmin
     .from('login_sessions')
-    .update({ last_seen_at: new Date().toISOString() })
+    .update({ last_seen_at: new Date().toISOString(), ...upgrade })
     .eq('id', sessionId)
     .eq('user_id', userId)
     .is('ended_at', null)
@@ -621,7 +723,17 @@ export async function listSessions(opts: {
       // would turn the search box into an oracle: type an address, and whether a
       // row comes back tells you whether that account exists — even though the
       // column itself comes back masked, so nothing appears to have leaked.
-      const cols = ['user_code', 'user_name', ...(opts.searchEmail ? ['user_email', 'browser_email'] : [])];
+      // Place names are searchable by everyone: "Karachi" narrows a person's own
+      // history as usefully as the company's, and reveals nothing about anyone.
+      const cols = [
+        'user_code',
+        'user_name',
+        'area',
+        'city',
+        'region',
+        'country',
+        ...(opts.searchEmail ? ['user_email', 'browser_email'] : []),
+      ];
       q = q.or(cols.map((c) => `${c}.ilike.%${term}%`).join(','));
     }
   }

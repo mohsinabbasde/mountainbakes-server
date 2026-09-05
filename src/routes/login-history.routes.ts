@@ -11,7 +11,7 @@ import {
   RevokeAllSessionsSchema,
   type LoginHistoryFilters,
 } from '../shared';
-import { clientIp } from '../services/geofence.service';
+import { clientIp, positionFromRequest } from '../services/geofence.service';
 import { resolveAdminName } from '../services/audit.service';
 import {
   SessionRevokedError,
@@ -110,6 +110,10 @@ router.post('/start', validate(StartLoginSessionSchema), async (req: AuthRequest
       // the schema, labelled as device-reported in the UI, and used for nothing
       // but display — see StartLoginSessionSchema for why it is the exception.
       screenSize: screenSize ?? null,
+      // The device fix off the request header, when the browser has one. A
+      // header, not the body: the API client attaches it to every call by
+      // itself, and it is the same source the geofence check trusts.
+      position: positionFromRequest(headers),
       resumeSessionId,
     });
 
@@ -148,7 +152,14 @@ router.post('/start', validate(StartLoginSessionSchema), async (req: AuthRequest
 router.post('/ping', validate(LoginSessionIdSchema), async (req: AuthRequest, res, next) => {
   try {
     const { sessionId } = req.body as { sessionId: string };
-    const outcome = await touchSession(sessionId, req.user!.uid);
+    const outcome = await touchSession(
+      sessionId,
+      req.user!.uid,
+      // Carried on every ping so a session opened before the browser had a
+      // location is upgraded to the device's neighbourhood by the first ping
+      // that has one. See touchSession.
+      positionFromRequest(req.headers as unknown as Record<string, unknown>),
+    );
 
     if (outcome.status === 'revoked') {
       // A machine-readable code alongside the message: the client must sign out

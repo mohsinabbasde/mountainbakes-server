@@ -166,6 +166,14 @@ export interface LoginSession {
   countryCode: string | null;
   city: string | null;
   region: string | null;
+  /**
+   * Neighbourhood / suburb — 'Manzoor Colony' — from reverse-geocoding the
+   * device's own position. Present ONLY when `locationSource` is 'DEVICE_GPS';
+   * an IP lookup places an address in the middle of a city at best, and a
+   * neighbourhood written from it would be invented. The UI composes
+   * `area, city, country` and drops whatever is null.
+   */
+  area: string | null;
   /** IANA zone of where the IP resolves, e.g. 'Asia/Karachi'. Not the browser's own. */
   timezone: string | null;
   /**
