@@ -198,13 +198,15 @@ router.post('/end', validate(LoginSessionIdSchema), async (req: AuthRequest, res
  * address. Every other role — branch, production and all four finance roles
  * alike — is pinned to its own `uid`, whatever it asks for.
  *
- * ADDRESSES ARE MASKED IN THIS LIST FOR EVERYONE, admin included. That looks
- * over-careful and is not: the list is opened on shared shop-floor tablets by
- * people looking for a device, a place or a time, and the staff code already
- * answers "which account is this". The full address is shown by the detail
- * endpoint, to an admin, on a deliberate click. What the admin flag buys HERE is
- * only the ability to SEARCH by address — finding a row is a different privilege
- * from having every row's address on screen.
+ * THE ACTIVATED ADDRESS IS A SEPARATE FIELD FROM THE STAFF CODE, and both go
+ * out on every row: `userCode` is the Mountain Bakes ID, `userEmail` is the
+ * address the session authenticated as, read off the verified token when the
+ * session was opened. It is shown in full to a super admin (who cannot read a
+ * whole-company list without it) and to the row's own owner (whose own address
+ * it is), and masked for any row that is neither — see `mayRevealEmail` in the
+ * service. What the admin flag buys HERE is the ability to SEARCH by address,
+ * which is a separate privilege: an address search open to everyone would be an
+ * oracle for which addresses have accounts.
  */
 router.get('/', async (req: AuthRequest, res, next) => {
   try {
@@ -240,7 +242,15 @@ router.get('/', async (req: AuthRequest, res, next) => {
       deviceType: q.deviceType ?? null,
     };
 
-    res.json(await listSessions({ filters, page: q.page, pageSize: q.pageSize, searchEmail: admin }));
+    res.json(
+      await listSessions({
+        filters,
+        page: q.page,
+        pageSize: q.pageSize,
+        searchEmail: admin,
+        viewer: { id: user.uid, admin },
+      }),
+    );
   } catch (err) {
     next(err);
   }
@@ -304,7 +314,7 @@ router.get('/:id', async (req: AuthRequest, res, next) => {
   try {
     const user = req.user!;
     const admin = isSecurityAdmin(user.role);
-    const session = await getSession(String(req.params['id']), admin);
+    const session = await getSession(String(req.params['id']), { id: user.uid, admin });
 
     if (!admin && session.userId !== user.uid) {
       res.status(404).json({ error: 'Session not found' });

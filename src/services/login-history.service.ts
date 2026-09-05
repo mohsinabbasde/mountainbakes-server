@@ -8,6 +8,7 @@ import {
   type LoginHistoryPage,
   type LoginSession,
   type LoginSessionState,
+  type LoginStatus,
   type RevokeSessionResult,
   type UserRole,
 } from '../shared';
@@ -128,6 +129,7 @@ interface SessionRow {
  */
 function derive(row: Record<string, unknown>): {
   state: LoginSessionState;
+  loginStatus: LoginStatus;
   durationMs: number;
   canRevoke: boolean;
 } {
@@ -160,7 +162,14 @@ function derive(row: Record<string, unknown>): {
   // button says so rather than pretending, by not being offered.
   const canRevoke = (state === 'active' || state === 'idle') && Boolean(row['authSessionId']);
 
-  return { state, durationMs, canRevoke };
+  // A constant, and honestly so: a row only ever reaches this table after
+  // Supabase issued a session, so every one of them is a successful sign-in.
+  // Refused attempts live in `login_attempts`. It is still sent as a field so
+  // the history table can show "Login status" and "Session status" as the two
+  // separate facts they are — see `LoginStatus` in the shared types.
+  const loginStatus: LoginStatus = 'SUCCESS';
+
+  return { state, loginStatus, durationMs, canRevoke };
 }
 
 /** A PostgREST `numeric` (a string) as a number, or null. */
@@ -171,6 +180,33 @@ function num(value: unknown): number | null {
 }
 
 /**
+ * Who is reading a row, for the one decision that depends on it: whether the
+ * activated email address goes out in full or masked.
+ *
+ * TWO WAYS TO SEE THE ADDRESS, and they are different facts. A super admin sees
+ * every address because the whole-company history cannot be read without
+ * knowing which account each row belongs to. Everybody sees the address on
+ * their OWN rows because it is their own — the dashboard card already prints it
+ * in plain text in its header, so masking it on the rows beneath hid nothing
+ * from the one person able to see them and only made the column look broken.
+ * The mask still applies to the case neither covers: a non-admin somehow
+ * reading somebody else's row. No endpoint offers that today, and the default
+ * keeps it that way if one ever does.
+ */
+interface Viewer {
+  /** The caller's own user id, off the verified token. */
+  id: string;
+  /** True for a super admin — sees every address in full. */
+  admin: boolean;
+}
+
+/** May this viewer see the activated address on this row? */
+function mayRevealEmail(viewer: Viewer | undefined, userId: unknown): boolean {
+  if (!viewer) return false;
+  return viewer.admin || (typeof userId === 'string' && userId === viewer.id);
+}
+
+/**
  * Row → API shape, deciding email visibility on the way.
  *
  * `revealEmail` is passed in by the caller rather than read from a global,
@@ -178,6 +214,10 @@ function num(value: unknown): number | null {
  * viewing their own session detail sees the address, the table behind the dialog
  * does not. Defaulting it to FALSE is the important part — a new call site that
  * forgets the argument leaks nothing.
+ *
+ * `userEmail` is the address off the verified token at sign-in, stored in its
+ * own column. It is NEVER substituted with `userCode` when it is missing: an old
+ * row without an address goes out as '' and the UI says "Not recorded".
  */
 function toApi(row: unknown, revealEmail = false): LoginSession {
   const { businessDate, userEmail, latitude, longitude, ...rest } = rowToApi<Record<string, unknown>>(row);
@@ -497,21 +537,20 @@ export async function listSessions(opts: {
   page: number;
   pageSize: number;
   /**
-   * Whether this caller may search by, and read, the activated address.
+   * Whether this caller may SEARCH by the activated address. Only a super admin
+   * may: leaving it in for everyone else would turn the search box into an
+   * oracle for which addresses have accounts, even with the column itself
+   * masked.
    *
-   * ONE FLAG FOR BOTH, and only a super admin gets it. An earlier revision
-   * separated them — searchable but never shown, on the grounds that the list is
-   * opened on shared shop-floor tablets. That reasoning still holds for the
-   * people it was about, and they are precisely the callers this flag is false
-   * for: every non-admin is pinned to their OWN sessions, where a masked address
-   * hides nothing from them that they do not already know, and a super admin
-   * reading the whole company's history needs to see which account each row
-   * belongs to without opening twenty-five dialogs to find out.
-   *
-   * Non-admins therefore still get `u***@example.com`, and the column is still
-   * secondary to `user_code`, which is the identifier the screen is read by.
+   * Reading the address is decided separately, per row, by `mayRevealEmail` —
+   * an admin sees every one, and every caller sees the address on their own
+   * sessions. Non-admins are pinned to their own sessions by the route, so in
+   * practice every row they receive carries its address in full; the mask is
+   * left in the path for any row that is not theirs.
    */
   searchEmail: boolean;
+  /** The caller, for the per-row email decision. */
+  viewer: Viewer;
 }): Promise<LoginHistoryPage> {
   const { filters } = opts;
 
@@ -579,8 +618,11 @@ export async function listSessions(opts: {
   if (error) throw error;
 
   return {
-    // Revealed to a super admin, masked for everyone else. See `searchEmail`.
-    sessions: (data ?? []).map((r) => toApi(r, opts.searchEmail)),
+    // In full for a super admin and on the caller's own rows, masked for any
+    // row that is neither. See `mayRevealEmail`.
+    sessions: (data ?? []).map((r) =>
+      toApi(r, mayRevealEmail(opts.viewer, (r as { user_id: string | null }).user_id)),
+    ),
     total: count ?? 0,
     page: opts.page,
     pageSize: opts.pageSize,
@@ -684,8 +726,14 @@ export async function listActiveSessions(opts: {
   };
 }
 
-/** One session in full, for the detail dialog. */
-export async function getSession(sessionId: string, revealEmail: boolean): Promise<LoginSession> {
+/**
+ * One session in full, for the detail dialog.
+ *
+ * The address is revealed by `mayRevealEmail` — to an admin, or to the row's own
+ * owner. The route still refuses a non-admin somebody else's row outright; this
+ * decision only governs what the row looks like for a caller who may see it.
+ */
+export async function getSession(sessionId: string, viewer: Viewer): Promise<LoginSession> {
   const { data, error } = await supabaseAdmin
     .from('login_sessions')
     .select(COLUMNS)
@@ -693,7 +741,7 @@ export async function getSession(sessionId: string, revealEmail: boolean): Promi
     .maybeSingle();
   if (error) throw error;
   if (!data) throw Object.assign(new Error('Session not found'), { status: 404 });
-  return toApi(data, revealEmail);
+  return toApi(data, mayRevealEmail(viewer, (data as { user_id: string | null }).user_id));
 }
 
 /**
