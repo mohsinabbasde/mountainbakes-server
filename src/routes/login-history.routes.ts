@@ -13,6 +13,7 @@ import {
 } from '../shared';
 import { clientIp, positionFromRequest } from '../services/geofence.service';
 import { resolveAdminName } from '../services/audit.service';
+import { resolveLoginIdentity } from '../services/login-identity.service';
 import {
   SessionRevokedError,
   startSession,
@@ -86,6 +87,7 @@ router.post('/start', validate(StartLoginSessionSchema), async (req: AuthRequest
       .eq('id', user.uid)
       .maybeSingle();
     const p = profile as { display_name?: string; user_code?: string } | null;
+    const identity = resolveLoginIdentity(user, p?.user_code ?? null);
 
     const headers = req.headers as unknown as Record<string, unknown>;
     const session = await startSession({
@@ -93,14 +95,16 @@ router.post('/start', validate(StartLoginSessionSchema), async (req: AuthRequest
       email: user.email,
       // Recorded only when THIS session was opened through OAuth and the
       // account carries a verified Google identity — i.e. the person clicked
-      // "Continue with Google" and Google vouched for the address. A password
-      // login records null even on an account that has Google linked, because
-      // the browser's Google account is not something a website can observe;
-      // the sign-in method is the only evidence there is. See migration 103.
-      browserEmail: user.authMethods.includes('oauth') ? user.googleEmail : null,
+      // "Continue with Google" (or came back from "Connect Google account")
+      // and Google vouched for the address. A password login records null even
+      // on an account that has Google linked, because the browser's Google
+      // account is not something a website can observe; the sign-in method is
+      // the only evidence there is. The rule lives in `resolveLoginIdentity`,
+      // where `scripts/verify-login-identity.ts` can exercise it. Migration 103.
+      browserEmail: identity.browserEmail,
       name: p?.display_name || user.email,
       role: user.role,
-      userCode: p?.user_code ?? null,
+      userCode: identity.mountainBakesId,
       branchId: user.branchId,
       branchName: user.branchName,
       authSessionId: user.authSessionId,

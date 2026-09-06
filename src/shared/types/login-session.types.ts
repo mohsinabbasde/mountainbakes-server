@@ -200,7 +200,13 @@ export interface LoginSession {
   loginAt: string;      // ISO UTC
   lastSeenAt: string;   // ISO UTC — bumped by every ping
   endedAt: string | null;
-  endReason: 'logout' | 'expired' | 'revoked' | null;
+  /**
+   * Why it ended. 'reauth' (migration 105) is the browser obtaining a NEW
+   * GoTrue session — a Google link, or a sign-in that never closed the old
+   * row — at which point the old row is over and a new one records the new
+   * identity. Not a sign-out, and labelled apart from one.
+   */
+  endReason: 'logout' | 'expired' | 'revoked' | 'reauth' | null;
 
   // ── Revocation ──
   // Kept apart from endedAt because "the user left" and "an admin removed them"

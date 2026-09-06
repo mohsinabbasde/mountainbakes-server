@@ -20,6 +20,7 @@ import { lookupIp } from './geoip.service';
 import { reverseGeocode } from './geocode.service';
 import { logAudit } from './audit.service';
 import { alertSuspiciousLogin, detectSuspicion } from './login-security.service';
+import { resumeVerdict } from './login-identity.service';
 
 /**
  * Login History & Active Sessions — opening, keeping, reading and ending
@@ -111,7 +112,7 @@ interface SessionRow {
   last_seen_at: string;
   ended_at: string | null;
   revoked_at?: string | null;
-  auth_session_id?: string | null;
+  auth_session_id: string | null;
 }
 
 /**
@@ -350,19 +351,23 @@ export async function startSession(params: {
   if (params.resumeSessionId) {
     const { data, error } = await supabaseAdmin
       .from('login_sessions')
-      .select('id, user_id, last_seen_at, ended_at')
+      .select('id, user_id, last_seen_at, ended_at, auth_session_id')
       .eq('id', params.resumeSessionId)
       .maybeSingle();
     if (error) throw error;
 
     const existing = data as SessionRow | null;
-    const live =
-      existing &&
-      existing.user_id === params.userId &&
-      !existing.ended_at &&
-      Date.now() - Date.parse(existing.last_seen_at) <= STALE_AFTER_MS;
+    // Same user, still open, seen recently — AND the same GoTrue session. The
+    // fourth test is the one that was missing, and its absence is the exact
+    // reason a browser that had just authenticated with Google went on showing
+    // "Not recorded": see `resumeVerdict` for the sequence.
+    const verdict = resumeVerdict(
+      existing,
+      { userId: params.userId, authSessionId: params.authSessionId },
+      STALE_AFTER_MS,
+    );
 
-    if (live) {
+    if (verdict === 'resume' && existing) {
       const resumed = await touchSession(existing.id, params.userId, params.position ?? null);
       if (resumed.status === 'ok') return resumed.session;
       // Fell through: the row was closed or revoked between the two reads. A
@@ -370,19 +375,44 @@ export async function startSession(params: {
       // which would be the reload hole isAuthSessionRevoked closes above.
       if (resumed.status === 'revoked') throw new SessionRevokedError();
     }
+
+    if (verdict === 'reauthenticated' && existing) {
+      // The browser holds a different session now — a Google link, or a fresh
+      // sign-in that never closed the old row. The old row is over, and is
+      // ended with its own reason so the history says what happened rather
+      // than reading as a sign-out nobody performed. Same guards as
+      // `endSession`: a row a ping or an admin has already closed is left as
+      // they left it. A failure here is logged, not raised — the row would
+      // otherwise fall to 'expired' in ten minutes, and the new session must
+      // be recorded either way.
+      const now = new Date().toISOString();
+      const { error: endError } = await supabaseAdmin
+        .from('login_sessions')
+        .update({ ended_at: now, last_seen_at: now, end_reason: 'reauth' })
+        .eq('id', existing.id)
+        .eq('user_id', params.userId)
+        .is('ended_at', null);
+      if (endError) console.error('[login-history] end on reauth', endError.message);
+    }
   }
 
   // Resolved BEFORE the insert so the row is written complete, and awaited
   // rather than fired off afterwards because there is no second write to attach
-  // it to. `lookupIp` cannot throw and is capped at ~2.8s, so the worst case is
-  // a login that takes an extra moment to record — never one that fails to be.
-  const geo = await lookupIp(params.ipAddress);
-  const device = parseUserAgent(params.userAgent);
-  // The device fix, when the browser sent one, resolved to a place name. Runs
+  // it to. Neither lookup can throw and each is capped at ~2.8s, so the worst
+  // case is a login that takes an extra moment to record — never one that
+  // fails to be. The two run CONCURRENTLY: they ask different providers about
+  // different inputs, and running them in sequence would put both timeouts,
+  // back to back, inside somebody's sign-in.
+  //
+  // The device fix, when the browser sent one, is resolved to a place name
   // beside the IP lookup rather than instead of it: the IP answer is what the
   // suspicion detector compares countries with, and the fallback for any field
   // the geocoder could not name.
-  const fix = await deviceLocation(params.position ?? null);
+  const [geo, fix] = await Promise.all([
+    lookupIp(params.ipAddress),
+    deviceLocation(params.position ?? null),
+  ]);
+  const device = parseUserAgent(params.userAgent);
 
   // Judged BEFORE the insert, against a history that does not yet include this
   // session. Doing it afterwards would mean every login compared itself with
@@ -633,6 +663,40 @@ function safeSearch(term: string): string {
   return term.replace(/[,()%_\\*"']/g, ' ').trim();
 }
 
+/** The state words the search box recognises. Kept as a list so the check is a lookup, not a cast. */
+const SEARCHABLE_STATES: readonly LoginSessionState[] = ['active', 'idle', 'ended', 'expired', 'revoked'];
+
+/**
+ * The state filter, in SQL.
+ *
+ * It has to be here rather than applied to the page after it is fetched, or
+ * `total` would count rows the page then discarded and the pager would promise
+ * pages that come back empty.
+ *
+ * `ended` deliberately excludes revoked rows even though a revoked row also
+ * carries `ended_at`: lumping them together would make this filter mean
+ * "over", which is just the inverse of `active` and answers nothing new.
+ *
+ * `idle` is the band between the two cutoffs — quiet enough to be idle, not
+ * quiet enough to be over. Expressed as two bounds rather than "not active and
+ * not expired", so the SQL says the same thing `derive()` does and the two
+ * cannot drift into disagreeing about one row.
+ */
+function applyStateFilter<Q extends {
+  not(column: string, operator: string, value: unknown): Q;
+  is(column: string, value: null): Q;
+  gte(column: string, value: string): Q;
+  lt(column: string, value: string): Q;
+}>(q: Q, state: LoginSessionState): Q {
+  switch (state) {
+    case 'revoked': return q.not('revoked_at', 'is', null);
+    case 'ended': return q.not('ended_at', 'is', null).is('revoked_at', null);
+    case 'active': return q.is('ended_at', null).gte('last_seen_at', idleCutoff());
+    case 'idle': return q.is('ended_at', null).lt('last_seen_at', idleCutoff()).gte('last_seen_at', staleCutoff());
+    case 'expired': return q.is('ended_at', null).lt('last_seen_at', staleCutoff());
+  }
+}
+
 /**
  * The history, newest first, one page at a time.
  *
@@ -698,23 +762,9 @@ export async function listSessions(opts: {
   if (filters.browser) q = q.eq('browser', filters.browser);
   if (filters.deviceType) q = q.eq('device_type', filters.deviceType);
 
-  // The state filter, in SQL. It has to be here rather than applied to the page
-  // after it is fetched, or `total` would count rows the page then discarded and
-  // the pager would promise pages that come back empty.
-  //
-  // `ended` deliberately excludes revoked rows even though a revoked row also
-  // carries `ended_at`: lumping them together would make this filter mean
-  // "over", which is just the inverse of `active` and answers nothing new.
-  if (filters.state === 'revoked') q = q.not('revoked_at', 'is', null);
-  else if (filters.state === 'ended') q = q.not('ended_at', 'is', null).is('revoked_at', null);
-  else if (filters.state === 'active') q = q.is('ended_at', null).gte('last_seen_at', idleCutoff());
-  // The band between the two cutoffs — quiet enough to be idle, not quiet enough
-  // to be over. Expressed as two bounds rather than "not active and not
-  // expired", so the SQL says the same thing `derive()` does and the two cannot
-  // drift into disagreeing about one row.
-  else if (filters.state === 'idle')
-    q = q.is('ended_at', null).lt('last_seen_at', idleCutoff()).gte('last_seen_at', staleCutoff());
-  else if (filters.state === 'expired') q = q.is('ended_at', null).lt('last_seen_at', staleCutoff());
+  // The state filter, in SQL — see `applyStateFilter` for why it cannot be
+  // applied to the page after the fact.
+  if (filters.state) q = applyStateFilter(q, filters.state);
 
   if (filters.search) {
     const term = safeSearch(filters.search);
@@ -725,6 +775,11 @@ export async function listSessions(opts: {
       // column itself comes back masked, so nothing appears to have leaked.
       // Place names are searchable by everyone: "Karachi" narrows a person's own
       // history as usefully as the company's, and reveals nothing about anyone.
+      //
+      // Device facts are searchable too — 'Chrome', 'Android', 'mobile', an IP
+      // address — so one box answers "every session from this address" as well
+      // as "every session from Karachi". All text columns, all `ilike`, so a
+      // partial IP or a browser name typed in any case still matches.
       const cols = [
         'user_code',
         'user_name',
@@ -732,10 +787,28 @@ export async function listSessions(opts: {
         'city',
         'region',
         'country',
+        'browser',
+        'browser_version',
+        'os',
+        'device_type',
+        'ip_address',
         ...(opts.searchEmail ? ['user_email', 'browser_email'] : []),
       ];
       q = q.or(cols.map((c) => `${c}.ilike.%${term}%`).join(','));
     }
+  }
+
+  // A status word typed into the search box — 'active', 'revoked', 'success' —
+  // names something no column holds: the session state is derived from three
+  // timestamps on read, and the login status is the constant every row shares.
+  // So the words are recognised and turned into the predicate they mean, when
+  // the explicit state filter has not already said otherwise. 'success'
+  // narrows nothing, which is correct: every row here is a successful sign-in,
+  // and the refused ones live in `login_attempts`.
+  if (filters.search && !filters.state) {
+    const word = filters.search.trim().toLowerCase();
+    const state = SEARCHABLE_STATES.find((s) => s === word);
+    if (state) q = applyStateFilter(q, state);
   }
 
   const from = (opts.page - 1) * opts.pageSize;
