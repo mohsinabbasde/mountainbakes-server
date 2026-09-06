@@ -157,9 +157,16 @@ router.get('/history', async (req: AuthRequest, res, next) => {
   }
 });
 
-// GET /api/stock?date=YYYY-MM-DD — Opening/New/Sold/Balance per product for a branch (today by default)
+// GET /api/stock?date=YYYY-MM-DD&activityOnly=1 — Opening/New/Sold/Balance per product for a branch (today by default)
+//
+// `activityOnly` drops every row whose Opening, Received, Sold, Returned and
+// Balance are all zero. The Branch Closing sheet asks for it; the Stock page does
+// not. Filtered here rather than in the browser so a large catalogue never
+// travels to the client only to be hidden.
 router.get('/', async (req: AuthRequest, res, next) => {
   try {
+    // A branch role is pinned to the branch on its JWT — a branchId in the query
+    // is ignored, never trusted. Only an admin may name one.
     const branchId = isBranchRole(req.user!.role)
       ? req.user!.branchId
       : (req.query['branchId'] as string | undefined) ?? null;
@@ -167,7 +174,8 @@ router.get('/', async (req: AuthRequest, res, next) => {
     if (!branchId) { res.status(400).json({ error: 'Branch context required' }); return; }
 
     const date = (req.query['date'] as string | undefined) || businessDateStr();
-    const rows = await computeStockRows(branchId, date);
+    const activityOnly = ['1', 'true'].includes(String(req.query['activityOnly'] ?? '').toLowerCase());
+    const rows = await computeStockRows(branchId, date, { activityOnly });
     res.json({ date, rows });
   } catch (err) {
     next(err);

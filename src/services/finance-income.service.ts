@@ -19,6 +19,7 @@ import {
 } from './finance-settings.service';
 import { postEntry } from './finance-ledger.service';
 import { rowToApi } from '../utils/case';
+import { withoutDeleted } from '../utils/softDelete';
 
 /**
  * Branch income → Finance.
@@ -75,7 +76,13 @@ export async function importBranchIncome(opts: {
 
   const [{ data: branches, error: branchErr }, { data: existingRows, error: existErr }] = await Promise.all([
     branchQuery,
-    supabaseAdmin.from(TABLE).select('*').eq('business_date', businessDate),
+    // A soft-deleted row must read as ABSENT here. It is still in the table
+    // (that is the point of §10), but leaving it in `existing` would make the
+    // loop below either skip the branch as "already imported" or refresh the
+    // deleted row in place — both of which lose the day silently. The partial
+    // unique index in migration 94 is the other half: it lets the fresh insert
+    // land beside the deleted row instead of colliding with it.
+    withoutDeleted(supabaseAdmin.from(TABLE).select('*').eq('business_date', businessDate)),
   ]);
   if (branchErr) throw branchErr;
   if (existErr) throw existErr;
@@ -145,7 +152,9 @@ export async function importBranchIncome(opts: {
     };
 
     if (prior) {
-      const { error } = await supabaseAdmin.from(TABLE).update(row).eq('id', prior['id'] as string);
+      const { error } = await withoutDeleted(
+        supabaseAdmin.from(TABLE).update(row).eq('id', prior['id'] as string),
+      );
       if (error) throw error;
       result.refreshed += 1;
     } else {
@@ -172,12 +181,14 @@ export async function listIncomeApprovals(q: {
   to?: string;
   limit?: number;
 }): Promise<FinanceIncomeApproval[]> {
-  let query = supabaseAdmin
-    .from(TABLE)
-    .select('*')
-    .order('business_date', { ascending: false })
-    .order('branch_name', { ascending: true })
-    .limit(Math.min(Math.max(Number(q.limit ?? 200), 1), 500));
+  let query = withoutDeleted(
+    supabaseAdmin
+      .from(TABLE)
+      .select('*')
+      .order('business_date', { ascending: false })
+      .order('branch_name', { ascending: true })
+      .limit(Math.min(Math.max(Number(q.limit ?? 200), 1), 500)),
+  );
 
   // 'pending' is the screen's default view and spans both waiting states — a
   // finance user thinks in terms of "not dealt with yet", not which of the two
@@ -200,7 +211,9 @@ export async function listIncomeApprovals(q: {
 }
 
 export async function getIncomeApproval(id: string): Promise<FinanceIncomeApproval | null> {
-  const { data, error } = await supabaseAdmin.from(TABLE).select('*').eq('id', id).maybeSingle();
+  const { data, error } = await withoutDeleted(
+    supabaseAdmin.from(TABLE).select('*').eq('id', id),
+  ).maybeSingle();
   if (error) throw error;
   if (!data) return null;
   return {
@@ -254,20 +267,22 @@ export async function verifyIncome(
     );
   }
 
-  const { data, error } = await supabaseAdmin
-    .from(TABLE)
-    .update({
-      status: 'pending_approval',
-      verified_by: actor.uid,
-      verified_by_name: actor.name,
-      verified_at: new Date().toISOString(),
-      notes: notes ?? row.notes,
-    })
-    .eq('id', id)
-    // Re-assert the state we decided on. Two admins clicking Verify at once
-    // otherwise both succeed, and the second overwrites the first's name and
-    // timestamp on a row that had already moved on.
-    .eq('status', 'pending_verification')
+  const { data, error } = await withoutDeleted(
+    supabaseAdmin
+      .from(TABLE)
+      .update({
+        status: 'pending_approval',
+        verified_by: actor.uid,
+        verified_by_name: actor.name,
+        verified_at: new Date().toISOString(),
+        notes: notes ?? row.notes,
+      })
+      .eq('id', id)
+      // Re-assert the state we decided on. Two admins clicking Verify at once
+      // otherwise both succeed, and the second overwrites the first's name and
+      // timestamp on a row that had already moved on.
+      .eq('status', 'pending_verification'),
+  )
     .select('*')
     .single();
   if (error) throw error;
@@ -371,21 +386,23 @@ export async function approveIncome(
     }
   }
 
-  const { data, error } = await supabaseAdmin
-    .from(TABLE)
-    .update({
-      status: 'approved',
-      company_share_pct: split.companySharePct,
-      branch_share_pct: split.branchSharePct,
-      company_share: companyShare,
-      branch_share: branchShare,
-      approved_by: actor.uid,
-      approved_by_name: actor.name,
-      approved_at: new Date().toISOString(),
-      posted_at: new Date().toISOString(),
-      notes: notes ?? row.notes,
-    })
-    .eq('id', id)
+  const { data, error } = await withoutDeleted(
+    supabaseAdmin
+      .from(TABLE)
+      .update({
+        status: 'approved',
+        company_share_pct: split.companySharePct,
+        branch_share_pct: split.branchSharePct,
+        company_share: companyShare,
+        branch_share: branchShare,
+        approved_by: actor.uid,
+        approved_by_name: actor.name,
+        approved_at: new Date().toISOString(),
+        posted_at: new Date().toISOString(),
+        notes: notes ?? row.notes,
+      })
+      .eq('id', id),
+  )
     .select('*')
     .single();
   if (error) throw error;
@@ -406,17 +423,19 @@ export async function rejectIncome(
     );
   }
 
-  const { data, error } = await supabaseAdmin
-    .from(TABLE)
-    .update({
-      status: 'rejected',
-      rejection_reason: reason,
-      approved_by: actor.uid,
-      approved_by_name: actor.name,
-      approved_at: new Date().toISOString(),
-    })
-    .eq('id', id)
-    .neq('status', 'approved')
+  const { data, error } = await withoutDeleted(
+    supabaseAdmin
+      .from(TABLE)
+      .update({
+        status: 'rejected',
+        rejection_reason: reason,
+        approved_by: actor.uid,
+        approved_by_name: actor.name,
+        approved_at: new Date().toISOString(),
+      })
+      .eq('id', id)
+      .neq('status', 'approved'),
+  )
     .select('*')
     .single();
   if (error) throw error;

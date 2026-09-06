@@ -15,7 +15,8 @@
     "seed": "node scripts/seed.js",
     "purge:price-history": "tsx --env-file .env src/scripts/purge-price-history.ts",
     "purge:idempotency-keys": "tsx --env-file .env src/scripts/purge-idempotency-keys.ts",
-    "verify:idempotency": "tsx --env-file .env src/scripts/verify-idempotency.ts"
+    "verify:idempotency": "tsx --env-file .env src/scripts/verify-idempotency.ts",
+    "verify:login-identity": "tsx src/scripts/verify-login-identity.ts"
   },
   "dependencies": {
     "@supabase/server": "^1.4.0",

@@ -3,7 +3,8 @@
  * the authority, and `notifications.type` is `not null` against it, so a value
  * missing there fails the insert with a raw 22P02. The enum is declared in
  * migration 01 and extended by 14 (`password_reset`), 25 (the two `support_*`),
- * 42 (the six `event_*`) and 72 (`production_demand_cancelled`).
+ * 42 (the six `event_*`), 72 (`production_demand_cancelled`) and 92 (the two
+ * `branch_discount*`).
  *
  * Note `notify()` takes `type: string`, not this union (services/push.service.ts) —
  * nothing mechanically enforces the match, so add values in BOTH places.
@@ -23,12 +24,27 @@ export type NotificationType =
   | 'production_return' // a product return was raised, or reviewed by production
   | 'production_order_verified' // branch verified physical receipt of a demand → Production
   | 'production_demand_cancelled' // branch deleted a still-pending demand → Production (migration 72)
+  // Branch discount claims (migration 92) — money asked for against a demand.
+  // Two values where returns make do with one, because the two directions have
+  // different audiences: a claim raised goes to Production, a claim decided goes
+  // back to the branch.
+  | 'branch_discount' // a branch raised a discount claim → Production
+  | 'branch_discount_reviewed' // Production approved/rejected/sent it back → branch
   // Help Desk → Support Center queries (migration 25)
   | 'support_query' // a branch/production user raised a query → Admin
   | 'support_resolved' // Admin resolved/rejected or corrected the figures → raiser
-  // Finance Help Desk queries (migration 60) — a separate queue from the two above
-  | 'finance_query' // an Accountant/Finance Manager raised a query → Finance Admin
-  | 'finance_query_resolved' // Finance Admin resolved/rejected it → raiser
+  // Finance Help Desk queries (migration 60) — a separate queue from the two above.
+  //
+  // The TARGET of the first one changed in migration 94: a query now goes
+  // straight to the ADMIN, never to a Finance Admin first (§3 of the Help Desk
+  // brief). The value is unchanged because the notifications already delivered
+  // under it mean the same thing — "somebody raised a finance query" — and
+  // renaming an enum value would orphan every row carrying the old one.
+  | 'finance_query' // a Finance user raised a query → Admin
+  | 'finance_query_resolved' // Admin resolved/rejected/closed it → raiser
+  | 'finance_query_updated' // Admin moved it along (under review, needs info) → raiser
+  | 'finance_query_message' // either side added to the conversation → the other side
+  | 'finance_query_amended' // Admin changed or deleted the record behind it → raiser
   // Branch shift accounts (migration 65) — branch_manager asks, Admin decides
   | 'branch_user_requested' // a manager forwarded a request for a shift account → Admin
   | 'branch_user_reviewed' // Admin approved or rejected it → the requesting manager
@@ -38,7 +54,9 @@ export type NotificationType =
   | 'event_demand_due' // the branch demand deadline is tomorrow → branch
   | 'event_demand_submitted' // a branch submitted its advance demand → Production
   | 'event_demand_reviewed' // Production/Admin approved or rejected a demand → branch
-  | 'event_production_updated'; // a preparation stage moved → Admin
+  | 'event_production_updated' // a preparation stage moved → Admin
+  // Session security (migration 97/98)
+  | 'security_alert'; // a sign-in tripped the suspicion detector → Admin
 
 export interface Notification {
   id: string;

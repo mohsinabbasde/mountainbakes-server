@@ -7,12 +7,21 @@
 
 export type ProductionStockMovementType =
   | 'prepare' // Production prepared units → pool +
-  | 'transfer_out' // demand approved, moved to a branch → pool −
+  | 'transfer_out' // branch VERIFIED the delivery, goods left the pool → pool − (migration 58)
   | 'return_in' // accepted return added back → pool +
   | 'sale' // sold at the production counter → pool − (branch stock untouched)
   | 'adjustment';
 
-/** Running balance for the central production pool. Keyed by `productId`. */
+/**
+ * The `production_stock` row itself — the pool's running total across all time.
+ *
+ * Equal, by construction, to Σ delta over the whole of `production_stock_history`
+ * for the product, which is why it is also today's closing balance and tomorrow's
+ * opening. It is maintained by the movement RPCs and is never assigned directly.
+ *
+ * Read it for TODAY only. For any other date the figure has to be folded out of
+ * the ledger, because this column has no history — see `getProductionStockRows`.
+ */
 export interface ProductionStockDoc {
   productId: string;
   productName: string;
@@ -34,34 +43,98 @@ export interface ProductionStockHistoryRow {
 }
 
 /**
- * The derived pool figures for one product on one business date — the numeric core
- * of a `ProductionStockRow`, without the product identity. The pool's counterpart
- * of `StockFigures`, carried on a production stock support reference so the Support
- * Center can render and correct them without re-deriving them from display labels.
+ * How a Production Stock row fits together.
  *
- * `adjustment` is SIGNED (the direction is the information) and `totalStock` is
- * derived — balance + approved + sold — so neither is directly correctable.
+ * ── THE LEDGER IS THE TRUTH ──────────────────────────────────────────────────
+ * `production_stock_history` is append-only: one signed `delta` per movement,
+ * stamped with the business date it belongs to. Every figure below is folded out
+ * of it. Nothing here is a stored, editable number, and no code path assigns a
+ * balance — a mistake is corrected by a REVERSAL, never by an edit.
+ *
+ * ── OPENING NEEDS NO CLOSING JOB ─────────────────────────────────────────────
+ *     opening(D) = Σ delta WHERE business_date < D
+ *
+ * which IS the previous business day's closing balance, by construction. There is
+ * nothing to reset, nothing to snapshot, and no 02:00 job to miss — which matters,
+ * because the node-cron schedulers in this project are all commented out, so a
+ * carry-forward that depended on one would silently never happen. The date
+ * changing does not zero anything: yesterday's balance simply keeps being the sum
+ * that it was.
+ *
+ * ── THE ARITHMETIC ───────────────────────────────────────────────────────────
+ *     totalStock = opening + preparedToday
+ *     balance    = opening + preparedToday + returned + adjustment
+ *                  − demandFulfilled − soldToday
+ *     available  = balance − branchDemand
+ *
+ * `adjustment` is SIGNED, so the spec's "+ positive adjustments − negative
+ * adjustments" is one addition of a number that may be negative. `returned` is
+ * ADDED (accepted returns only — see below). Every figure is counted exactly once.
+ *
+ * Note what `balance` does NOT subtract: OUTSTANDING branch demand. A branch
+ * asking for goods does not consume them, and reducing the pool at submission
+ * would report stock as gone while it is still on the shelf. Stock leaves when the
+ * branch VERIFIES the delivery — that is `demandFulfilled`, and it is the only
+ * demand figure inside the balance.
+ *
+ * `balance` is therefore exactly Σ delta over the whole ledger up to the date,
+ * which is why it is also the next day's `opening` with no further work.
+ *
+ * ── BRANCH DEMAND IS A CLAIM, NOT A MOVEMENT ─────────────────────────────────
+ * `branchDemand` is what branches are still owed: submitted or approved and not
+ * yet verified. It is read live off `production_orders` and is NOT in the ledger,
+ * because writing it there would double-count against the `transfer_out` booked
+ * when the same goods are verified out.
+ *
+ * It is displayed beside the balance rather than subtracted from it, and the two
+ * are compared by `stockStatus` — which is what turns "we hold 15, we owe 25" into
+ * a shortage the floor can act on instead of a negative number with no explanation.
  */
 export interface ProductionStockFigures {
+  /** Previous business day's closing balance. Derived, never stored or reset. */
+  opening: number;
+  /** Σ prepare deltas on the day — what the floor made. Positive movement. */
   preparedToday: number;
-  approvedQty: number;
-  returned: number;
-  soldToday: number;
-  adjustment: number;
-  /** The running pool balance, yesterday carried forward. Correctable. */
-  balance: number;
-  /** What the pool took in today: prepared + returned. Opening is not in it. */
+  /** opening + preparedToday. What the day had to work with. */
   totalStock: number;
   /**
-   * Today's own position — totalStock − approvedQty − soldToday + adjustment.
-   * Negative means the shortfall the floor still has to bake. Derived, so it is
-   * not correctable on its own: correct the figures it is made of.
+   * OUTSTANDING branch claim: submitted or approved, not yet verified. Live from
+   * `production_orders`, not the ledger. Displayed, never subtracted from balance.
    */
-  dayBalance: number;
+  branchDemand: number;
+  /** Σ −transfer_out on the day — verified out to branches. This IS in the balance. */
+  demandFulfilled: number;
+  /** Σ −sale on the day, reported positive. Production counter sales. */
+  soldToday: number;
+  /** Σ return_in on the day — ACCEPTED, saleable returns only. Damaged/expired stock never lands here. */
+  returned: number;
+  /** Σ adjustment on the day. SIGNED: the direction is the information. */
+  adjustment: number;
+  /** The ledger's closing balance for the day. Also tomorrow's `opening`. */
+  balance: number;
+  /** balance − branchDemand. What can still be promised or sold. May be negative. */
+  available: number;
+}
+
+/**
+ * Where a product stands, per §16 — the comparison the floor actually plans on.
+ *
+ * Order matters: `out` is checked before `shortage` so a product with nothing on
+ * the shelf reads as out of stock rather than as a shortage of whatever happens to
+ * be owed. `low` is the boundary case where the pool exactly covers what is owed
+ * and one more demand tips it over.
+ */
+export type ProductionStockStatus = 'healthy' | 'low' | 'out' | 'shortage';
+
+export function productionStockStatus(balance: number, branchDemand: number): ProductionStockStatus {
+  if (balance <= 0) return 'out';
+  if (balance < branchDemand) return 'shortage';
+  if (balance <= branchDemand) return 'low';
+  return 'healthy';
 }
 
 /** Computed per-product row for the Production Stock page. */
-export interface ProductionStockRow {
+export interface ProductionStockRow extends ProductionStockFigures {
   productId: string;
   /**
    * The product's human-readable STK-###### — the same code the branch Stock page
@@ -71,40 +144,107 @@ export interface ProductionStockRow {
    */
   stockCode: string;
   productName: string;
-  preparedToday: number; // Σ prepare deltas today
-  /**
-   * What the pool took IN today: prepared + returned.
-   *
-   * Yesterday's carry-forward is deliberately NOT in this sum. The pool is baked
-   * fresh each morning, so a balance that opened negative made every product
-   * prepared today read negative too — the floor made 50 and the sheet said -50.
-   * Reading the day on its own is what puts a newly prepared product back on a
-   * positive figure. `balance` below still carries the running total for the
-   * callers that need it.
-   */
-  totalStock: number;
-  approvedQty: number; // Σ transferred out today
-  balance: number; // running pool balance, yesterday carried forward
-  /**
-   * Today's own position: totalStock − approvedQty − soldToday + adjustment.
-   *
-   * NEGATIVE IS A REAL ANSWER and must not be clamped: it is the shortfall the
-   * floor still has to bake before what has already gone out is covered. This is
-   * the figure the Production Stock page shows as Balance; `balance` is what the
-   * Demand Summary and the counter-sale check read, and neither is changed by it.
-   */
-  dayBalance: number;
-  returned: number; // Σ returns added back today
-  soldToday: number; // Σ sold at the production counter today
-  /**
-   * Σ signed 'adjustment' deltas today — admin corrections and nothing else.
-   * Shown as its own column rather than folded into the four figures above: it is
-   * the remainder they do not explain, and folding it would report a correction
-   * as production or a return. Day-scoped like every other figure here, so it
-   * reads 0 tomorrow with its effect already inside the balance.
-   */
-  adjustment: number;
+  categoryId: string | null;
+  categoryName: string | null;
+  status: ProductionStockStatus;
 }
+
+// ── Stock ledger ─────────────────────────────────────────────────────────────
+
+/**
+ * The transaction types the LEDGER VIEW reports (§13), which are not one-for-one
+ * with the `production_stock_movement_type` values stored in Postgres.
+ *
+ * Three are SYNTHESISED rather than stored, and deliberately so:
+ *
+ *   · OPENING and CLOSING are derived figures (Σ delta before / up to the day),
+ *     not movements. Storing them would be a second source of truth for a number
+ *     the ledger already implies, and the first bug would be the two disagreeing —
+ *     which is precisely the failure a ledger exists to prevent.
+ *   · DEMAND_RESERVED is a claim, not a stock movement. Writing it into
+ *     `production_stock_history` would double-count against the DEMAND_FULFILLED
+ *     (`transfer_out`) row booked when the same goods are verified out.
+ *
+ * The stored types map:
+ *   prepare → PREPARED · transfer_out → DEMAND_FULFILLED · return_in → RETURN
+ *   sale → SALE · adjustment → ADJUSTMENT_IN (delta > 0) / ADJUSTMENT_OUT (delta < 0)
+ */
+export type ProductionLedgerType =
+  | 'OPENING'
+  | 'PREPARED'
+  | 'DEMAND_RESERVED'
+  | 'DEMAND_FULFILLED'
+  | 'SALE'
+  | 'RETURN'
+  | 'ADJUSTMENT_IN'
+  | 'ADJUSTMENT_OUT'
+  | 'CLOSING';
+
+/** One row of the Stock Ledger. */
+export interface ProductionStockLedgerRow {
+  /** Row identity. The ledger uuid for a stored movement, a deterministic key otherwise. */
+  id: string;
+  /**
+   * Human-readable transaction number, `STK-YYYYMMDD-NNNNNN`. Present on stored
+   * movements; null on the synthesised OPENING / CLOSING / DEMAND_RESERVED rows,
+   * which are arithmetic rather than transactions and must not be quotable as one.
+   */
+  transactionNo: string | null;
+  createdAt: string; // ISO UTC
+  businessDate: string;
+  productId: string;
+  productName: string;
+  stockCode: string;
+  transactionType: ProductionLedgerType;
+  /** SIGNED, as the shelf sees it: + adds to the pool, − takes from it. */
+  qty: number;
+  branchId: string | null;
+  branchName: string | null;
+  productionOrderId: string | null;
+  /** Demand number, order number, return id or ticket — whatever booked it. */
+  referenceId: string | null;
+  createdBy: string | null;
+  createdByName: string | null;
+  remarks: string | null;
+  /** Running pool balance after a stored movement. Null on synthesised rows. */
+  balanceAfter: number | null;
+}
+
+/**
+ * The shortfall payload behind an INSUFFICIENT_STOCK error (§8/§26).
+ *
+ * Carries the arithmetic rather than a sentence, so the API, the branch screen and
+ * the Production review dialog can each phrase it their own way without any of
+ * them recomputing it.
+ */
+export interface ProductionShortfall {
+  productId: string;
+  productName: string;
+  requested: number;
+  available: number;
+  shortage: number;
+}
+
+/**
+ * What happened to returned goods, independent of whether the return was accepted.
+ *
+ * Accepting a return and restocking it are two different decisions (§10). Expired
+ * cake genuinely came back and the branch is genuinely credited for it — but it is
+ * not stock, and treating every accepted return as saleable put it back on the
+ * shelf for the counter and the next demand to draw against.
+ *
+ * A written-off return books BOTH a `return_in` (the units came back) and an
+ * `adjustment` (they were written off). The balance nets to no change, but Return
+ * Stock and Adjustment each report what actually happened rather than the pair
+ * silently cancelling out of the record.
+ */
+export type ProductionReturnDisposition = 'saleable' | 'damaged' | 'expired';
+
+export const RETURN_DISPOSITION_LABELS: Record<ProductionReturnDisposition, string> = {
+  saleable: 'Back to saleable stock',
+  damaged: 'Damaged — written off',
+  expired: 'Expired — written off',
+};
 
 // ── Product Returns ──────────────────────────────────────────────────────────
 

@@ -208,8 +208,19 @@ export async function applyStockCorrection(params: {
  * catalogue (see `computeBranchStockHistory`). An inactive product with nothing
  * left and no movement that day stays hidden, so the table does not fill up with
  * dead catalogue.
+ *
+ * `activityOnly` tightens that to rows the Branch Closing sheet wants: a product
+ * appears only if at least one of Opening / Received / Sold / Returned / Balance
+ * is non-zero (see `hasStockActivity`). The Stock page keeps the full active
+ * catalogue — a cashier needs to see that a product is at zero — but a closing
+ * sheet listing every zero row is clutter that hides the products that moved.
+ * The figures themselves are the same either way; only which rows survive changes.
  */
-export async function computeStockRows(branchId: string, date: string = businessDateStr()): Promise<StockRow[]> {
+export async function computeStockRows(
+  branchId: string,
+  date: string = businessDateStr(),
+  options: { activityOnly?: boolean } = {},
+): Promise<StockRow[]> {
   const today = businessDateStr();
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
     throw new UnreachableStockDateError(`"${date}" is not a YYYY-MM-DD business date.`);
@@ -302,9 +313,25 @@ export async function computeStockRows(branchId: string, date: string = business
         balance,
       };
     })
-    .filter((r) => r.isActive || r.balance !== 0 || r.opening !== 0
-      || r.newQty !== 0 || r.sold !== 0 || r.returned !== 0 || r.adjustment !== 0)
+    .filter((r) => options.activityOnly
+      ? hasStockActivity(r)
+      : r.isActive || r.balance !== 0 || r.opening !== 0
+        || r.newQty !== 0 || r.sold !== 0 || r.returned !== 0 || r.adjustment !== 0)
     .sort((a, b) => b.balance - a.balance || a.productName.localeCompare(b.productName));
+}
+
+/**
+ * True when a product's day is worth a row on the closing sheet: any of the five
+ * heads the sheet prints is non-zero. Balance alone is not enough — a product
+ * that opened at 5 and sold 5 closes at 0 and still has to be shown — and
+ * `adjustment` is not tested separately because it cannot be the only non-zero
+ * figure: the row reconciles as opening + new − sold − returned + adjustment =
+ * balance, so an adjustment with every other head at zero is itself zero.
+ * Compared on the derived numeric values, not on a rounded display string, so a
+ * fractional quantity is never mistaken for nothing.
+ */
+export function hasStockActivity(r: Pick<StockRow, 'opening' | 'newQty' | 'sold' | 'returned' | 'balance'>): boolean {
+  return r.opening !== 0 || r.newQty !== 0 || r.sold !== 0 || r.returned !== 0 || r.balance !== 0;
 }
 
 /**

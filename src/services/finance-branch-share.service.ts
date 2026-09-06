@@ -11,6 +11,7 @@ import {
   type UpdateBranchSharePaymentInput,
 } from '../shared';
 import { rowToApi } from '../utils/case';
+import { withoutDeleted } from '../utils/softDelete';
 import { bindAttachments, listAttachments, listAttachmentsFor } from './attachments.service';
 import { postEntry } from './finance-ledger.service';
 import { getBranchShareSplits, getLedgerHeadByCode, round2 } from './finance-settings.service';
@@ -47,12 +48,14 @@ export interface BranchShareQuery {
 }
 
 export async function listBranchSharePayments(q: BranchShareQuery): Promise<BranchSharePayment[]> {
-  let query = supabaseAdmin
-    .from('branch_share_payments')
-    .select('*')
-    .order('business_date', { ascending: false })
-    .order('created_at', { ascending: false })
-    .limit(Math.min(Math.max(Number(q.limit ?? 200), 1), 500));
+  let query = withoutDeleted(
+    supabaseAdmin
+      .from('branch_share_payments')
+      .select('*')
+      .order('business_date', { ascending: false })
+      .order('created_at', { ascending: false })
+      .limit(Math.min(Math.max(Number(q.limit ?? 200), 1), 500)),
+  );
 
   if (q.status === 'pending') query = query.in('status', ['draft', 'pending_approval']);
   else if (q.status) query = query.eq('status', q.status);
@@ -99,12 +102,14 @@ export async function listBranchSharePayments(q: BranchShareQuery): Promise<Bran
  *     adjustment as a share movement would be worse, since most are not.
  */
 export async function getBranchShareBalances(branchId?: string): Promise<BranchShareBalance[]> {
-  let entriesQuery = supabaseAdmin
-    .from('ledger_entries')
-    .select('branch_id, branch_name, debit, credit, source_type')
-    .in('source_type', ['branch_share', 'branch_share_payout'])
-    .in('status', ['posted', 'locked'])
-    .not('branch_id', 'is', null);
+  let entriesQuery = withoutDeleted(
+    supabaseAdmin
+      .from('ledger_entries')
+      .select('branch_id, branch_name, debit, credit, source_type')
+      .in('source_type', ['branch_share', 'branch_share_payout'])
+      .in('status', ['posted', 'locked'])
+      .not('branch_id', 'is', null),
+  );
   if (branchId) entriesQuery = entriesQuery.eq('branch_id', branchId);
 
   let branchQuery = supabaseAdmin.from('branches').select('id, name').eq('is_active', true).order('name');
@@ -155,7 +160,9 @@ export async function getBranchShareBalances(branchId?: string): Promise<BranchS
 }
 
 export async function getBranchSharePayment(id: string): Promise<BranchSharePayment | null> {
-  const { data, error } = await supabaseAdmin.from('branch_share_payments').select('*').eq('id', id).maybeSingle();
+  const { data, error } = await withoutDeleted(
+    supabaseAdmin.from('branch_share_payments').select('*').eq('id', id),
+  ).maybeSingle();
   if (error) throw error;
   if (!data) return null;
   return {
@@ -231,11 +238,9 @@ export async function updateBranchSharePayment(
     row['rejection_reason'] = null;
   }
 
-  const { data, error } = await supabaseAdmin
-    .from('branch_share_payments')
-    .update(row)
-    .eq('id', id)
-    .in('status', EDITABLE_DOC_STATUSES)
+  const { data, error } = await withoutDeleted(
+    supabaseAdmin.from('branch_share_payments').update(row).eq('id', id).in('status', EDITABLE_DOC_STATUSES),
+  )
     .select('*')
     .single();
   if (error) throw error;
@@ -243,11 +248,13 @@ export async function updateBranchSharePayment(
 }
 
 export async function submitBranchSharePayment(id: string): Promise<BranchSharePayment> {
-  const { data, error } = await supabaseAdmin
-    .from('branch_share_payments')
-    .update({ status: 'pending_approval', rejection_reason: null })
-    .eq('id', id)
-    .in('status', ['draft', 'rejected'])
+  const { data, error } = await withoutDeleted(
+    supabaseAdmin
+      .from('branch_share_payments')
+      .update({ status: 'pending_approval', rejection_reason: null })
+      .eq('id', id)
+      .in('status', ['draft', 'rejected']),
+  )
     .select('*')
     .single();
   if (error) throw Object.assign(new Error('Only a draft or rejected payment can be submitted.'), { status: 409 });
@@ -275,17 +282,19 @@ export async function approveBranchSharePayment(
     throw Object.assign(new Error(`${doc.paymentNo} is ${doc.status} and cannot be approved again.`), { status: 409 });
   }
 
-  const { data: claimed, error: claimErr } = await supabaseAdmin
-    .from('branch_share_payments')
-    .update({
-      status: 'approved',
-      approved_by: actor.uid,
-      approved_by_name: actor.name,
-      approved_at: new Date().toISOString(),
-      ...(notes ? { notes } : {}),
-    })
-    .eq('id', id)
-    .eq('status', 'pending_approval')
+  const { data: claimed, error: claimErr } = await withoutDeleted(
+    supabaseAdmin
+      .from('branch_share_payments')
+      .update({
+        status: 'approved',
+        approved_by: actor.uid,
+        approved_by_name: actor.name,
+        approved_at: new Date().toISOString(),
+        ...(notes ? { notes } : {}),
+      })
+      .eq('id', id)
+      .eq('status', 'pending_approval'),
+  )
     .select('id')
     .maybeSingle();
   if (claimErr) throw claimErr;
@@ -335,10 +344,12 @@ export async function approveBranchSharePayment(
     bonusLedgerEntryId = entry.id;
   }
 
-  const { error: postedErr } = await supabaseAdmin
-    .from('branch_share_payments')
-    .update({ status: 'posted', ledger_entry_id: ledgerEntryId, bonus_ledger_entry_id: bonusLedgerEntryId })
-    .eq('id', id);
+  const { error: postedErr } = await withoutDeleted(
+    supabaseAdmin
+      .from('branch_share_payments')
+      .update({ status: 'posted', ledger_entry_id: ledgerEntryId, bonus_ledger_entry_id: bonusLedgerEntryId })
+      .eq('id', id),
+  );
   if (postedErr) throw postedErr;
 
   return { document: (await getBranchSharePayment(id))!, entries };

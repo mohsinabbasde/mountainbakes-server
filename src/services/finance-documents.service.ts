@@ -17,6 +17,7 @@ import {
   type UpdatePartnerExpenseInput,
 } from '../shared';
 import { rowToApi } from '../utils/case';
+import { withoutDeleted } from '../utils/softDelete';
 import { bindAttachments, listAttachments, listAttachmentsFor } from './attachments.service';
 import { postEntry, requireActiveHead } from './finance-ledger.service';
 import { getLedgerHeadByCode, round2 } from './finance-settings.service';
@@ -79,12 +80,14 @@ export interface TransactionQuery {
 }
 
 export async function listTransactions(q: TransactionQuery): Promise<FinanceTransaction[]> {
-  let query = supabaseAdmin
-    .from('finance_transactions')
-    .select('*')
-    .order('business_date', { ascending: false })
-    .order('created_at', { ascending: false })
-    .limit(Math.min(Math.max(Number(q.limit ?? 200), 1), 500));
+  let query = withoutDeleted(
+    supabaseAdmin
+      .from('finance_transactions')
+      .select('*')
+      .order('business_date', { ascending: false })
+      .order('created_at', { ascending: false })
+      .limit(Math.min(Math.max(Number(q.limit ?? 200), 1), 500)),
+  );
 
   if (q.status === 'pending') query = query.in('status', ['draft', 'pending_approval']);
   else if (q.status) query = query.eq('status', q.status);
@@ -129,16 +132,20 @@ async function assertNotDuplicateIncome(
   amount: number,
   businessDate: string,
 ): Promise<void> {
-  const { data: existing, error } = await supabaseAdmin
-    .from('ledger_entries')
-    .select('voucher_no, entry_date, debit, ledger_head_name')
-    .eq('ledger_head_id', ledgerHeadId)
-    .eq('entry_date', businessDate)
-    .eq('debit', round2(amount))
-    .in('source_type', ['branch_income', 'company_share', 'branch_share'])
-    .in('status', ['posted', 'locked'])
-    .limit(1)
-    .maybeSingle();
+  // A DELETED voucher must not block the re-entry that replaces it: the whole
+  // point of deleting a wrong income posting is to enter the right one, and
+  // matching against the deleted row would reject it as a duplicate of itself.
+  const { data: existing, error } = await withoutDeleted(
+    supabaseAdmin
+      .from('ledger_entries')
+      .select('voucher_no, entry_date, debit, ledger_head_name')
+      .eq('ledger_head_id', ledgerHeadId)
+      .eq('entry_date', businessDate)
+      .eq('debit', round2(amount))
+      .in('source_type', ['branch_income', 'company_share', 'branch_share'])
+      .in('status', ['posted', 'locked'])
+      .limit(1),
+  ).maybeSingle();
   if (error) throw error;
   if (!existing) return;
 
@@ -250,11 +257,9 @@ export async function updateTransaction(
     row['rejection_reason'] = null;
   }
 
-  const { data, error } = await supabaseAdmin
-    .from('finance_transactions')
-    .update(row)
-    .eq('id', id)
-    .in('status', EDITABLE_DOC_STATUSES)
+  const { data, error } = await withoutDeleted(
+    supabaseAdmin.from('finance_transactions').update(row).eq('id', id).in('status', EDITABLE_DOC_STATUSES),
+  )
     .select('*')
     .single();
   if (error) throw error;
@@ -262,7 +267,9 @@ export async function updateTransaction(
 }
 
 export async function getTransaction(id: string): Promise<FinanceTransaction | null> {
-  const { data, error } = await supabaseAdmin.from('finance_transactions').select('*').eq('id', id).maybeSingle();
+  const { data, error } = await withoutDeleted(
+    supabaseAdmin.from('finance_transactions').select('*').eq('id', id),
+  ).maybeSingle();
   if (error) throw error;
   if (!data) return null;
   return {
@@ -274,11 +281,13 @@ export async function getTransaction(id: string): Promise<FinanceTransaction | n
 
 /** Move a draft into the approval queue. */
 export async function submitTransaction(id: string): Promise<FinanceTransaction> {
-  const { data, error } = await supabaseAdmin
-    .from('finance_transactions')
-    .update({ status: 'pending_approval', rejection_reason: null })
-    .eq('id', id)
-    .in('status', ['draft', 'rejected'])
+  const { data, error } = await withoutDeleted(
+    supabaseAdmin
+      .from('finance_transactions')
+      .update({ status: 'pending_approval', rejection_reason: null })
+      .eq('id', id)
+      .in('status', ['draft', 'rejected']),
+  )
     .select('*')
     .single();
   if (error) throw Object.assign(new Error('Only a draft or rejected entry can be submitted.'), { status: 409 });
@@ -384,12 +393,14 @@ export interface PartnerExpenseQuery {
 }
 
 export async function listPartnerExpenses(q: PartnerExpenseQuery): Promise<PartnerExpense[]> {
-  let query = supabaseAdmin
-    .from('partner_expenses')
-    .select('*')
-    .order('business_date', { ascending: false })
-    .order('created_at', { ascending: false })
-    .limit(Math.min(Math.max(Number(q.limit ?? 200), 1), 500));
+  let query = withoutDeleted(
+    supabaseAdmin
+      .from('partner_expenses')
+      .select('*')
+      .order('business_date', { ascending: false })
+      .order('created_at', { ascending: false })
+      .limit(Math.min(Math.max(Number(q.limit ?? 200), 1), 500)),
+  );
 
   if (q.status === 'pending') query = query.in('status', ['draft', 'pending_approval']);
   else if (q.status) query = query.eq('status', q.status);
@@ -480,11 +491,9 @@ export async function updatePartnerExpense(
     row['rejection_reason'] = null;
   }
 
-  const { data, error } = await supabaseAdmin
-    .from('partner_expenses')
-    .update(row)
-    .eq('id', id)
-    .in('status', EDITABLE_DOC_STATUSES)
+  const { data, error } = await withoutDeleted(
+    supabaseAdmin.from('partner_expenses').update(row).eq('id', id).in('status', EDITABLE_DOC_STATUSES),
+  )
     .select('*')
     .single();
   if (error) throw error;
@@ -492,7 +501,9 @@ export async function updatePartnerExpense(
 }
 
 export async function getPartnerExpense(id: string): Promise<PartnerExpense | null> {
-  const { data, error } = await supabaseAdmin.from('partner_expenses').select('*').eq('id', id).maybeSingle();
+  const { data, error } = await withoutDeleted(
+    supabaseAdmin.from('partner_expenses').select('*').eq('id', id),
+  ).maybeSingle();
   if (error) throw error;
   if (!data) return null;
   return {
@@ -503,11 +514,13 @@ export async function getPartnerExpense(id: string): Promise<PartnerExpense | nu
 }
 
 export async function submitPartnerExpense(id: string): Promise<PartnerExpense> {
-  const { data, error } = await supabaseAdmin
-    .from('partner_expenses')
-    .update({ status: 'pending_approval', rejection_reason: null })
-    .eq('id', id)
-    .in('status', ['draft', 'rejected'])
+  const { data, error } = await withoutDeleted(
+    supabaseAdmin
+      .from('partner_expenses')
+      .update({ status: 'pending_approval', rejection_reason: null })
+      .eq('id', id)
+      .in('status', ['draft', 'rejected']),
+  )
     .select('*')
     .single();
   if (error) throw Object.assign(new Error('Only a draft or rejected expense can be submitted.'), { status: 409 });
@@ -571,10 +584,12 @@ export async function rejectPartnerExpense(
  * know about every document type that can post one.
  */
 export async function getPartnerShareSummary(from?: string, to?: string): Promise<PartnerShareSummary> {
-  let ledgerQuery = supabaseAdmin
-    .from('ledger_entries')
-    .select('ledger_head_type, source_type, debit, credit')
-    .in('status', ['posted', 'locked']);
+  let ledgerQuery = withoutDeleted(
+    supabaseAdmin
+      .from('ledger_entries')
+      .select('ledger_head_type, source_type, debit, credit')
+      .in('status', ['posted', 'locked']),
+  );
   if (from) ledgerQuery = ledgerQuery.gte('entry_date', from);
   if (to) ledgerQuery = ledgerQuery.lte('entry_date', to);
 
@@ -594,11 +609,13 @@ export async function getPartnerShareSummary(from?: string, to?: string): Promis
 
   const partners = await listFinancePartners();
 
-  let txnQuery = supabaseAdmin
-    .from('partner_expenses')
-    .select('partner_id, txn_kind, amount')
-    .in('status', ['posted', 'locked'])
-    .not('partner_id', 'is', null);
+  let txnQuery = withoutDeleted(
+    supabaseAdmin
+      .from('partner_expenses')
+      .select('partner_id, txn_kind, amount')
+      .in('status', ['posted', 'locked'])
+      .not('partner_id', 'is', null),
+  );
   if (from) txnQuery = txnQuery.gte('business_date', from);
   if (to) txnQuery = txnQuery.lte('business_date', to);
 
@@ -696,17 +713,19 @@ async function approveDocument(input: ApproveDocumentInput): Promise<LedgerEntry
     );
   }
 
-  const { data: claimed, error: claimErr } = await supabaseAdmin
-    .from(input.table)
-    .update({
-      status: 'approved',
-      approved_by: input.actor.uid,
-      approved_by_name: input.actor.name,
-      approved_at: new Date().toISOString(),
-      ...(input.notes ? { notes: input.notes } : {}),
-    })
-    .eq('id', input.id)
-    .eq('status', 'pending_approval')
+  const { data: claimed, error: claimErr } = await withoutDeleted(
+    supabaseAdmin
+      .from(input.table)
+      .update({
+        status: 'approved',
+        approved_by: input.actor.uid,
+        approved_by_name: input.actor.name,
+        approved_at: new Date().toISOString(),
+        ...(input.notes ? { notes: input.notes } : {}),
+      })
+      .eq('id', input.id)
+      .eq('status', 'pending_approval'),
+  )
     .select('id')
     .maybeSingle();
   if (claimErr) throw claimErr;
@@ -716,10 +735,12 @@ async function approveDocument(input: ApproveDocumentInput): Promise<LedgerEntry
 
   const entry = await postEntry({ ...input.posting, sourceId: input.id, actor: input.actor });
 
-  const { error: postedErr } = await supabaseAdmin
-    .from(input.table)
-    .update({ status: 'posted', ledger_entry_id: entry.id })
-    .eq('id', input.id);
+  const { error: postedErr } = await withoutDeleted(
+    supabaseAdmin
+      .from(input.table)
+      .update({ status: 'posted', ledger_entry_id: entry.id })
+      .eq('id', input.id),
+  );
   if (postedErr) throw postedErr;
 
   return entry;
@@ -731,17 +752,19 @@ async function rejectDocument(
   reason: string,
   actor: { uid: string; name: string },
 ): Promise<void> {
-  const { data, error } = await supabaseAdmin
-    .from(table)
-    .update({
-      status: 'rejected',
-      rejection_reason: reason,
-      approved_by: actor.uid,
-      approved_by_name: actor.name,
-      approved_at: new Date().toISOString(),
-    })
-    .eq('id', id)
-    .in('status', ['draft', 'pending_approval'])
+  const { data, error } = await withoutDeleted(
+    supabaseAdmin
+      .from(table)
+      .update({
+        status: 'rejected',
+        rejection_reason: reason,
+        approved_by: actor.uid,
+        approved_by_name: actor.name,
+        approved_at: new Date().toISOString(),
+      })
+      .eq('id', id)
+      .in('status', ['draft', 'pending_approval']),
+  )
     .select('id')
     .maybeSingle();
   if (error) throw error;

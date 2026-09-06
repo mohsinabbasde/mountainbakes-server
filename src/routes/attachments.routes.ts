@@ -4,6 +4,7 @@ import { authenticate, type AuthRequest } from '../middleware/auth';
 import {
   ATTACHMENT_MAX_BYTES,
   UploadAttachmentSchema,
+  canAccessFinanceHelpDesk,
   isBranchRole,
   isFinanceRole,
   type AttachmentEntity,
@@ -50,6 +51,13 @@ const ENTITY_ROLES: Record<AttachmentEntity, (role: UserRole) => boolean> = {
   production_order_demand: (r) => isBranchRole(r) || r === 'super_admin',
   production_order_verification: (r) => isBranchRole(r) || r === 'super_admin',
   production_order_special_item: (r) => isBranchRole(r) || r === 'super_admin',
+  // Finance Help Desk (migration 94). Both sides of the desk attach documents —
+  // a raiser evidences the problem, an admin evidences the correction — so this
+  // is the finance roles AND super_admin, which is what `canAccessFinanceHelpDesk`
+  // already means. Binding still refuses a photo whose uploader is not the one
+  // creating the query, so a Finance user cannot attach to somebody else's.
+  finance_ticket: (r) => canAccessFinanceHelpDesk(r),
+  finance_ticket_message: (r) => canAccessFinanceHelpDesk(r),
 };
 
 router.use(authenticate);

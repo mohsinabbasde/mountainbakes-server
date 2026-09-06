@@ -1,0 +1,15 @@
+-- 97: the notification type an admin security alert is delivered under.
+--
+-- Alone in its own migration/transaction for the reason migrations 55, 72 and 92
+-- give: Postgres refuses to reference a newly ADDed enum value inside the same
+-- transaction that added it. 98 does not compile a function body against this
+-- value, but the security service inserts rows carrying it the moment it ships,
+-- and keeping the ALTER TYPE separate is what leaves 98 free to grow a function
+-- that names it without silently rolling the whole batch back.
+--
+-- ONE value, not one per suspicion reason. A first-time country, an unfamiliar
+-- browser and an impossible-speed hop are the same message to the same audience
+-- — "look at this sign-in" — differing only in the sentence inside. The discount
+-- split in 92 was justified by two audiences travelling in opposite directions;
+-- there is only one audience here, and it is always the admin.
+alter type notification_type add value if not exists 'security_alert';

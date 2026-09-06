@@ -32,6 +32,20 @@ export interface BranchProductionOrderItem {
   productId: string;
   productName: string;
   qty: number; // the branch's demand for this order — the whole requirement
+  /**
+   * The Admin product rate AS AT submission (§18). Snapshotted onto the line by
+   * the server; branch users cannot send or change it.
+   *
+   * READ THIS, never `products.price`, when showing what an order is worth. The
+   * live price is what the product costs TODAY; this is what the branch actually
+   * agreed to, and the two diverge the moment Admin edits a rate. Rendering an
+   * order from the live price silently rewrites its history.
+   *
+   * Absent on lines raised before the column existed (migration 89 backfilled
+   * from `product_price_history` where it could); treat missing as "unknown rate"
+   * and show a dash rather than 0, which would read as "free".
+   */
+  unitPrice?: number;
   remarks: string;
   /**
    * Quantity Production actually approved. Defaults to `qty` — the fresh demand —

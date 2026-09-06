@@ -14,16 +14,22 @@ import { router as productionRouter } from './production.routes';
 import { router as productionOrdersRouter } from './production-orders.routes';
 import { router as productionStockRouter } from './production-stock.routes';
 import { router as productionReturnsRouter } from './production-returns.routes';
+import { router as productionDiscountsRouter } from './production-discounts.routes';
+import { router as branchDiscountsRouter } from './branch-discounts.routes';
 import { router as productionReportsRouter } from './production-reports.routes';
 import { router as expensesRouter } from './expenses.routes';
+import { router as branchClosingRouter } from './branch-closing.routes';
+import { router as dailySaleRouter } from './daily-sale.routes';
 import { router as stockRouter } from './stock.routes';
 import { router as reportsRouter } from './reports.routes';
+import { router as salesAnalyticsRouter } from './sales-analytics.routes';
 import { router as searchRouter } from './search.routes';
 import { router as supportRouter } from './support.routes';
 import { router as closingNotificationsRouter } from './closing-notifications.routes';
 import { router as specialEventsRouter } from './special-events.routes';
 import { router as settingsRouter } from './settings.routes';
 import { router as loginHistoryRouter } from './login-history.routes';
+import { router as loginAttemptsRouter } from './login-attempts.routes';
 import { router as businessDayRouter } from './business-day.routes';
 import { router as financeRouter } from './finance.routes';
 import { router as financeIncomeRouter, entriesRouter as financeEntriesRouter } from './finance-income.routes';
@@ -56,10 +62,25 @@ export function setupRoutes(app: Express) {
   app.use('/api/production-orders', productionOrdersRouter);
   app.use('/api/production-stock', productionStockRouter);
   app.use('/api/production-returns', productionReturnsRouter);
+  // Discount claims, split across two prefixes the way returns are: the branch
+  // raises and corrects on one, Production reviews on the other, and each router
+  // carries its own requireRole at the mount instead of re-checking per handler.
+  app.use('/api/production-discounts', productionDiscountsRouter);
+  app.use('/api/branch-discounts', branchDiscountsRouter);
   app.use('/api/production-reports', productionReportsRouter);
   app.use('/api/expenses', expensesRouter);
+  app.use('/api/branch-closing', branchClosingRouter);
+  // Daily Sale Record — the branch's daily reconciliation of system sales against
+  // physically counted receipts. Its own prefix rather than a path under
+  // /api/branch-closing: that surface writes nothing and locks nothing, while this
+  // one is a signed, audited record with a status machine behind it.
+  app.use('/api/daily-sale-records', dailySaleRouter);
   app.use('/api/stock', stockRouter);
   app.use('/api/reports', reportsRouter);
+  // Daily Sales analytics. Its own prefix, not a path under /api/reports: it
+  // aggregates in Postgres (migration 100) rather than in Node, and it is read
+  // by a dashboard card that refetches on every filter change.
+  app.use('/api/sales-analytics', salesAnalyticsRouter);
   app.use('/api/search', searchRouter);
   app.use('/api/support', supportRouter);
   app.use('/api/closing-notifications', closingNotificationsRouter);
@@ -68,6 +89,11 @@ export function setupRoutes(app: Express) {
   // Login History. Opened and pinged by the client, because a static-export app
   // signs in to Supabase directly and this API never sees the login itself.
   app.use('/api/login-history', loginHistoryRouter);
+  // Its own mount rather than a path under login-history, because its POST is
+  // the one unauthenticated write in the API and that router applies
+  // `authenticate` to everything. Two postures, two routers — see the header of
+  // login-attempts.routes.ts.
+  app.use('/api/login-attempts', loginAttemptsRouter);
   app.use('/api/business-day', businessDayRouter);
   // Shared by finance and branch: one upload endpoint for every captured photo,
   // which decides what the caller may attach to from the `entity` field.

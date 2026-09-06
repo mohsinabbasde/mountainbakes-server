@@ -3,6 +3,80 @@ import { supabaseAdmin } from '../config/supabase';
 import { USER_ROLES, type UserRole } from '../shared';
 
 /**
+ * Revoked GoTrue sessions this process has already seen.
+ *
+ * WHY THIS CACHE EXISTS AT ALL. The check below runs on EVERY authenticated
+ * request in the app, and an uncached version would add a database round-trip to
+ * each one — a real cost paid on every screen to catch a condition that is rare
+ * by construction. So the answer is remembered, asymmetrically:
+ *
+ *   * A revocation is remembered FOREVER (until the process restarts). It cannot
+ *     be undone — `revoke_auth_session` deletes the GoTrue row and there is no
+ *     un-revoke — so a cached `true` can never go stale in the dangerous
+ *     direction.
+ *   * "Not revoked" is remembered for one minute only, and that TTL is the
+ *     enforcement lag: a session revoked by an admin keeps working for at most a
+ *     minute after its next cached negative, against the up-to-an-hour window
+ *     that existed when the access token's own lifetime was the only bound.
+ *
+ * BOUNDED. The negative map is capped and cleared wholesale rather than evicted
+ * entry by entry; the cost of a cold cache is one extra query per live session,
+ * which is not worth an LRU to avoid. The revoked set is not capped because its
+ * membership is the number of sessions an admin has ever ended on this dyno,
+ * which is small and self-limiting.
+ *
+ * PER-PROCESS, like `utils/cache.ts` and for the same reason: the deploy is a
+ * single dyno. On a horizontally scaled API each instance would learn about a
+ * revocation independently, within its own TTL — still bounded, still far better
+ * than a token lifetime, and worth swapping for Redis if that day comes.
+ */
+const revokedSessions = new Set<string>();
+const notRevokedUntil = new Map<string, number>();
+const NEGATIVE_TTL_MS = 60_000;
+const NEGATIVE_CACHE_MAX = 2_000;
+
+/**
+ * Has an admin signed this GoTrue session out?
+ *
+ * FAILS OPEN, deliberately and in exactly one direction: a database error
+ * answers "not revoked". This runs in front of every request in the app, so a
+ * transient failure here that failed CLOSED would sign the entire company out of
+ * a working system to enforce a revocation that has probably not happened. The
+ * revocation still stands at GoTrue — the session row is deleted, so the browser
+ * dies at its next token refresh regardless of this check — and this is the
+ * faster of two mechanisms, not the only one.
+ */
+async function isRevoked(authSessionId: string | null): Promise<boolean> {
+  if (!authSessionId) return false;
+  if (revokedSessions.has(authSessionId)) return true;
+
+  const fresh = notRevokedUntil.get(authSessionId);
+  if (fresh !== undefined && fresh > Date.now()) return false;
+
+  const { data, error } = await supabaseAdmin
+    .from('login_sessions')
+    .select('id')
+    .eq('auth_session_id', authSessionId)
+    .not('revoked_at', 'is', null)
+    .limit(1);
+
+  if (error) {
+    console.error('[auth] revocation check failed', error.message);
+    return false;
+  }
+
+  if ((data?.length ?? 0) > 0) {
+    revokedSessions.add(authSessionId);
+    notRevokedUntil.delete(authSessionId);
+    return true;
+  }
+
+  if (notRevokedUntil.size >= NEGATIVE_CACHE_MAX) notRevokedUntil.clear();
+  notRevokedUntil.set(authSessionId, Date.now() + NEGATIVE_TTL_MS);
+  return false;
+}
+
+/**
  * Driven off the shared USER_ROLES list rather than a literal copy. The literal
  * version had to be remembered when the four Finance Ledger roles were added in
  * migration 51 — and forgetting it fails CLOSED but silently: a correctly
@@ -18,7 +92,97 @@ export interface AuthRequest extends Request {
     role: UserRole;
     branchId: string | null;
     branchName: string | null;
+    /**
+     * The GoTrue session this token belongs to (`session_id` claim).
+     *
+     * Login History records it so an admin can later revoke THIS browser rather
+     * than every browser the account owns, and the ping uses it to notice that
+     * the session it is pinging for has been revoked underneath it.
+     *
+     * Null when the claim is absent — a token minted by an older GoTrue, or one
+     * issued for a flow that has no session behind it. Callers must treat that
+     * as "this session cannot be revoked", never as "revoke everything".
+     */
+    authSessionId: string | null;
+    /**
+     * How THIS session was authenticated, from the token's `amr` claim —
+     * 'password', 'oauth', 'otp', 'magiclink', ... Empty when the claim is absent.
+     *
+     * Login History reads it to decide whether the Google identity below was the
+     * one used to sign in, or merely one linked to the account.
+     */
+    authMethods: string[];
+    /**
+     * The verified email of the Google identity linked to this account, or null.
+     *
+     * Read off `getUser().identities`, which Supabase populates from the provider
+     * at sign-in / link time — never from a request body, never from anything
+     * the browser reports about itself. A website cannot see which Google
+     * account the Chrome profile is signed into; this is the account the person
+     * authenticated to US with, which is the only thing worth recording.
+     */
+    googleEmail: string | null;
   };
+}
+
+/**
+ * Read the `session_id` and `amr` claims out of an access token.
+ *
+ * DECODING, NOT VERIFYING — and that is only safe because of where it is called:
+ * strictly after `supabaseAdmin.auth.getUser(token)` has already verified the
+ * signature and expiry against Supabase. At that point the payload is known
+ * authentic and pulling two more claims out of it is free, where a second
+ * round-trip to learn them would not be. Calling this anywhere else, on a token
+ * that has not been through `getUser`, would be trusting a string the caller
+ * wrote.
+ *
+ * `getUser` returns neither claim, which is the whole reason this exists.
+ * `session_id` is the GoTrue session Login History revokes by. `amr` is GoTrue's
+ * list of how the session was authenticated, newest first — `[{ method:
+ * 'oauth', timestamp }]` for a Google sign-in, `'password'` for the form — and
+ * is what lets a session record the Google account it was opened WITH rather
+ * than one that merely happens to be linked to the account.
+ *
+ * Every failure is a null or an empty list. A malformed segment, a payload that
+ * is not JSON, a claim of the wrong shape: none of them may throw — a token that
+ * verified must not then be rejected because an optional claim was unreadable.
+ */
+function claimsFromToken(token: string): { sessionId: string | null; authMethods: string[] } {
+  try {
+    const payload = token.split('.')[1];
+    if (!payload) return { sessionId: null, authMethods: [] };
+    const json = Buffer.from(payload, 'base64url').toString('utf8');
+    const claims = JSON.parse(json) as { session_id?: unknown; amr?: unknown };
+    const sessionId =
+      typeof claims.session_id === 'string' && claims.session_id ? claims.session_id : null;
+    const authMethods = Array.isArray(claims.amr)
+      ? claims.amr
+          .map((a) => (a && typeof a === 'object' ? (a as { method?: unknown }).method : null))
+          .filter((m): m is string => typeof m === 'string' && m.length > 0)
+      : [];
+    return { sessionId, authMethods };
+  } catch {
+    return { sessionId: null, authMethods: [] };
+  }
+}
+
+/**
+ * The verified email of the account's Google identity, if it has one.
+ *
+ * Supabase writes `identity_data` from the provider's own claims when the
+ * identity is created or refreshed; `email_verified` is Google's assertion, and
+ * an identity that lacks it or says false is not trusted here. Null when there
+ * is no Google identity at all — the ordinary case for a password-only account.
+ */
+function googleEmailOf(user: { identities?: Array<{ provider?: string; identity_data?: Record<string, unknown> }> | null }): string | null {
+  for (const identity of user.identities ?? []) {
+    if (identity.provider !== 'google') continue;
+    const data = identity.identity_data ?? {};
+    const email = typeof data['email'] === 'string' ? data['email'].trim().toLowerCase() : '';
+    if (!email || data['email_verified'] === false) continue;
+    return email;
+  }
+  return null;
 }
 
 /**
@@ -58,12 +222,56 @@ export async function authenticate(req: AuthRequest, res: Response, next: NextFu
     return;
   }
 
+  // Safe here and nowhere earlier: `getUser` above has already verified this
+  // exact token. See claimsFromToken.
+  const { sessionId: authSessionId, authMethods } = claimsFromToken(token);
+
+  /*
+   * A session an admin has ended does not get to keep working.
+   *
+   * WHY THIS IS NEEDED WHEN THE GoTrue SESSION IS ALREADY DELETED. A Supabase
+   * ACCESS token is stateless: it carries its own signature and expiry, and
+   * `getUser` above accepts it on those alone. Deleting the session behind it
+   * kills the REFRESH — the browser cannot mint another token — but the one it
+   * is holding stays valid until it lapses, up to an hour later. Without this
+   * check, "sign this device out" means "sign it out within the hour", which is
+   * not what the button says and not what an admin acting on a suspected
+   * compromise needs.
+   *
+   * THE THIRD OF THREE MECHANISMS, and the only one that covers every request:
+   *
+   *   1. `revoke_auth_session` deletes the GoTrue session — permanent, but
+   *      invisible until a refresh falls due.
+   *   2. The Login History ping answers 403 and the client signs itself out —
+   *      fast, but only for a client that keeps pinging and chooses to obey.
+   *   3. This — every protected endpoint, regardless of what the client does.
+   *
+   * A tampered client that stops pinging defeats (2) and is stopped here.
+   *
+   * ANSWERED WITH THE SAME `session_revoked` CODE the ping uses, so the frontend
+   * has one revocation path rather than two: `apiCall` lifts `body.details` onto
+   * its error, the client recognises the code and tears the session down. 401
+   * rather than 403 because the credential itself is no longer good — which is
+   * also what makes the frontend's existing refresh-and-retry do the right thing
+   * and give up.
+   */
+  if (await isRevoked(authSessionId)) {
+    res.status(401).json({
+      error: 'This session was signed out by an administrator',
+      details: { code: 'session_revoked' },
+    });
+    return;
+  }
+
   req.user = {
     uid: data.user.id,
     email: data.user.email ?? '',
     role: meta.role,
     branchId: meta.branchId ?? null,
     branchName: meta.branchName ?? null,
+    authSessionId,
+    authMethods,
+    googleEmail: googleEmailOf(data.user),
   };
   next();
 }

@@ -3,10 +3,15 @@ import { supabaseAdmin } from '../config/supabase';
 import { authenticate, type AuthRequest } from '../middleware/auth';
 import { requireRole } from '../middleware/requireRole';
 import { validate } from '../middleware/validate';
-import { CreateExpenseSchema, businessDaysAgoStr, BRANCH_ROLES, isBranchRole } from '../shared';
+import { CreateExpenseSchema, businessDaysAgoStr, businessDateStr, BRANCH_ROLES, isBranchRole } from '../shared';
 import { idempotent } from '../middleware/idempotency';
 import { resolveClientBusinessDate } from '../utils/clientBusinessDate';
 import { rowToApi } from '../utils/case';
+// Generic tabular exporters — they live in production-export.service only because
+// that is where the first non-order-shaped report needed them; nothing in them is
+// production-specific.
+import { genericExcel, genericCSV } from '../services/production-export.service';
+import { buildExpenseSheet } from '../services/expense-export.service';
 
 export const router = Router();
 
@@ -38,6 +43,87 @@ router.get('/', async (req: AuthRequest, res, next) => {
     const rows = rowToApi<Record<string, unknown>[]>(data ?? []);
     const expenses = rows.map(({ businessDate, ...rest }) => ({ ...rest, date: businessDate }));
     res.json({ expenses, total: expenses.length });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * Ceiling on one export. Well above any real window — a busy branch books a
+ * handful of expenses a day, so this is years of them — but it stops an
+ * open-ended range from pulling the whole table into the dyno's memory.
+ */
+const EXPORT_ROW_CAP = 20_000;
+
+/**
+ * The from/to window, as YYYY-MM-DD business dates.
+ *
+ * Defaults to the same last-7-business-days the list route serves, so an export
+ * taken with no dates matches what the page is showing rather than silently
+ * covering something else. A reversed pair is swapped rather than returning an
+ * empty sheet that looks like "no expenses".
+ */
+function exportRange(from: unknown, to: unknown): { fromStr: string; toStr: string } {
+  const clean = (v: unknown) => (typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : '');
+  const a = clean(from) || businessDaysAgoStr(6);
+  const b = clean(to) || businessDateStr();
+  return a <= b ? { fromStr: a, toStr: b } : { fromStr: b, toStr: a };
+}
+
+// GET /api/expenses/export — the same rows the list shows, over an explicit
+// window, as a spreadsheet. Branch scoping is identical to GET / : an export
+// must never be a way to read a branch the caller cannot see on screen.
+router.get('/export', async (req: AuthRequest, res, next) => {
+  try {
+    const exportType = String(req.query['type'] || 'excel');
+    const { fromStr, toStr } = exportRange(req.query['from'], req.query['to']);
+
+    let query = supabaseAdmin
+      .from('expenses')
+      .select('*')
+      .gte('business_date', fromStr)
+      .lte('business_date', toStr)
+      .order('business_date', { ascending: true })
+      .order('created_at', { ascending: true })
+      // One over the cap, so a full page is distinguishable from an overflowing
+      // one. Truncating an export silently is worse than refusing it — the
+      // totals would look authoritative and be wrong.
+      .limit(EXPORT_ROW_CAP + 1);
+
+    const branchScoped = isBranchRole(req.user!.role) && !!req.user!.branchId;
+    if (branchScoped) {
+      query = query.eq('branch_id', req.user!.branchId);
+    } else if (req.query['branchId']) {
+      query = query.eq('branch_id', req.query['branchId']);
+    }
+
+    const { data, error } = await query;
+    if (error) throw error;
+
+    if ((data?.length ?? 0) > EXPORT_ROW_CAP) {
+      res.status(400).json({ error: `That range holds more than ${EXPORT_ROW_CAP.toLocaleString()} expenses. Export it in smaller windows.` });
+      return;
+    }
+
+    // Layout (including the trailing total row) lives in the service, so it can
+    // be exercised without a request. Branch is dead weight for a branch account
+    // — every row is their own shop — and the whole point for an admin.
+    const { headers, rows } = buildExpenseSheet(data ?? [], branchScoped);
+
+    const scope = fromStr === toStr ? fromStr : `${fromStr}_to_${toStr}`;
+    const filename = `mountain-bakes-expenses-${scope}`;
+    const title = 'Shop Expenses';
+
+    if (exportType === 'csv') {
+      res.setHeader('Content-Type', 'text/csv');
+      res.setHeader('Content-Disposition', `attachment; filename="${filename}.csv"`);
+      res.send(genericCSV(headers, rows));
+    } else {
+      const buffer = await genericExcel(title, headers, rows);
+      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+      res.setHeader('Content-Disposition', `attachment; filename="${filename}.xlsx"`);
+      res.send(buffer);
+    }
   } catch (err) {
     next(err);
   }
