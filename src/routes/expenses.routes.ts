@@ -138,6 +138,17 @@ router.post('/', requireRole('super_admin', ...BRANCH_ROLES), idempotent('expens
     if (!branchId) { res.status(400).json({ error: 'No branch assigned to this account' }); return; }
 
     const { category, description, paymentMethod, amount, remarks, date } = req.body;
+    // A shop expense is entered on the day it is paid. A branch account may not
+    // back-date one (product owner, 2026-09-08): the form shows today's date
+    // read-only, and this is the check behind it — a client that sends another
+    // day is refused in words rather than silently re-dated. Super Admin keeps
+    // the bounded back-date window for corrections, as everywhere else.
+    if (isBranchRole(req.user!.role) && date && date !== businessDateStr()) {
+      res.status(400).json({
+        error: 'A shop expense can only be entered for today. Back-dated expenses are not allowed.',
+      });
+      return;
+    }
     // `date` is the day the expense was incurred as captured by the client —
     // bounded and closure-checked here rather than trusted.
     const businessDate = await resolveClientBusinessDate(date, req.user!.role);
