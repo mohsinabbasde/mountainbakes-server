@@ -10,14 +10,14 @@ export const EXPENSE_PAYMENT_METHODS = ['cash', 'easypaisa'] as const;
  * here still changes how an old breakdown reads.
  *
  * Revised 2026-09-08 at the product owner's request: Ingredients, Packaging,
- * Rent, Salaries and Maintenance retired (they are not day-to-day shop spend);
- * the small daily heads a shop actually pays for added. Old rows keep their
+ * and Maintenance retired; Equipment renamed Material; the daily heads a shop
+ * actually pays for added, with Rent and Salary back as their own lines. Old rows keep their
  * retired value — the column is free text, and reports print what was stored.
  */
 export const EXPENSE_CATEGORIES = [
-  'Lunch Expense', 'Tea Expense', 'Guest Expense', 'Electricity', 'Utilities',
-  'Advance Salary', 'Advance Cash', 'Loan', 'Home Expense',
-  'Transport', 'Equipment', 'Other',
+  'Shop Expense', 'Lunch Expense', 'Tea Expense', 'Guest Expense', 'Electricity', 'Utilities',
+  'Rent', 'Salary', 'Advance Salary', 'Advance Cash', 'Loan', 'Home Expense',
+  'Material', 'Transport', 'Other',
 ] as const;
 
 export type ExpenseCategory = (typeof EXPENSE_CATEGORIES)[number];
