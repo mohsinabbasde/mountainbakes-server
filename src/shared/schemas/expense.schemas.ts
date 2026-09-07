@@ -3,14 +3,21 @@ import { z } from 'zod';
 export const EXPENSE_PAYMENT_METHODS = ['cash', 'easypaisa'] as const;
 
 /**
- * The category vocabulary for shop `expenses`. It covered both expense tables
- * until `production_expenses` was dropped (migration 59); historical rows in the
- * closing archives were categorised from this same list, so retiring a value here
- * still changes how an old breakdown reads.
+ * The category vocabulary for shop `expenses` — what the branch's New Shop
+ * Expense form offers. It covered both expense tables until
+ * `production_expenses` was dropped (migration 59); historical rows in the
+ * closing archives were categorised from this same list, so retiring a value
+ * here still changes how an old breakdown reads.
+ *
+ * Revised 2026-09-08 at the product owner's request: Ingredients, Packaging,
+ * Rent, Salaries and Maintenance retired (they are not day-to-day shop spend);
+ * the small daily heads a shop actually pays for added. Old rows keep their
+ * retired value — the column is free text, and reports print what was stored.
  */
 export const EXPENSE_CATEGORIES = [
-  'Ingredients', 'Packaging', 'Utilities', 'Rent', 'Salaries',
-  'Maintenance', 'Transport', 'Equipment', 'Other',
+  'Lunch Expense', 'Tea Expense', 'Guest Expense', 'Electricity', 'Utilities',
+  'Advance Salary', 'Advance Cash', 'Loan', 'Home Expense',
+  'Transport', 'Equipment', 'Other',
 ] as const;
 
 export type ExpenseCategory = (typeof EXPENSE_CATEGORIES)[number];
