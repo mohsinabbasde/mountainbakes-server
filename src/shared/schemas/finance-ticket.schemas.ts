@@ -60,23 +60,108 @@ export const OptionalFinanceReferenceNoSchema = z
   .pipe(FinanceReferenceNoSchema.optional())
   .optional();
 
-/** Help Desk → a Finance user raises a query. Goes straight to Admin. */
-export const CreateFinanceTicketSchema = z.object({
-  queryType: z.enum(FINANCE_QUERY_TYPES),
-  priority: z.enum(FINANCE_QUERY_PRIORITIES).default('normal'),
-  referenceNo: OptionalFinanceReferenceNoSchema,
+/**
+ * A money figure from a form field. Blank means "no amount", not zero — a query
+ * about a missing voucher has no amount, and storing 0 for it would make the
+ * Amount column claim the voucher was for nothing.
+ */
+const OptionalAmountSchema = z
+  .union([z.number(), z.string().trim()])
+  .transform((v) => (v === '' || v === null ? null : Number(v)))
+  .pipe(
+    z
+      .number()
+      .min(0, 'Amount cannot be negative')
+      .max(9_999_999_999.99, 'Amount is too large')
+      .nullable(),
+  )
+  .optional();
+
+/** A short free-text handle: Transaction ID, Expense ID, Income ID, Voucher. */
+const OptionalHandleSchema = z
+  .string()
+  .trim()
+  .max(60)
+  .transform((v) => (v === '' ? null : v))
+  .nullable()
+  .optional();
+
+/** `YYYY-MM-DD`, blank-tolerant. */
+const OptionalBusinessDateSchema = z
+  .string()
+  .trim()
+  .transform((v) => (v === '' ? null : v))
+  .pipe(z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Business date must be YYYY-MM-DD').nullable())
+  .nullable()
+  .optional();
+
+const OptionalUuidSchema = z
+  .string()
+  .trim()
+  .transform((v) => (v === '' ? null : v))
+  .pipe(z.string().uuid('Choose a branch from the list').nullable())
+  .nullable()
+  .optional();
+
+/**
+ * The FEED fields — everything the one centralised query form (§4) can set,
+ * shared by create, edit, amend and recreate so the four never drift on what a
+ * query may say. Each is optional here; create makes subject and description
+ * required on top.
+ *
+ * `amount` is a statement ON THE QUERY (§17). It is never written to the finance
+ * record; the route that changes a record is POST /:id/amend and takes a
+ * different payload with its own reason.
+ */
+export const FinanceTicketFeedSchema = z.object({
+  subject: z.string().trim().min(3, 'Give the query a short subject').max(200).optional(),
+  queryType: z.enum(FINANCE_QUERY_TYPES).optional(),
+  priority: z.enum(FINANCE_QUERY_PRIORITIES).optional(),
+  description: z.string().trim().min(3, 'Please describe the issue').max(4000).optional(),
+  amount: OptionalAmountSchema,
+  branchId: OptionalUuidSchema,
+  businessDate: OptionalBusinessDateSchema,
+  remarks: z.string().trim().max(2000).transform((v) => (v === '' ? null : v)).nullable().optional(),
+  /** `null` CLEARS the reference; `undefined` leaves it; a string must resolve. */
+  referenceNo: z.union([z.null(), OptionalFinanceReferenceNoSchema]),
   /**
    * The brief's separate "Ledger/Voucher ID". Free text, never resolved: it is
    * the handle the raiser wants the admin to look at when it differs from the
    * reference, and constraining its shape would reject the perfectly useful
    * "the FV- voucher behind SAL-000012".
    */
-  voucherRef: z.string().trim().max(60).optional(),
+  voucherRef: OptionalHandleSchema,
+  transactionRef: OptionalHandleSchema,
+  expenseRef: OptionalHandleSchema,
+  incomeRef: OptionalHandleSchema,
+});
+export type FinanceTicketFeedInput = z.infer<typeof FinanceTicketFeedSchema>;
+
+/** The feed keys, for routes that diff "what did this PATCH touch". */
+export const FINANCE_TICKET_FEED_KEYS = Object.keys(FinanceTicketFeedSchema.shape) as (keyof FinanceTicketFeedInput)[];
+
+/**
+ * Help Desk → a Finance user raises a query. Goes straight to Admin — or, with
+ * `draft: true`, stays with the raiser until they submit it (§2 Save Draft).
+ */
+export const CreateFinanceTicketSchema = FinanceTicketFeedSchema.extend({
+  queryType: z.enum(FINANCE_QUERY_TYPES),
+  priority: z.enum(FINANCE_QUERY_PRIORITIES).default('normal'),
   subject: z.string().trim().min(3, 'Give the query a short subject').max(200),
   description: z.string().trim().min(3, 'Please describe the issue').max(4000),
   attachmentIds: optionalAttachmentIds,
+  draft: z.boolean().optional().default(false),
 });
 export type CreateFinanceTicketInput = z.infer<typeof CreateFinanceTicketSchema>;
+
+/**
+ * Help Desk → the RAISER edits their own draft. Same feed fields; no reason
+ * needed, because nothing has been sent yet and nobody else has read it.
+ */
+export const EditFinanceDraftSchema = FinanceTicketFeedSchema.extend({
+  attachmentIds: optionalAttachmentIds,
+});
+export type EditFinanceDraftInput = z.infer<typeof EditFinanceDraftSchema>;
 
 /**
  * Help Desk → Admin edits the query text or the internal note.
@@ -85,13 +170,10 @@ export type CreateFinanceTicketInput = z.infer<typeof CreateFinanceTicketSchema>
  * sets nothing is a caller bug, and answering it 200 OK hides the bug rather
  * than surfacing it.
  */
-export const EditFinanceTicketSchema = z
-  .object({
-    subject: z.string().trim().min(3).max(200).optional(),
+export const EditFinanceTicketSchema = FinanceTicketFeedSchema
+  .extend({
+    /** Alias kept for the pre-106 payload; `description` is the feed's name. */
     message: z.string().trim().min(3).max(4000).optional(),
-    /** The brief's "change category" (§6). Admin-only, like every field here. */
-    queryType: z.enum(FINANCE_QUERY_TYPES).optional(),
-    priority: z.enum(FINANCE_QUERY_PRIORITIES).optional(),
     resolutionNote: z.string().trim().max(4000).optional(),
     /**
      * §6's "internal notes" — the admin's working notes on the query, never
@@ -108,19 +190,61 @@ export const EditFinanceTicketSchema = z
     reason: z.string().trim().max(500).optional(),
   })
   .refine(
-    (v) =>
-      v.subject !== undefined ||
-      v.message !== undefined ||
-      v.queryType !== undefined ||
-      v.priority !== undefined ||
-      v.resolutionNote !== undefined ||
-      v.internalNote !== undefined,
-    {
-      message:
-        'Nothing to update — send subject, message, queryType, priority, resolutionNote or internalNote.',
-    },
+    (v) => Object.entries(v).some(([k, val]) => k !== 'reason' && val !== undefined),
+    { message: 'Nothing to update — send at least one field.' },
   );
 export type EditFinanceTicketInput = z.infer<typeof EditFinanceTicketSchema>;
+
+/**
+ * Help Desk → ADMIN amends the query (§6). The same feed as an edit, but the
+ * reason is required by the schema, the query is marked AMENDED, and a version
+ * is written whether or not anything the raiser sees changed — an amendment is
+ * an act on the record, and the record says so.
+ */
+export const AmendFinanceTicketSchema = FinanceTicketFeedSchema.extend({
+  message: z.string().trim().min(3).max(4000).optional(),
+  internalNote: z.string().trim().max(4000).optional(),
+  reason: z.string().trim().min(3, 'State why this query is being amended').max(1000),
+});
+export type AmendFinanceTicketInput = z.infer<typeof AmendFinanceTicketSchema>;
+
+/**
+ * Help Desk → ADMIN writes or updates the response block (§11) without moving
+ * the status. Resolving still goes through PATCH /:id/status, which needs the
+ * resolution type; this is for answering while the query stays live.
+ */
+export const FinanceTicketResponseSchema = z
+  .object({
+    adminResponse: z.string().trim().max(4000).optional(),
+    resolutionNote: z.string().trim().max(4000).optional(),
+    resolutionAmount: OptionalAmountSchema,
+    remarks: z.string().trim().max(2000).optional(),
+    internalNote: z.string().trim().max(4000).optional(),
+  })
+  .refine((v) => Object.values(v).some((val) => val !== undefined), {
+    message: 'Nothing to save — write a response, a resolution, an amount or a note.',
+  });
+export type FinanceTicketResponseInput = z.infer<typeof FinanceTicketResponseSchema>;
+
+/** Help Desk → ADMIN restores a soft-deleted query (§8). */
+export const RestoreFinanceTicketSchema = z.object({
+  reason: z.string().trim().min(3, 'Say why this query is being restored').max(1000),
+});
+export type RestoreFinanceTicketInput = z.infer<typeof RestoreFinanceTicketSchema>;
+
+/**
+ * Help Desk → ADMIN recreates a query under a NEW Query ID (§9). The feed
+ * fields are overrides applied on top of the copy; omit them all to copy the
+ * query as it stands. The old ID is never reused — the database issues the new
+ * one, and both rows point at each other.
+ */
+export const RecreateFinanceTicketSchema = FinanceTicketFeedSchema.extend({
+  message: z.string().trim().min(3).max(4000).optional(),
+  reason: z.string().trim().min(3, 'Say why this query is being recreated').max(1000),
+  /** Copy the original's attachments onto the new query. Default on. */
+  copyAttachments: z.boolean().optional().default(true),
+});
+export type RecreateFinanceTicketInput = z.infer<typeof RecreateFinanceTicketSchema>;
 
 /**
  * Help Desk → Admin moves the query along.
@@ -134,11 +258,13 @@ export type EditFinanceTicketInput = z.infer<typeof EditFinanceTicketSchema>;
  * status: the check needs the CURRENT status, which the schema cannot see.
  */
 export const FinanceTicketStatusSchema = z.object({
-  status: z.enum(FINANCE_TICKET_STATUSES).exclude(['reopened']),
+  status: z.enum(FINANCE_TICKET_STATUSES).exclude(['draft', 'amended', 'reopened']),
   adminResponse: z.string().trim().max(4000).optional(),
   resolutionNote: z.string().trim().max(4000).optional(),
   /** §11's Resolution Type. Required by the route when resolving; see there. */
   resolutionType: z.enum(FINANCE_RESOLUTION_TYPES).optional(),
+  /** §11's Resolution Amount, stated on the query when resolving. */
+  resolutionAmount: OptionalAmountSchema,
 });
 export type FinanceTicketStatusInput = z.infer<typeof FinanceTicketStatusSchema>;
 
@@ -243,7 +369,7 @@ export type AssignFinanceTicketInput = z.infer<typeof AssignFinanceTicketSchema>
  * value here is caught by the `satisfies` on each line.
  */
 const STATUS_FILTERS = [
-  'open', 'under_review', 'waiting_for_finance', 'reopened',
+  'draft', 'open', 'under_review', 'waiting_for_finance', 'amended', 'reopened',
   'resolved', 'rejected', 'closed', 'all',
 ] as const satisfies readonly (FinanceTicketStatus | 'all')[];
 
@@ -271,5 +397,15 @@ export const FinanceTicketQuerySchema = z.object({
   mine: z.coerce.boolean().optional(),
   /** Admin-only: show soft-deleted queries too. Ignored for everyone else. */
   includeDeleted: z.coerce.boolean().optional(),
+  /** Admin-only: ONLY soft-deleted queries — the Deleted Queries screen (§8). */
+  deletedOnly: z.coerce.boolean().optional(),
+  branchId: z.string().uuid().optional(),
+  /** Exact Query ID. `search` matches partially; this is for a scanned/pasted one. */
+  queryNo: z.string().trim().max(40).optional(),
+  amountMin: z.coerce.number().min(0).optional(),
+  amountMax: z.coerce.number().min(0).optional(),
+  /** Server-side pagination (§19). One-based; capped so a page is never the table. */
+  page: z.coerce.number().int().min(1).optional().default(1),
+  pageSize: z.coerce.number().int().min(1).max(100).optional().default(25),
 });
 export type FinanceTicketQueryInput = z.infer<typeof FinanceTicketQuerySchema>;

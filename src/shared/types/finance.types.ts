@@ -855,7 +855,11 @@ export type FinanceAuditAction =
   // exists to keep answerable.
   | 'reopened'
   | 'reopen_requested'
-  | 'deleted';
+  | 'deleted'
+  // Migration 106 — the query as a fed record.
+  | 'amended'
+  | 'restored'
+  | 'recreated';
 
 export type FinanceAuditEntity =
   | 'ledger_entry'
@@ -1064,33 +1068,74 @@ export const FINANCE_TICKET_PREFIX_MAP: Record<string, FinanceTicketReferenceTyp
  * same whichever side was holding things up.
  */
 export type FinanceTicketStatus =
+  | 'draft'
   | 'open'
   | 'under_review'
   | 'waiting_for_finance'
+  | 'amended'
   | 'reopened'
   | 'resolved'
   | 'rejected'
   | 'closed';
 
 export const FINANCE_TICKET_STATUSES = [
+  'draft',
   'open',
   'under_review',
   'waiting_for_finance',
+  'amended',
   'reopened',
   'resolved',
   'rejected',
   'closed',
 ] as const satisfies readonly FinanceTicketStatus[];
 
+/**
+ * Display labels. `open` reads as PENDING and `under_review` as IN REVIEW —
+ * the brief's words (migration 106) — while the stored values keep the spelling
+ * every audit row and notification written before it already uses.
+ */
 export const FINANCE_TICKET_STATUS_LABELS: Record<FinanceTicketStatus, string> = {
-  open: 'Open',
-  under_review: 'Under Review',
+  draft: 'Draft',
+  open: 'Pending',
+  under_review: 'In Review',
   waiting_for_finance: 'Waiting for Finance',
+  amended: 'Amended',
   reopened: 'Reopened',
   resolved: 'Resolved',
   rejected: 'Rejected',
   closed: 'Closed',
 };
+
+/**
+ * The legal status moves for PATCH /:id/status — one table, shared by the
+ * route that enforces it and the buttons that offer it.
+ *
+ * Three moves are deliberately absent: INTO `draft` (a query is drafted at
+ * creation and never returns), OUT of `draft` (POST /:id/submit, which stamps
+ * `submittedAt` and notifies the Admin), INTO `amended` (POST /:id/amend-query,
+ * which writes the version) and INTO `reopened` (POST /:id/reopen, which
+ * archives the resolution). Each of those has to do something a bare status
+ * change does not, and listing them here would be a second door that skips it.
+ */
+export const FINANCE_TICKET_TRANSITIONS: Record<FinanceTicketStatus, readonly FinanceTicketStatus[]> = {
+  draft: [],
+  open: ['under_review', 'resolved', 'rejected'],
+  under_review: ['waiting_for_finance', 'resolved', 'rejected'],
+  waiting_for_finance: ['under_review', 'resolved', 'rejected'],
+  amended: ['under_review', 'waiting_for_finance', 'resolved', 'rejected'],
+  reopened: ['under_review', 'waiting_for_finance', 'resolved', 'rejected'],
+  resolved: ['closed'],
+  rejected: ['closed'],
+  closed: [],
+};
+
+/** The statuses a query may be REOPENED from — the terminal three. */
+export const FINANCE_TICKET_REOPENABLE_STATUSES = [
+  'resolved',
+  'rejected',
+  'closed',
+] as const satisfies readonly FinanceTicketStatus[];
 
 /**
  * The statuses that END a query.
@@ -1124,11 +1169,13 @@ export const FINANCE_TICKET_LIVE_STATUSES = [
   'open',
   'under_review',
   'waiting_for_finance',
+  'amended',
   'reopened',
 ] as const satisfies readonly FinanceTicketStatus[];
 
+/** Live = on the Admin's desk. A draft is neither live nor terminal: it is not sent yet. */
 export function isFinanceTicketLive(status: FinanceTicketStatus): boolean {
-  return !isFinanceTicketTerminal(status);
+  return status !== 'draft' && !isFinanceTicketTerminal(status);
 }
 
 /**
@@ -1282,15 +1329,15 @@ export interface FinanceTicketResolution {
 export interface FinanceTicket {
   id: string;
   /**
-   * The brief's Query ID — `FIN-HD-20260901-00001`, date-scoped and restarting
-   * at 00001 each morning (migration 95).
+   * The brief's Query ID — `FIN-QRY-2026-000124`, a per-year series that never
+   * restarts within the year and is never reissued, deleted or not (migration
+   * 106).
    *
    * Issued by the DATABASE (`app.next_finance_query_no()`, the column's
-   * default), never by the client. Queries raised before migration 95 keep the
-   * number they were given — `FQ-000001` (migration 60) or
-   * `FIN-Q-20260901-0001` (migration 94) — instead of being renumbered: the old
-   * number is quoted in resolution notes and audit rows that already exist, and
-   * renumbering would orphan every one of them.
+   * default), never by the client. Queries raised earlier keep the number they
+   * were given — `FQ-000001` (migration 60) or `FIN-Q-20260901-0001` (94) —
+   * instead of being renumbered: the old number is quoted in resolution notes
+   * and audit rows that already exist, and renumbering would orphan every one.
    */
   queryNo: string;
   /** The pre-migration-94 number. Kept for those existing rows; never displayed. */
@@ -1316,6 +1363,47 @@ export interface FinanceTicket {
   message: string;
   status: FinanceTicketStatus;
 
+  /**
+   * The figure the query is ABOUT, as stated on the query (migration 106).
+   * Correcting it corrects the QUERY. It never writes to the record behind the
+   * query — that path is `amend_finance_record`, with its own reason and row.
+   */
+  amount: number | null;
+  branchId: string | null;
+  branchName: string | null;
+  /** The business day the query concerns, `YYYY-MM-DD`. */
+  businessDate: string | null;
+  remarks: string | null;
+  /** The brief's Transaction / Expense / Income IDs — free-text handles, never resolved. */
+  transactionRef: string | null;
+  expenseRef: string | null;
+  incomeRef: string | null;
+
+  /**
+   * Which version of the query this row is. 1 on creation; every change that
+   * writes a {@link FinanceTicketVersion} bumps it.
+   */
+  version: number;
+  /** Null while a draft. Every pre-106 query was submitted when created. */
+  submittedAt: string | null;
+
+  /** §6 amend stamps. */
+  amendCount: number;
+  amendedAt: string | null;
+  amendedByName: string | null;
+
+  /** §9 — set on the NEW query, pointing at the one it replaced. */
+  recreatedFromId: string | null;
+  recreatedFromQueryNo: string | null;
+  /** §9 — set on the OLD query, pointing at its replacement. */
+  recreatedAsId: string | null;
+  recreatedAsQueryNo: string | null;
+
+  /** §8 restore stamps — set when a deleted query is brought back. */
+  restoredAt: string | null;
+  restoredByName: string | null;
+  restoreReason: string | null;
+
   /** The admin's written answer, distinct from the closing `resolutionNote`. */
   adminResponse: string | null;
   respondedBy: string | null;
@@ -1324,6 +1412,11 @@ export interface FinanceTicket {
   resolutionNote: string | null;
   /** §11's Resolution Type. Null until the query reaches a terminal status. */
   resolutionType: FinanceResolutionType | null;
+  /**
+   * §11's Resolution Amount — what the Admin says the correct figure is. A
+   * statement on the query for the raiser to read; never a write to the books.
+   */
+  resolutionAmount: number | null;
   /**
    * §6's internal note — the admin's working notes. Returned to an Admin only;
    * `rowToApi` drops it for a Finance caller rather than relying on the UI not
@@ -1432,6 +1525,147 @@ export interface FinanceTicketAuditEntry {
   /** §8's stated reason, when the action required one. */
   reason: string | null;
 }
+
+/** What produced a version of a query (migration 106). */
+export type FinanceTicketVersionAction =
+  | 'created'
+  | 'submitted'
+  | 'edited'
+  | 'amended'
+  | 'status_changed'
+  | 'assigned'
+  | 'responded'
+  | 'resolved'
+  | 'reopened'
+  | 'deleted'
+  | 'restored'
+  | 'recreated';
+
+export const FINANCE_TICKET_VERSION_ACTION_LABELS: Record<FinanceTicketVersionAction, string> = {
+  created: 'Created',
+  submitted: 'Submitted',
+  edited: 'Edited',
+  amended: 'Amended',
+  status_changed: 'Status changed',
+  assigned: 'Assigned',
+  responded: 'Admin responded',
+  resolved: 'Resolved',
+  reopened: 'Reopened',
+  deleted: 'Deleted',
+  restored: 'Restored',
+  recreated: 'Recreated',
+};
+
+/** One field that moved between two versions of a query. */
+export interface FinanceTicketVersionChange {
+  /** The API (camelCase) field name — `amount`, `remarks`, `status`. */
+  field: string;
+  /** Human label, for the history screen. */
+  label: string;
+  old: string | null;
+  new: string | null;
+}
+
+/**
+ * One version of a query — the brief's §7 View History.
+ *
+ *     Version 2 · Amended by Admin · 07-Sep-2026 07:35 PM
+ *       Amount     15,000 → 16,500
+ *       Remarks    Payment pending → Payment verified
+ *       Reason: Corrected transaction amount
+ *
+ * `changes` is the diff that produced this version; `snapshot` is the whole
+ * query as it stood AFTER it, so any version can be read on its own. Returned
+ * by GET /api/finance/tickets/:id/history — lazily, not with the query, because
+ * a history is read when someone asks for it and the detail screen is not.
+ */
+export interface FinanceTicketVersion {
+  id: string;
+  ticketId: string;
+  queryNo: string;
+  version: number;
+  action: FinanceTicketVersionAction;
+  changedBy: string | null;
+  changedByName: string;
+  changedByRole: string | null;
+  changedAt: string;
+  reason: string | null;
+  changes: FinanceTicketVersionChange[];
+  /** Redacted for a Finance caller: the internal note is removed. */
+  snapshot: Record<string, unknown>;
+}
+
+/** GET /api/finance/tickets — one page of the queue. */
+export interface FinanceTicketPage {
+  tickets: FinanceTicket[];
+  total: number;
+  page: number;
+  pageSize: number;
+}
+
+/** GET /api/finance/tickets/stats — the dashboard cards, counted in SQL. */
+export interface FinanceTicketStats {
+  total: number;
+  draft: number;
+  open: number;
+  underReview: number;
+  waiting: number;
+  amended: number;
+  reopened: number;
+  resolved: number;
+  rejected: number;
+  closed: number;
+  highPriority: number;
+  urgent: number;
+  unassigned: number;
+  recent: number;
+  deleted: number;
+}
+
+/**
+ * The fields an Admin may FEED on a query — the one centralised edit form
+ * (§4). Everything the raiser typed, plus the branch, the date and the amount.
+ * Each is a column on finance_tickets; the labels are what the history prints.
+ */
+export const FINANCE_TICKET_FEED_FIELD_LABELS = {
+  subject: 'Subject',
+  queryType: 'Query type',
+  priority: 'Priority',
+  message: 'Description',
+  amount: 'Amount',
+  branchName: 'Branch',
+  businessDate: 'Business date',
+  remarks: 'Remarks',
+  referenceNo: 'Reference ID',
+  voucherRef: 'Ledger / Voucher ID',
+  transactionRef: 'Transaction ID',
+  expenseRef: 'Expense ID',
+  incomeRef: 'Income ID',
+} as const;
+
+export type FinanceTicketFeedField = keyof typeof FINANCE_TICKET_FEED_FIELD_LABELS;
+
+/**
+ * Which reference handles a query type calls for (§2 — "only show
+ * finance-related reference fields when required"). A type not listed shows
+ * none beyond the resolvable Reference ID, which every type may carry.
+ */
+export const FINANCE_QUERY_TYPE_REFERENCE_FIELDS: Partial<
+  Record<FinanceQueryType, readonly ('transactionRef' | 'expenseRef' | 'incomeRef' | 'voucherRef')[]>
+> = {
+  income: ['incomeRef', 'voucherRef'],
+  expense: ['expenseRef', 'voucherRef'],
+  company_transaction: ['transactionRef', 'voucherRef'],
+  partner_advance: ['transactionRef', 'voucherRef'],
+  company_share: ['transactionRef'],
+  branch_share: ['transactionRef', 'incomeRef'],
+  salary: ['transactionRef', 'voucherRef'],
+  ledger: ['voucherRef'],
+  payment: ['transactionRef', 'voucherRef'],
+  stock_finance_difference: ['transactionRef'],
+  calculation_issue: [],
+  other: ['transactionRef', 'expenseRef', 'incomeRef', 'voucherRef'],
+};
 
 /**
  * One turn of the conversation on a query.

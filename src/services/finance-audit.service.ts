@@ -181,6 +181,19 @@ const AUDIT_FIELD_LABELS: Record<string, string> = {
   resolvedAt: 'Resolved at',
   reopenCount: 'Times reopened',
   deleteReason: 'Deletion reason',
+  // Migration 106 — the query as a fed record.
+  amount: 'Amount',
+  branchName: 'Branch',
+  businessDate: 'Business date',
+  remarks: 'Remarks',
+  transactionRef: 'Transaction ID',
+  expenseRef: 'Expense ID',
+  incomeRef: 'Income ID',
+  voucherRef: 'Ledger / Voucher ID',
+  resolutionAmount: 'Resolution amount',
+  restoreReason: 'Restore reason',
+  recreatedFromQueryNo: 'Recreated from',
+  recreatedAsQueryNo: 'Recreated as',
 };
 
 /**
@@ -193,7 +206,12 @@ const AUDIT_FIELD_LABELS: Record<string, string> = {
  * otherwise print as a bare `true` and a bare uuid respectively; the assignment
  * keeps `assignedToName`, which is the half a reader can use.
  */
-const AUDIT_META_KEYS = new Set(['reason', 'queryNo', 'ticketId', 'softDeleted', 'assignedTo']);
+const AUDIT_META_KEYS = new Set([
+  'reason', 'queryNo', 'ticketId', 'softDeleted', 'assignedTo',
+  // The version number is the entry's own address in View History, not a field
+  // that moved; `branchId` is the id behind `branchName`, which is kept.
+  'version', 'branchId', 'referenceType', 'referenceId', 'referenceSnapshot',
+]);
 
 /**
  * A key the label map has never heard of — a field added to a route's audit
@@ -260,6 +278,16 @@ function auditSummary(action: string, next: Record<string, unknown>): string {
       return 'Reopen Requested by Finance';
     case 'deleted':
       return 'Query Deleted';
+    case 'submitted':
+      return 'Query Submitted';
+    case 'amended':
+      return 'Query Amended by Admin';
+    case 'restored':
+      return 'Query Restored';
+    case 'recreated':
+      return next['recreatedAsQueryNo']
+        ? `Query Recreated as ${String(next['recreatedAsQueryNo'])}`
+        : `Query Recreated from ${String(next['recreatedFromQueryNo'] ?? '')}`.trim();
     default:
       break;
   }
@@ -269,6 +297,8 @@ function auditSummary(action: string, next: Record<string, unknown>): string {
     switch (status) {
       case 'under_review':
         return 'Admin Opened Query';
+      case 'amended':
+        return 'Query Amended by Admin';
       case 'waiting_for_finance':
         return 'Information Requested from Finance';
       case 'closed':
@@ -282,7 +312,8 @@ function auditSummary(action: string, next: Record<string, unknown>): string {
     return next['assignedTo'] ? 'Assigned to an Admin' : 'Unassigned';
   }
   if ('adminResponse' in next) return 'Admin Response Added';
-  return 'Query Amended';
+  if ('resolutionAmount' in next || 'resolutionNote' in next) return 'Resolution Updated';
+  return 'Query Edited';
 }
 
 /** `edit` → "Amount Edited", `delete` → "Record Deleted". */

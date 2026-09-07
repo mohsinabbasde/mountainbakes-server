@@ -160,9 +160,10 @@ router.get('/history', async (req: AuthRequest, res, next) => {
 // GET /api/stock?date=YYYY-MM-DD&activityOnly=1 — Opening/New/Sold/Balance per product for a branch (today by default)
 //
 // `activityOnly` drops every row whose Opening, Received, Sold, Returned and
-// Balance are all zero. The Branch Closing sheet asks for it; the Stock page does
-// not. Filtered here rather than in the browser so a large catalogue never
-// travels to the client only to be hidden.
+// Balance are all zero. The Branch Closing sheet asks for it, so a large
+// catalogue never travels to the client only to be hidden. The Stock page does
+// not ask: it applies the same rule in the browser, because its response is a
+// cache entry shared with the balance map that validates returns.
 router.get('/', async (req: AuthRequest, res, next) => {
   try {
     // A branch role is pinned to the branch on its JWT — a branchId in the query
