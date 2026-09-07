@@ -9,29 +9,47 @@ import {
 import { validate } from '../middleware/validate';
 import {
   AmendFinanceRecordSchema,
+  AmendFinanceTicketSchema,
   AssignFinanceTicketSchema,
   CreateFinanceTicketSchema,
   DeleteFinanceRecordSchema,
+  EditFinanceDraftSchema,
   EditFinanceTicketSchema,
   FINANCE_AMENDABLE_FIELDS,
+  FINANCE_QUERY_PRIORITY_LABELS,
+  FINANCE_QUERY_TYPE_LABELS,
+  FINANCE_TICKET_FEED_FIELD_LABELS,
   FINANCE_TICKET_PREFIX_MAP,
   FINANCE_TICKET_PREFIXES,
   FINANCE_TICKET_REFERENCES,
+  FINANCE_TICKET_REOPENABLE_STATUSES,
   FINANCE_TICKET_STATUS_LABELS,
+  FINANCE_TICKET_TRANSITIONS,
+  FINANCE_RESOLUTION_TYPE_LABELS,
   businessDateStr,
   FinanceTicketMessageSchema,
+  FinanceTicketQuerySchema,
+  FinanceTicketResponseSchema,
   FinanceTicketStatusSchema,
+  RecreateFinanceTicketSchema,
   ReopenFinanceTicketSchema,
+  RestoreFinanceTicketSchema,
   financeHelpDeskCan,
   isFinanceRecordAmendable,
   isFinanceTicketTerminal,
   type FinanceAmendmentAction,
   type FinanceAuditEntity,
+  type FinanceQueryPriority,
+  type FinanceQueryType,
   type FinanceResolutionType,
+  type CreateFinanceTicketInput,
+  type FinanceTicketFeedInput,
   type FinanceTicketReferenceLookup,
   type FinanceTicketReferenceType,
   type FinanceTicketResolution,
   type FinanceTicketStatus,
+  type FinanceTicketVersionAction,
+  type FinanceTicketVersionChange,
 } from '../shared';
 import { notify } from '../services/push.service';
 import {
@@ -98,40 +116,13 @@ class LookupError extends Error {
 }
 
 /**
- * The legal status moves.
- *
- * A table rather than five verb-routes (/review, /await-info, /resolve, …): the
- * legality of a move is a property of the PAIR, and five routes would be five
- * places to re-derive the same fact and four chances to disagree.
- *
- * Note what is absent from every terminal status, and from `reopened` as a
- * TARGET: there is no way into or out of a terminal state through this table.
- * Reopening (§12) is a real transition but not one of these — it has to archive
- * the resolution it is undoing before clearing it, so it lives on its own route
- * (POST /:id/reopen) and writes `reopened` itself. Listing it here as well would
- * be a second door into the same room, and only one of them keeps the history.
+ * The legal status moves live in FINANCE_TICKET_TRANSITIONS on the shared
+ * types — one table, read by this route to refuse a move and by the detail
+ * screen to offer one. Reopen (§12), submit (§2) and amend (§6) are not in it
+ * on purpose: each has to do something a bare status change does not, and each
+ * has its own route below.
  */
-const FINANCE_TICKET_TRANSITIONS: Record<FinanceTicketStatus, FinanceTicketStatus[]> = {
-  open: ['under_review', 'rejected', 'resolved'],
-  under_review: ['waiting_for_finance', 'resolved', 'rejected'],
-  waiting_for_finance: ['under_review', 'resolved', 'rejected'],
-  // A reopened query rejoins the workflow exactly where a fresh one under
-  // investigation sits — §12's REOPENED → UNDER_REVIEW — and can be answered
-  // again from there without passing back through `open`.
-  reopened: ['under_review', 'waiting_for_finance', 'resolved', 'rejected'],
-  resolved: ['closed'],
-  rejected: ['closed'],
-  closed: [],
-};
-
-/**
- * The statuses a query may be REOPENED from — the terminal three.
- *
- * Separate from the table above on purpose: this is the one move that is legal
- * *out* of a terminal status, and keeping it out of `FINANCE_TICKET_TRANSITIONS`
- * is what stops PATCH /:id/status from ever performing it. See migration 95.
- */
-const FINANCE_TICKET_REOPENABLE: readonly FinanceTicketStatus[] = ['resolved', 'rejected', 'closed'];
+const FINANCE_TICKET_REOPENABLE: readonly FinanceTicketStatus[] = FINANCE_TICKET_REOPENABLE_STATUSES;
 
 /**
  * The row as this caller may see it.
@@ -235,10 +226,315 @@ function informationalReferenceMessage(
   return `Nothing on ${ref} can be changed directly from the Help Desk.`;
 }
 
-/** May this caller read this query at all? */
+/**
+ * May this caller read this query at all?
+ *
+ * A DRAFT is the raiser's alone (§2): it has not been sent, so even an Admin
+ * has no business reading it. The queue applies the same rule in SQL.
+ */
 function canSee(req: AuthRequest, ticket: Record<string, unknown>): boolean {
-  if (seesWholeQueue(req.user!.role)) return true;
-  return ticket['raised_by'] === req.user!.uid;
+  if (ticket['raised_by'] === req.user!.uid) return true;
+  if (ticket['status'] === 'draft') return false;
+  return seesWholeQueue(req.user!.role);
+}
+
+// ---------------------------------------------------------------------------
+// The query as a fed record (migration 106) — feed fields, diffs and versions
+// ---------------------------------------------------------------------------
+
+/**
+ * API field → finance_tickets column, for everything the feed form can set.
+ *
+ * `referenceNo` and `branchId` are deliberately absent: both RESOLVE to more
+ * than one column (a reference to type/id/no/snapshot, a branch to id+name) and
+ * are handled by `applyFeed` explicitly rather than copied across.
+ */
+const FEED_COLUMNS: Record<string, string> = {
+  subject: 'subject',
+  queryType: 'query_type',
+  priority: 'priority',
+  description: 'message',
+  message: 'message',
+  amount: 'amount',
+  businessDate: 'business_date',
+  remarks: 'remarks',
+  voucherRef: 'voucher_ref',
+  transactionRef: 'transaction_ref',
+  expenseRef: 'expense_ref',
+  incomeRef: 'income_ref',
+};
+
+/** Column → the label the history prints. Built from the shared feed labels. */
+const COLUMN_LABELS: Record<string, string> = {
+  subject: FINANCE_TICKET_FEED_FIELD_LABELS.subject,
+  query_type: FINANCE_TICKET_FEED_FIELD_LABELS.queryType,
+  priority: FINANCE_TICKET_FEED_FIELD_LABELS.priority,
+  message: FINANCE_TICKET_FEED_FIELD_LABELS.message,
+  amount: FINANCE_TICKET_FEED_FIELD_LABELS.amount,
+  branch_name: FINANCE_TICKET_FEED_FIELD_LABELS.branchName,
+  business_date: FINANCE_TICKET_FEED_FIELD_LABELS.businessDate,
+  remarks: FINANCE_TICKET_FEED_FIELD_LABELS.remarks,
+  reference_no: FINANCE_TICKET_FEED_FIELD_LABELS.referenceNo,
+  voucher_ref: FINANCE_TICKET_FEED_FIELD_LABELS.voucherRef,
+  transaction_ref: FINANCE_TICKET_FEED_FIELD_LABELS.transactionRef,
+  expense_ref: FINANCE_TICKET_FEED_FIELD_LABELS.expenseRef,
+  income_ref: FINANCE_TICKET_FEED_FIELD_LABELS.incomeRef,
+  status: 'Status',
+  admin_response: 'Admin response',
+  resolution_note: 'Resolution',
+  resolution_type: 'Resolution type',
+  resolution_amount: 'Resolution amount',
+  internal_note: 'Internal note',
+  assigned_to_name: 'Assigned admin',
+  resolved_by_name: 'Resolved by',
+  delete_reason: 'Deletion reason',
+  restore_reason: 'Restore reason',
+  reopen_reason: 'Reopen reason',
+};
+
+/** Columns the history DIFFS between versions. Stamps and ids are not changes. */
+const VERSIONED_COLUMNS = Object.keys(COLUMN_LABELS);
+
+/** The wire spelling of a stored value, as the history prints it. */
+function versionValue(column: string, raw: unknown): string | null {
+  if (raw === null || raw === undefined || raw === '') return null;
+  if (typeof raw === 'object') return JSON.stringify(raw);
+  const value = String(raw);
+  if (column === 'status') return FINANCE_TICKET_STATUS_LABELS[value as FinanceTicketStatus] ?? value;
+  if (column === 'query_type') return FINANCE_QUERY_TYPE_LABELS[value as FinanceQueryType] ?? value;
+  if (column === 'priority') return FINANCE_QUERY_PRIORITY_LABELS[value as FinanceQueryPriority] ?? value;
+  if (column === 'resolution_type') {
+    return FINANCE_RESOLUTION_TYPE_LABELS[value as FinanceResolutionType] ?? value;
+  }
+  if (column === 'amount' || column === 'resolution_amount') {
+    const n = Number(value);
+    return Number.isFinite(n)
+      ? n.toLocaleString('en-PK', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+      : value;
+  }
+  return value;
+}
+
+/** snake_case column → camelCase API field, for the version's change list. */
+function apiField(column: string): string {
+  return column.replace(/_([a-z])/g, (_, c: string) => c.toUpperCase());
+}
+
+/** The field-level diff between two rows, over the versioned columns only. */
+function diffRows(
+  before: Record<string, unknown>,
+  after: Record<string, unknown>,
+): FinanceTicketVersionChange[] {
+  const changes: FinanceTicketVersionChange[] = [];
+  for (const column of VERSIONED_COLUMNS) {
+    const from = versionValue(column, before[column]);
+    const to = versionValue(column, after[column]);
+    if (from === to) continue;
+    changes.push({ field: apiField(column), label: COLUMN_LABELS[column] ?? column, old: from, new: to });
+  }
+  return changes;
+}
+
+/**
+ * Write the next version of a query (§7).
+ *
+ * Bumps `finance_tickets.version` and inserts the finance_ticket_versions row
+ * in that order, so a version number is never handed out twice: the UPDATE is
+ * guarded on the version it read, and a concurrent writer that loses the race
+ * gets a 409 from the caller rather than a duplicate-key error from the
+ * database. The snapshot is the row AFTER the change, whole.
+ *
+ * Returns the row as re-read with its new version, which is what the caller
+ * should send back — a response carrying the pre-bump version would make the
+ * next edit's guard fail for no reason the user can see.
+ */
+async function recordVersion(
+  req: AuthRequest,
+  before: Record<string, unknown>,
+  after: Record<string, unknown>,
+  action: FinanceTicketVersionAction,
+  reason: string | null,
+  extraChanges: FinanceTicketVersionChange[] = [],
+): Promise<Record<string, unknown>> {
+  const currentVersion = Number(after['version'] ?? before['version'] ?? 1);
+  const nextVersion = currentVersion + 1;
+
+  const { data: bumped, error: bumpErr } = await supabaseAdmin
+    .from('finance_tickets')
+    .update({ version: nextVersion })
+    .eq('id', after['id'] as string)
+    .eq('version', currentVersion)
+    .select('*')
+    .maybeSingle();
+  if (bumpErr) throw bumpErr;
+  if (!bumped) {
+    throw Object.assign(
+      new Error('Someone else changed this query while you were working on it. Reload and try again.'),
+      { status: 409 },
+    );
+  }
+
+  const changes = [...diffRows(before, bumped), ...extraChanges];
+
+  const { error } = await supabaseAdmin.from('finance_ticket_versions').insert({
+    ticket_id: bumped['id'],
+    query_no: bumped['query_no'],
+    version: nextVersion,
+    action,
+    changed_by: req.user!.uid,
+    changed_by_name: req.user!.email,
+    changed_by_role: req.user!.role,
+    reason,
+    changes,
+    snapshot: bumped,
+  });
+  if (error) throw error;
+
+  return bumped;
+}
+
+/** Version 1 — written once, when the row is created (or recreated). */
+async function recordFirstVersion(
+  req: AuthRequest,
+  row: Record<string, unknown>,
+  action: 'created' | 'recreated',
+  reason: string | null,
+): Promise<void> {
+  const { error } = await supabaseAdmin.from('finance_ticket_versions').insert({
+    ticket_id: row['id'],
+    query_no: row['query_no'],
+    version: Number(row['version'] ?? 1),
+    action,
+    changed_by: req.user!.uid,
+    changed_by_name: req.user!.email,
+    changed_by_role: req.user!.role,
+    reason,
+    changes: [],
+    snapshot: row,
+  });
+  if (error) throw error;
+}
+
+/** A branch by id, for the name cache. 404s in words rather than a bare FK error. */
+async function resolveBranch(branchId: string | null | undefined): Promise<{ id: string; name: string } | null> {
+  if (!branchId) return null;
+  const { data, error } = await supabaseAdmin.from('branches').select('id, name').eq('id', branchId).maybeSingle();
+  if (error) throw error;
+  if (!data) throw new LookupError('That branch does not exist.', 404);
+  return { id: data.id as string, name: data.name as string };
+}
+
+/**
+ * Turn a feed payload into the columns it sets. Only keys PRESENT on the
+ * payload are written — `undefined` means "leave it", `null` means "clear it" —
+ * so a form that sends its whole state and a PATCH that sends one field both
+ * do what they say.
+ *
+ * A reference that is GIVEN must resolve (a typo'd voucher number silently
+ * accepted is a query the admin cannot action); a reference set to null clears
+ * all four reference columns together, since a snapshot of nothing is noise.
+ */
+async function feedToPatch(body: FinanceTicketFeedInput & { message?: string }): Promise<Record<string, unknown>> {
+  const patch: Record<string, unknown> = {};
+  for (const [field, column] of Object.entries(FEED_COLUMNS)) {
+    const value = (body as Record<string, unknown>)[field];
+    if (value !== undefined) patch[column] = value;
+  }
+
+  if (body.branchId !== undefined) {
+    const branch = await resolveBranch(body.branchId);
+    patch['branch_id'] = branch?.id ?? null;
+    patch['branch_name'] = branch?.name ?? null;
+  }
+
+  if (body.referenceNo !== undefined) {
+    if (body.referenceNo) {
+      const reference = await resolveReference(body.referenceNo);
+      patch['reference_type'] = reference.referenceType;
+      patch['reference_id'] = reference.referenceId;
+      patch['reference_no'] = reference.referenceNo;
+      patch['reference_snapshot'] = reference.snapshot;
+    } else {
+      patch['reference_type'] = null;
+      patch['reference_id'] = null;
+      patch['reference_no'] = null;
+      patch['reference_snapshot'] = null;
+    }
+  }
+
+  return patch;
+}
+
+/** Only the columns whose value actually differs from the row — an honest diff. */
+function onlyChanged(patch: Record<string, unknown>, row: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const [column, value] of Object.entries(patch)) {
+    const current = row[column];
+    const same =
+      current === value ||
+      (current === null && value === null) ||
+      (typeof current === 'number' && typeof value === 'number' && current === value) ||
+      (typeof current === 'object' && typeof value === 'object' && JSON.stringify(current) === JSON.stringify(value)) ||
+      // numeric columns come back as numbers; the form may send the same figure as a string
+      (typeof current === 'number' && typeof value === 'string' && Number(value) === current) ||
+      (typeof current === 'string' && typeof value === 'number' && Number(current) === value);
+    if (!same) out[column] = value;
+  }
+  return out;
+}
+
+/** The camelCase previous values for the audit row, over the columns a patch touched. */
+function previousOf(patch: Record<string, unknown>, row: Record<string, unknown>): Record<string, unknown> {
+  return Object.fromEntries(Object.keys(patch).map((k) => [k, row[k] ?? null]));
+}
+
+/** The version rows as this caller may read them. */
+function versionForCaller(row: Record<string, unknown>, isAdmin: boolean): Record<string, unknown> {
+  const snapshot = { ...((row['snapshot'] as Record<string, unknown> | null) ?? {}) };
+  let changes = ((row['changes'] as FinanceTicketVersionChange[] | null) ?? []);
+  if (!isAdmin) {
+    delete snapshot['internal_note'];
+    changes = changes.filter((c) => c.field !== 'internalNote');
+  }
+  return {
+    ...rowToApi({ ...row, snapshot: undefined, changes: undefined }),
+    changes,
+    snapshot: rowToApi(snapshot),
+  };
+}
+
+/** §12's notification payload — Query ID, subject, status, who, when. */
+function queryNotice(row: Record<string, unknown>, by: string, extra?: string): string {
+  const lines = [
+    `Query ID: ${String(row['query_no'])}`,
+    `Subject: ${String(row['subject'])}`,
+    `Status: ${FINANCE_TICKET_STATUS_LABELS[row['status'] as FinanceTicketStatus] ?? String(row['status'])}`,
+    `Updated by: ${by}`,
+    `Date/time: ${new Date().toLocaleString('en-PK', { timeZone: 'Asia/Karachi', dateStyle: 'medium', timeStyle: 'short' })}`,
+  ];
+  if (extra?.trim()) lines.push('', extra.trim());
+  return lines.join('\n');
+}
+
+/** Tell the raiser (never the actor themself). Best-effort, like every notify here. */
+async function notifyRaiser(
+  req: AuthRequest,
+  row: Record<string, unknown>,
+  type: 'finance_query_updated' | 'finance_query_resolved' | 'finance_query_amended',
+  title: string,
+  extra?: string,
+): Promise<void> {
+  const raisedBy = row['raised_by'] as string | null;
+  if (!raisedBy || raisedBy === req.user!.uid) return;
+  try {
+    await notify({
+      type,
+      title,
+      message: queryNotice(row, req.user!.email, extra),
+      targetUserId: raisedBy,
+      relatedId: row['id'] as string,
+    });
+  } catch { /* best-effort */ }
 }
 
 // ---------------------------------------------------------------------------
@@ -266,49 +562,73 @@ router.get('/lookup', requireFinance('view'), async (req: AuthRequest, res, next
 // The queue (§4, §18, §19)
 // ---------------------------------------------------------------------------
 
+router.get('/stats', requireFinance('view'), async (req: AuthRequest, res, next) => {
+  try {
+    // Scoped from the JWT, never from the query string — a raiser counts their
+    // own queries, everyone who sees the whole queue counts all of it.
+    const raisedBy = seesWholeQueue(req.user!.role) ? null : req.user!.uid;
+    const { data, error } = await supabaseAdmin.rpc('finance_ticket_stats', { p_raised_by: raisedBy });
+    if (error) throw error;
+    res.json({ stats: data ?? {} });
+  } catch (err) {
+    next(err);
+  }
+});
+
 router.get('/', requireFinance('view'), async (req: AuthRequest, res, next) => {
   try {
     const isAdmin = financeHelpDeskCan(req.user!.role, 'respond');
+    // The filter vocabulary is validated here rather than by `validate()`, which
+    // reads the body: a bad status or a page of 0 is a 400 in words, not a
+    // PostgREST error about a column.
+    const parsed = FinanceTicketQuerySchema.safeParse(req.query);
+    if (!parsed.success) {
+      res.status(400).json({
+        error: 'Validation error',
+        details: parsed.error.errors.map((e) => ({ field: e.path.join('.'), message: e.message })),
+      });
+      return;
+    }
+    const q = parsed.data;
 
     let query = supabaseAdmin
       .from('finance_tickets')
-      .select('*')
-      .order('created_at', { ascending: false })
-      .limit(500);
+      .select('*', { count: 'exact' })
+      .order('created_at', { ascending: false });
 
     // A stamped query is an ADMIN view and off by default even for them: the
-    // queue is a list of work, and deleted rows are not work.
-    if (!(isAdmin && String(req.query['includeDeleted'] ?? '') === 'true')) {
-      query = withoutDeleted(query);
-    }
+    // queue is a list of work, and deleted rows are not work. `deletedOnly` is
+    // the Deleted Queries screen (§8).
+    if (isAdmin && q.deletedOnly) query = query.not('deleted_at', 'is', null);
+    else if (!(isAdmin && q.includeDeleted)) query = withoutDeleted(query);
 
     // Scoping is decided by ROLE, never by a query parameter — a raiser cannot
     // widen their own view by asking for it, and every filter below only
-    // narrows what this line already allowed.
+    // narrows what this line already allowed. Another person's DRAFT is not on
+    // anyone's desk yet, so the whole-queue view excludes it.
     if (!seesWholeQueue(req.user!.role)) query = query.eq('raised_by', req.user!.uid);
-    else if (String(req.query['mine'] ?? '') === 'true') query = query.eq('raised_by', req.user!.uid);
+    else if (q.mine) query = query.eq('raised_by', req.user!.uid);
+    else query = query.or(`status.neq.draft,raised_by.eq.${req.user!.uid}`);
 
-    const eq = (param: string, column: string) => {
-      const v = String(req.query[param] ?? 'all');
-      if (v && v !== 'all') query = query.eq(column, v);
-    };
-    eq('status', 'status');
-    eq('queryType', 'query_type');
-    eq('priority', 'priority');
-    eq('raisedBy', 'raised_by');
+    if (q.status !== 'all') query = query.eq('status', q.status);
+    if (q.queryType !== 'all') query = query.eq('query_type', q.queryType);
+    if (q.priority !== 'all') query = query.eq('priority', q.priority);
+    if (q.raisedBy) query = query.eq('raised_by', q.raisedBy);
+    if (q.branchId) query = query.eq('branch_id', q.branchId);
+    if (q.queryNo) query = query.eq('query_no', q.queryNo.trim().toUpperCase());
+    if (q.amountMin !== undefined) query = query.gte('amount', q.amountMin);
+    if (q.amountMax !== undefined) query = query.lte('amount', q.amountMax);
 
-    const referenceNo = String(req.query['referenceNo'] ?? '').trim().toUpperCase();
+    const referenceNo = String(q.referenceNo ?? '').trim().toUpperCase();
     if (referenceNo) query = query.eq('reference_no', referenceNo);
 
-    const from = String(req.query['from'] ?? '').trim();
-    const to = String(req.query['to'] ?? '').trim();
-    if (from) query = query.gte('created_at', `${from}T00:00:00.000Z`);
-    if (to) query = query.lte('created_at', `${to}T23:59:59.999Z`);
+    if (q.from) query = query.gte('created_at', `${q.from}T00:00:00.000Z`);
+    if (q.to) query = query.lte('created_at', `${q.to}T23:59:59.999Z`);
 
-    // Free text across the three handles a person actually remembers. PostgREST
+    // Free text across the handles a person actually remembers. PostgREST
     // `or` takes a comma-separated filter list; the term is escaped for the
     // commas and parentheses that would otherwise break out of it.
-    const search = String(req.query['search'] ?? '').trim();
+    const search = String(q.search ?? '').trim();
     if (search) {
       const term = search.replace(/[(),*]/g, ' ').trim();
       if (term) {
@@ -318,15 +638,30 @@ router.get('/', requireFinance('view'), async (req: AuthRequest, res, next) => {
             `ticket_no.ilike.*${term}*`,
             `reference_no.ilike.*${term}*`,
             `voucher_ref.ilike.*${term}*`,
+            `transaction_ref.ilike.*${term}*`,
+            `expense_ref.ilike.*${term}*`,
+            `income_ref.ilike.*${term}*`,
             `subject.ilike.*${term}*`,
+            `raised_by_name.ilike.*${term}*`,
+            `branch_name.ilike.*${term}*`,
           ].join(','),
         );
       }
     }
 
-    const { data, error } = await query;
+    // §19 — one page, not the table. `count: 'exact'` above is what makes the
+    // pager honest about how many pages there are.
+    const fromRow = (q.page - 1) * q.pageSize;
+    query = query.range(fromRow, fromRow + q.pageSize - 1);
+
+    const { data, error, count } = await query;
     if (error) throw error;
-    res.json({ tickets: (data ?? []).map((row) => ticketForCaller(row, isAdmin)) });
+    res.json({
+      tickets: (data ?? []).map((row) => ticketForCaller(row, isAdmin)),
+      total: count ?? 0,
+      page: q.page,
+      pageSize: q.pageSize,
+    });
   } catch (err) {
     next(err);
   }
@@ -335,6 +670,35 @@ router.get('/', requireFinance('view'), async (req: AuthRequest, res, next) => {
 // ---------------------------------------------------------------------------
 // One query, in full — the View popup (§5)
 // ---------------------------------------------------------------------------
+
+/**
+ * §7's View History — every version of the query, newest first. Lazy: read when
+ * somebody opens the history, not with the query.
+ */
+router.get('/:id/history', requireFinance('view'), async (req: AuthRequest, res, next) => {
+  try {
+    const ticket = await getTicket(req.params.id as string);
+    if (!ticket) {
+      res.status(404).json({ error: 'Query not found' });
+      return;
+    }
+    if (!canSee(req, ticket)) {
+      res.status(403).json({ error: 'Forbidden: that query was raised by someone else.' });
+      return;
+    }
+    const isAdmin = financeHelpDeskCan(req.user!.role, 'respond');
+    const { data, error } = await supabaseAdmin
+      .from('finance_ticket_versions')
+      .select('*')
+      .eq('ticket_id', ticket.id)
+      .order('version', { ascending: false })
+      .limit(200);
+    if (error) throw error;
+    res.json({ versions: (data ?? []).map((v) => versionForCaller(v, isAdmin)) });
+  } catch (err) {
+    next(err);
+  }
+});
 
 router.get('/:id', requireFinance('view'), async (req: AuthRequest, res, next) => {
   try {
@@ -420,35 +784,34 @@ router.get('/:id', requireFinance('view'), async (req: AuthRequest, res, next) =
 
 router.post('/', requireFinance('create'), validate(CreateFinanceTicketSchema), async (req: AuthRequest, res, next) => {
   try {
-    const { queryType, priority, referenceNo, voucherRef, subject, description, attachmentIds } = req.body;
+    const body = req.body as CreateFinanceTicketInput;
+    const { attachmentIds, draft } = body;
 
-    // A reference is optional, but a reference that is GIVEN must resolve — a
-    // typo'd voucher number silently accepted is a query the admin cannot action.
-    let reference: FinanceTicketReferenceLookup | null = null;
-    if (referenceNo) {
-      try {
-        reference = await resolveReference(referenceNo);
-      } catch (err) {
-        if (err instanceof LookupError) {
-          res.status(err.status).json({ error: err.message });
-          return;
-        }
-        throw err;
+    let patch: Record<string, unknown>;
+    try {
+      patch = await feedToPatch(body);
+    } catch (err) {
+      if (err instanceof LookupError) {
+        res.status(err.status).json({ error: err.message });
+        return;
       }
+      throw err;
     }
 
+    // A Finance user's own branch is the default when the form names none —
+    // the query is about their book, and the Admin filters by branch.
+    if (patch['branch_id'] === undefined && req.user!.branchId) {
+      patch['branch_id'] = req.user!.branchId;
+      patch['branch_name'] = req.user!.branchName;
+    }
+
+    const now = new Date().toISOString();
     const { data, error } = await supabaseAdmin
       .from('finance_tickets')
       .insert({
-        query_type: queryType,
-        priority,
-        reference_type: reference?.referenceType ?? null,
-        reference_id: reference?.referenceId ?? null,
-        reference_no: reference?.referenceNo ?? null,
-        reference_snapshot: reference?.snapshot ?? null,
-        voucher_ref: voucherRef || null,
-        subject,
-        message: description,
+        ...patch,
+        status: draft ? 'draft' : 'open',
+        submitted_at: draft ? null : now,
         raised_by: req.user!.uid,
         raised_by_name: req.user!.email,
         raised_by_role: req.user!.role,
@@ -466,31 +829,172 @@ router.post('/', requireFinance('create'), validate(CreateFinanceTicketSchema), 
       });
     }
 
+    await recordFirstVersion(req, data, 'created', null);
+
     await logFinanceAudit(req, {
       entity: 'finance_ticket',
       entityId: data.id,
       entityRef: data.query_no,
       action: 'created',
-      newValues: { queryType, priority, referenceNo: reference?.referenceNo ?? null, subject },
+      newValues: {
+        queryType: data.query_type,
+        priority: data.priority,
+        referenceNo: data.reference_no,
+        subject: data.subject,
+        amount: data.amount,
+        branchName: data.branch_name,
+        businessDate: data.business_date,
+        status: data.status,
+      },
     });
 
     // §16. Straight to ADMIN — never to another Finance user, which is the whole
-    // point of §3. Best-effort: a notification that fails must not lose the query.
+    // point of §3. A draft goes nowhere until it is submitted. Best-effort: a
+    // notification that fails must not lose the query.
+    if (!draft) {
+      try {
+        await notify({
+          type: 'finance_query',
+          title: `New Finance Query ${data.query_no}`,
+          message: queryNotice(data, req.user!.email, `Priority: ${String(data.priority).toUpperCase()}`),
+          targetRole: 'super_admin',
+          relatedId: data.id,
+        });
+      } catch { /* notification failure must not fail query creation */ }
+    }
+
+    res.status(201).json({ ticket: rowToApi(data) });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Drafts (§2) — the raiser's own, until submitted
+// ---------------------------------------------------------------------------
+
+/** The raiser edits their own draft. No reason needed: nobody else has read it. */
+router.patch('/:id/draft', requireFinance('create'), validate(EditFinanceDraftSchema), async (req: AuthRequest, res, next) => {
+  try {
+    const before = await getTicket(req.params.id as string);
+    if (!before) {
+      res.status(404).json({ error: 'Query not found' });
+      return;
+    }
+    if (before['raised_by'] !== req.user!.uid) {
+      res.status(403).json({ error: 'Forbidden: that draft belongs to someone else.' });
+      return;
+    }
+    if (before['status'] !== 'draft') {
+      res.status(409).json({
+        error: `Query ${before['query_no']} has been submitted. Only an Admin can change it now — add a message instead.`,
+      });
+      return;
+    }
+
+    let patch: Record<string, unknown>;
+    try {
+      patch = onlyChanged(await feedToPatch(req.body), before);
+    } catch (err) {
+      if (err instanceof LookupError) {
+        res.status(err.status).json({ error: err.message });
+        return;
+      }
+      throw err;
+    }
+
+    let row = before;
+    if (Object.keys(patch).length) {
+      const { data, error } = await supabaseAdmin
+        .from('finance_tickets')
+        .update(patch)
+        .eq('id', before.id)
+        .eq('status', 'draft')
+        .select('*')
+        .maybeSingle();
+      if (error) throw error;
+      if (!data) {
+        res.status(409).json({ error: 'That draft changed while you were editing it.' });
+        return;
+      }
+      row = await recordVersion(req, before, data, 'edited', null);
+    }
+
+    if (req.body.attachmentIds?.length) {
+      await bindAttachments({
+        entity: 'finance_ticket',
+        entityId: row.id as string,
+        attachmentIds: req.body.attachmentIds,
+        actor: { uid: req.user!.uid },
+      });
+    }
+
+    res.json({ ticket: rowToApi(row) });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * Submit a draft — DRAFT → PENDING. This is the moment the Admin is told.
+ * The status route does not offer this move; a submission stamps
+ * `submitted_at` and notifies, and a bare status change would do neither.
+ */
+router.post('/:id/submit', requireFinance('create'), async (req: AuthRequest, res, next) => {
+  try {
+    const before = await getTicket(req.params.id as string);
+    if (!before) {
+      res.status(404).json({ error: 'Query not found' });
+      return;
+    }
+    if (before['raised_by'] !== req.user!.uid) {
+      res.status(403).json({ error: 'Forbidden: that draft belongs to someone else.' });
+      return;
+    }
+    if (before['status'] !== 'draft') {
+      res.status(409).json({ error: `Query ${before['query_no']} has already been submitted.` });
+      return;
+    }
+    if (String(before['subject'] ?? '').trim().length < 3 || String(before['message'] ?? '').trim().length < 3) {
+      res.status(400).json({ error: 'Give the query a subject and a description before submitting it.' });
+      return;
+    }
+
+    const { data, error } = await supabaseAdmin
+      .from('finance_tickets')
+      .update({ status: 'open', submitted_at: new Date().toISOString() })
+      .eq('id', before.id)
+      .eq('status', 'draft')
+      .select('*')
+      .maybeSingle();
+    if (error) throw error;
+    if (!data) {
+      res.status(409).json({ error: 'That draft changed while you were submitting it.' });
+      return;
+    }
+
+    const row = await recordVersion(req, before, data, 'submitted', null);
+
+    await logFinanceAudit(req, {
+      entity: 'finance_ticket',
+      entityId: row.id as string,
+      entityRef: row.query_no as string,
+      action: 'submitted',
+      previousValues: { status: 'draft' },
+      newValues: { status: 'open' },
+    });
+
     try {
       await notify({
         type: 'finance_query',
-        title: `New Finance Help Desk Query`,
-        message:
-          `Query ID: ${data.query_no}\n` +
-          `Subject: ${subject}\n` +
-          `Priority: ${String(priority).toUpperCase()}\n` +
-          `Submitted By: ${req.user!.email}`,
+        title: `New Finance Query ${row.query_no}`,
+        message: queryNotice(row, req.user!.email, `Priority: ${String(row.priority).toUpperCase()}`),
         targetRole: 'super_admin',
-        relatedId: data.id,
+        relatedId: row.id as string,
       });
-    } catch { /* notification failure must not fail query creation */ }
+    } catch { /* best-effort */ }
 
-    res.status(201).json({ ticket: rowToApi(data) });
+    res.json({ ticket: rowToApi(row) });
   } catch (err) {
     next(err);
   }
@@ -520,6 +1024,10 @@ router.post(
       }
       if (ticket['deleted_at']) {
         res.status(409).json({ error: `Query ${ticket['query_no']} has been deleted.` });
+        return;
+      }
+      if (ticket['status'] === 'draft') {
+        res.status(409).json({ error: `Query ${ticket['query_no']} is a draft. Submit it first.` });
         return;
       }
       if (ticket['status'] === 'closed') {
@@ -558,10 +1066,23 @@ router.post(
       // WAITING_FOR_FINANCE query is the act itself, not a separate button to
       // remember to press. The status goes back to the admin's court.
       if (side === 'finance' && ticket['status'] === 'waiting_for_finance') {
-        await supabaseAdmin
+        const { data: moved, error: moveErr } = await supabaseAdmin
           .from('finance_tickets')
           .update({ status: 'under_review', information_received_at: new Date().toISOString() })
-          .eq('id', ticket.id);
+          .eq('id', ticket.id)
+          .eq('status', 'waiting_for_finance')
+          .select('*')
+          .maybeSingle();
+        if (moveErr) throw moveErr;
+        // The status moved, so it is a version — but a version that cannot be
+        // written must not lose the message that was already posted.
+        if (moved) {
+          try {
+            await recordVersion(req, ticket, moved, 'status_changed', 'Information received from Finance');
+          } catch (err) {
+            console.error('[finance-tickets] could not version the information-received move', err);
+          }
+        }
       }
 
       try {
@@ -606,29 +1127,43 @@ router.patch('/:id', requireFinanceHelpDeskAdmin(), validate(EditFinanceTicketSc
     // A deleted query is a record, not a working row. Editing one would produce
     // an audit entry describing a change to something the desk considers gone.
     if (before['deleted_at']) {
-      res.status(409).json({ error: `Query ${before['query_no']} has been deleted.` });
+      res.status(409).json({ error: `Query ${before['query_no']} has been deleted. Restore it first.` });
+      return;
+    }
+    if (before['status'] === 'draft') {
+      res.status(409).json({ error: `Query ${before['query_no']} is still a draft with its raiser.` });
       return;
     }
 
-    const patch: Record<string, unknown> = {};
-    if (req.body.subject !== undefined) patch['subject'] = req.body.subject;
-    if (req.body.message !== undefined) patch['message'] = req.body.message;
-    if (req.body.queryType !== undefined) patch['query_type'] = req.body.queryType;
-    if (req.body.priority !== undefined) patch['priority'] = req.body.priority;
+    let patch: Record<string, unknown>;
+    try {
+      patch = await feedToPatch(req.body);
+    } catch (err) {
+      if (err instanceof LookupError) {
+        res.status(err.status).json({ error: err.message });
+        return;
+      }
+      throw err;
+    }
     if (req.body.resolutionNote !== undefined) patch['resolution_note'] = req.body.resolutionNote;
     if (req.body.internalNote !== undefined) patch['internal_note'] = req.body.internalNote;
+    patch = onlyChanged(patch, before);
+
+    if (!Object.keys(patch).length) {
+      res.json({ ticket: rowToApi(before), unchanged: true });
+      return;
+    }
 
     // §8: a change the RAISER will see needs a stated reason, and the reason is
     // what the audit row is worth reading for. An edit that only touches the
     // admin's own internal note changes nothing the raiser sees, so it does not.
-    const touchesRaiserVisible = ['subject', 'message', 'query_type', 'priority', 'resolution_note']
-      .some((k) => k in patch);
+    const touchesRaiserVisible = Object.keys(patch).some((k) => k !== 'internal_note');
     const reason = String(req.body.reason ?? '').trim();
     if (touchesRaiserVisible && !reason) {
       res.status(400).json({
         error:
           `Editing ${before['query_no']} needs a reason. It is kept with the previous values in ` +
-          'the audit history, and it is how the next reader knows why the query changed.',
+          'the version history, and it is how the next reader knows why the query changed.',
       });
       return;
     }
@@ -645,46 +1180,396 @@ router.patch('/:id', requireFinanceHelpDeskAdmin(), validate(EditFinanceTicketSc
       return;
     }
 
-    // §19: the PREVIOUS value of every field this PATCH touched, and only those.
-    // Logging the whole row would bury the change; logging a fixed list would
-    // record "subject: unchanged → unchanged" on a priority-only edit.
-    const columnOf: Record<string, string> = {
-      subject: 'subject',
-      message: 'message',
-      query_type: 'query_type',
-      priority: 'priority',
-      resolution_note: 'resolution_note',
-      internal_note: 'internal_note',
-    };
-    const previousValues = Object.fromEntries(
-      Object.keys(patch).map((k) => [k, before[columnOf[k] as string] ?? null]),
-    );
+    // §7: every modification is a version. The diff is computed from the rows,
+    // so the version says exactly what moved and nothing that did not.
+    const row = await recordVersion(req, before, data, 'edited', reason || null);
 
     await logFinanceAudit(req, {
       entity: 'finance_ticket',
-      entityId: data.id,
-      entityRef: data.query_no,
+      entityId: row.id as string,
+      entityRef: row.query_no as string,
       action: 'updated',
-      previousValues,
-      newValues: { ...patch, ...(reason ? { reason } : {}) },
+      previousValues: previousOf(patch, before),
+      newValues: { ...patch, version: row.version, ...(reason ? { reason } : {}) },
     });
 
     // The raiser is told their query was changed under them. Silently editing
     // someone's report and leaving them to notice is exactly the "data loss"
-    // §19 is about, even when every previous value is safe in the trail.
-    if (touchesRaiserVisible && data.raised_by && data.raised_by !== req.user!.uid) {
-      try {
-        await notify({
-          type: 'finance_query_updated',
-          title: `Query ${data.query_no} — updated by Admin`,
-          message: reason,
-          targetUserId: data.raised_by as string,
-          relatedId: data.id,
-        });
-      } catch { /* best-effort */ }
+    // §19 is about, even when every previous value is safe in the history.
+    if (touchesRaiserVisible) {
+      await notifyRaiser(req, row, 'finance_query_updated', `Query ${row.query_no} — updated by Admin`, `Reason: ${reason}`);
     }
 
-    res.json({ ticket: rowToApi(data) });
+    res.json({ ticket: rowToApi(row) });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * §6 — Amend the query. Same feed as Edit, but:
+ *   · the reason is required whether or not a raiser-visible field moved,
+ *   · the status becomes AMENDED (from any live status), and
+ *   · a version is written even when only the note changed, because an
+ *     amendment is an act on the record and the record should say so.
+ * The record behind the query is untouched (§17); that is POST /:id/amend.
+ */
+router.post('/:id/amend-query', requireFinanceHelpDeskAdmin(), validate(AmendFinanceTicketSchema), async (req: AuthRequest, res, next) => {
+  try {
+    const before = await getTicket(req.params.id as string);
+    if (!before) {
+      res.status(404).json({ error: 'Query not found' });
+      return;
+    }
+    if (before['deleted_at']) {
+      res.status(409).json({ error: `Query ${before['query_no']} has been deleted. Restore it first.` });
+      return;
+    }
+    const from = before['status'] as FinanceTicketStatus;
+    if (from === 'draft') {
+      res.status(409).json({ error: `Query ${before['query_no']} is still a draft with its raiser.` });
+      return;
+    }
+    if (isFinanceTicketTerminal(from)) {
+      res.status(409).json({
+        error:
+          `Query ${before['query_no']} is ${FINANCE_TICKET_STATUS_LABELS[from]}. Reopen it to amend it — ` +
+          'the resolution it was given is kept in the history either way.',
+      });
+      return;
+    }
+
+    let patch: Record<string, unknown>;
+    try {
+      patch = await feedToPatch(req.body);
+    } catch (err) {
+      if (err instanceof LookupError) {
+        res.status(err.status).json({ error: err.message });
+        return;
+      }
+      throw err;
+    }
+    if (req.body.internalNote !== undefined) patch['internal_note'] = req.body.internalNote;
+    patch = onlyChanged(patch, before);
+
+    const reason = String(req.body.reason).trim();
+    const now = new Date().toISOString();
+
+    const { data, error } = await supabaseAdmin
+      .from('finance_tickets')
+      .update({
+        ...patch,
+        status: 'amended',
+        amend_count: Number(before['amend_count'] ?? 0) + 1,
+        amended_at: now,
+        amended_by: req.user!.uid,
+        amended_by_name: req.user!.email,
+      })
+      .eq('id', before.id)
+      .eq('status', from)
+      .select('*')
+      .maybeSingle();
+    if (error) throw error;
+    if (!data) {
+      res.status(409).json({ error: 'Someone else moved this query while you were working on it.' });
+      return;
+    }
+
+    const row = await recordVersion(req, before, data, 'amended', reason);
+
+    await logFinanceAudit(req, {
+      entity: 'finance_ticket',
+      entityId: row.id as string,
+      entityRef: row.query_no as string,
+      action: 'amended',
+      previousValues: { ...previousOf(patch, before), status: from },
+      newValues: { ...patch, status: 'amended', version: row.version, reason },
+    });
+
+    await notifyRaiser(req, row, 'finance_query_amended', `Query ${row.query_no} — Amended by Admin`, `Reason: ${reason}`);
+
+    res.json({ ticket: rowToApi(row) });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * §11 — the Admin Response block, written without moving the status. Resolving
+ * still goes through PATCH /:id/status (it needs the resolution type); this is
+ * for answering, stating a corrected figure, or noting something while the
+ * query stays live.
+ */
+router.post('/:id/response', requireFinanceHelpDeskAdmin(), validate(FinanceTicketResponseSchema), async (req: AuthRequest, res, next) => {
+  try {
+    const before = await getTicket(req.params.id as string);
+    if (!before) {
+      res.status(404).json({ error: 'Query not found' });
+      return;
+    }
+    if (before['deleted_at']) {
+      res.status(409).json({ error: `Query ${before['query_no']} has been deleted. Restore it first.` });
+      return;
+    }
+    if (before['status'] === 'draft') {
+      res.status(409).json({ error: `Query ${before['query_no']} is still a draft with its raiser.` });
+      return;
+    }
+
+    const b = req.body as {
+      adminResponse?: string; resolutionNote?: string; resolutionAmount?: number | null;
+      remarks?: string; internalNote?: string;
+    };
+    let patch: Record<string, unknown> = {};
+    if (b.adminResponse !== undefined) patch['admin_response'] = b.adminResponse || null;
+    if (b.resolutionNote !== undefined) patch['resolution_note'] = b.resolutionNote || null;
+    if (b.resolutionAmount !== undefined) patch['resolution_amount'] = b.resolutionAmount;
+    if (b.remarks !== undefined) patch['remarks'] = b.remarks || null;
+    if (b.internalNote !== undefined) patch['internal_note'] = b.internalNote || null;
+    patch = onlyChanged(patch, before);
+
+    if (!Object.keys(patch).length) {
+      res.json({ ticket: rowToApi(before), unchanged: true });
+      return;
+    }
+    if ('admin_response' in patch) {
+      patch['responded_by'] = req.user!.uid;
+      patch['responded_by_name'] = req.user!.email;
+      patch['responded_at'] = new Date().toISOString();
+    }
+
+    const { data, error } = await supabaseAdmin
+      .from('finance_tickets')
+      .update(patch)
+      .eq('id', before.id)
+      .select('*')
+      .maybeSingle();
+    if (error) throw error;
+    if (!data) {
+      res.status(404).json({ error: 'Query not found' });
+      return;
+    }
+
+    const row = await recordVersion(req, before, data, 'responded', null);
+
+    await logFinanceAudit(req, {
+      entity: 'finance_ticket',
+      entityId: row.id as string,
+      entityRef: row.query_no as string,
+      action: 'updated',
+      previousValues: previousOf(patch, before),
+      newValues: { ...patch, version: row.version },
+    });
+
+    // The raiser reads the response, the resolution and the figure — not the
+    // internal note, which never leaves the admin side.
+    const raiserVisible = Object.keys(patch).some((k) => k !== 'internal_note');
+    if (raiserVisible) {
+      await notifyRaiser(
+        req,
+        row,
+        'finance_query_updated',
+        `Query ${row.query_no} — Admin response`,
+        typeof b.adminResponse === 'string' ? b.adminResponse : undefined,
+      );
+    }
+
+    res.json({ ticket: rowToApi(row) });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/** §8 — bring a deleted query back. The delete stamp is kept in the history. */
+router.post('/:id/restore', requireFinanceHelpDeskAdmin(), validate(RestoreFinanceTicketSchema), async (req: AuthRequest, res, next) => {
+  try {
+    const before = await getTicket(req.params.id as string);
+    if (!before) {
+      res.status(404).json({ error: 'Query not found' });
+      return;
+    }
+    if (!before['deleted_at']) {
+      res.status(409).json({ error: `Query ${before['query_no']} is not deleted.` });
+      return;
+    }
+    const reason = String(req.body.reason).trim();
+
+    const { data, error } = await supabaseAdmin
+      .from('finance_tickets')
+      .update({
+        deleted_at: null,
+        deleted_by: null,
+        deleted_by_name: null,
+        delete_reason: null,
+        restored_at: new Date().toISOString(),
+        restored_by: req.user!.uid,
+        restored_by_name: req.user!.email,
+        restore_reason: reason,
+      })
+      .eq('id', before.id)
+      .not('deleted_at', 'is', null)
+      .select('*')
+      .maybeSingle();
+    if (error) throw error;
+    if (!data) {
+      res.status(409).json({ error: 'Someone else restored this query already.' });
+      return;
+    }
+
+    const row = await recordVersion(req, before, data, 'restored', reason, [
+      { field: 'deleted', label: 'Deleted', old: 'Yes', new: null },
+    ]);
+
+    await logFinanceAudit(req, {
+      entity: 'finance_ticket',
+      entityId: row.id as string,
+      entityRef: row.query_no as string,
+      action: 'restored',
+      previousValues: { softDeleted: true, deleteReason: before['delete_reason'] },
+      newValues: { softDeleted: false, reason, version: row.version },
+    });
+
+    await notifyRaiser(req, row, 'finance_query_updated', `Query ${row.query_no} — Restored`, `Reason: ${reason}`);
+
+    res.json({ ticket: rowToApi(row) });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * §9 — Recreate. A NEW query under a NEW Query ID, copied from this one with
+ * the overrides in the body applied on top, each row pointing at the other.
+ * The old query is left exactly as it is (its status, its resolution, its
+ * history) — recreating is not deleting, and the Admin may still delete or
+ * close the old one afterwards if that is what they mean.
+ *
+ * The raiser of the new query is the ORIGINAL raiser, not the admin: it is
+ * their report, corrected, and they must be able to see and discuss it.
+ */
+router.post('/:id/recreate', requireFinanceHelpDeskAdmin(), validate(RecreateFinanceTicketSchema), async (req: AuthRequest, res, next) => {
+  try {
+    const source = await getTicket(req.params.id as string);
+    if (!source) {
+      res.status(404).json({ error: 'Query not found' });
+      return;
+    }
+    if (source['status'] === 'draft') {
+      res.status(409).json({ error: `Query ${source['query_no']} is still a draft with its raiser.` });
+      return;
+    }
+    if (source['recreated_as_id']) {
+      res.status(409).json({
+        error: `Query ${source['query_no']} has already been recreated as ${source['recreated_as_query_no']}.`,
+      });
+      return;
+    }
+
+    let overrides: Record<string, unknown>;
+    try {
+      overrides = await feedToPatch(req.body);
+    } catch (err) {
+      if (err instanceof LookupError) {
+        res.status(err.status).json({ error: err.message });
+        return;
+      }
+      throw err;
+    }
+    const reason = String(req.body.reason).trim();
+    const now = new Date().toISOString();
+
+    const { data: created, error: insErr } = await supabaseAdmin
+      .from('finance_tickets')
+      .insert({
+        // Copied: what the query SAYS.
+        query_type: source['query_type'],
+        priority: source['priority'],
+        reference_type: source['reference_type'],
+        reference_id: source['reference_id'],
+        reference_no: source['reference_no'],
+        reference_snapshot: source['reference_snapshot'],
+        voucher_ref: source['voucher_ref'],
+        transaction_ref: source['transaction_ref'],
+        expense_ref: source['expense_ref'],
+        income_ref: source['income_ref'],
+        subject: source['subject'],
+        message: source['message'],
+        amount: source['amount'],
+        branch_id: source['branch_id'],
+        branch_name: source['branch_name'],
+        business_date: source['business_date'],
+        remarks: source['remarks'],
+        raised_by: source['raised_by'],
+        raised_by_name: source['raised_by_name'],
+        raised_by_role: source['raised_by_role'],
+        // Then the Admin's corrections.
+        ...overrides,
+        // Not copied: the status, the answer, the assignment, the history.
+        // A recreated query starts its own life on the desk.
+        status: 'open',
+        submitted_at: now,
+        recreated_from_id: source['id'],
+        recreated_from_query_no: source['query_no'],
+        internal_note: source['internal_note'],
+      })
+      .select('*')
+      .single();
+    if (insErr) throw insErr;
+
+    // The old query points forward. Its own version says it was recreated.
+    const { data: updatedSource, error: srcErr } = await supabaseAdmin
+      .from('finance_tickets')
+      .update({ recreated_as_id: created.id, recreated_as_query_no: created.query_no })
+      .eq('id', source.id)
+      .select('*')
+      .maybeSingle();
+    if (srcErr) throw srcErr;
+
+    if (req.body.copyAttachments !== false) {
+      const photos = await listAttachments('finance_ticket', source.id as string);
+      if (photos.length) {
+        try {
+          await bindAttachments({
+            entity: 'finance_ticket',
+            entityId: created.id,
+            attachmentIds: photos.map((a) => a.id),
+            actor: { uid: req.user!.uid },
+          });
+        } catch { /* an attachment that cannot be re-bound must not lose the query */ }
+      }
+    }
+
+    await recordFirstVersion(req, created, 'recreated', `Recreated from ${source['query_no']}: ${reason}`);
+    if (updatedSource) {
+      await recordVersion(req, source, updatedSource, 'recreated', reason, [
+        { field: 'recreatedAsQueryNo', label: 'Recreated as', old: null, new: String(created.query_no) },
+      ]);
+    }
+
+    await logFinanceAudit(req, {
+      entity: 'finance_ticket',
+      entityId: created.id,
+      entityRef: created.query_no,
+      action: 'recreated',
+      newValues: { recreatedFromQueryNo: source['query_no'], reason, ...overrides },
+    });
+    await logFinanceAudit(req, {
+      entity: 'finance_ticket',
+      entityId: source.id as string,
+      entityRef: source['query_no'] as string,
+      action: 'recreated',
+      newValues: { recreatedAsQueryNo: created.query_no, reason },
+    });
+
+    await notifyRaiser(
+      req,
+      created,
+      'finance_query_updated',
+      `Query ${source['query_no']} recreated as ${created.query_no}`,
+      `Reason: ${reason}`,
+    );
+
+    res.status(201).json({ ticket: rowToApi(created), source: updatedSource ? rowToApi(updatedSource) : null });
   } catch (err) {
     next(err);
   }
@@ -698,6 +1583,16 @@ router.patch(
   async (req: AuthRequest, res, next) => {
     try {
       const assignedTo: string | null = req.body.assignedTo;
+
+      const before = await getTicket(req.params.id as string);
+      if (!before) {
+        res.status(404).json({ error: 'Query not found' });
+        return;
+      }
+      if (before['deleted_at'] || before['status'] === 'draft') {
+        res.status(409).json({ error: `Query ${before['query_no']} is not on the desk.` });
+        return;
+      }
 
       let assignedName: string | null = null;
       if (assignedTo) {
@@ -739,15 +1634,17 @@ router.patch(
         return;
       }
 
+      const row = await recordVersion(req, before, data, 'assigned', null);
+
       await logFinanceAudit(req, {
         entity: 'finance_ticket',
-        entityId: data.id,
-        entityRef: data.query_no,
+        entityId: row.id as string,
+        entityRef: row.query_no as string,
         action: 'updated',
         newValues: { assignedTo, assignedToName: assignedName },
       });
 
-      res.json({ ticket: rowToApi(data) });
+      res.json({ ticket: rowToApi(row) });
     } catch (err) {
       next(err);
     }
@@ -770,11 +1667,12 @@ router.patch(
   validate(FinanceTicketStatusSchema),
   async (req: AuthRequest, res, next) => {
     try {
-      const { status, adminResponse, resolutionNote, resolutionType } = req.body as {
+      const { status, adminResponse, resolutionNote, resolutionType, resolutionAmount } = req.body as {
         status: FinanceTicketStatus;
         adminResponse?: string;
         resolutionNote?: string;
         resolutionType?: FinanceResolutionType;
+        resolutionAmount?: number | null;
       };
 
       const before = await getTicket(req.params.id as string);
@@ -832,6 +1730,7 @@ router.patch(
 
       const patch: Record<string, unknown> = { status };
       if (resolutionType !== undefined) patch['resolution_type'] = resolutionType;
+      if (resolutionAmount !== undefined) patch['resolution_amount'] = resolutionAmount;
       if (adminResponse !== undefined) {
         patch['admin_response'] = adminResponse;
         patch['responded_by'] = req.user!.uid;
@@ -860,28 +1759,38 @@ router.patch(
         return;
       }
 
+      const row = await recordVersion(
+        req,
+        before,
+        data,
+        isFinanceTicketTerminal(status) ? 'resolved' : 'status_changed',
+        null,
+      );
+
       await logFinanceAudit(req, {
         entity: 'finance_ticket',
-        entityId: data.id,
-        entityRef: data.query_no,
+        entityId: row.id as string,
+        entityRef: row.query_no as string,
         action: status === 'rejected' ? 'rejected' : status === 'resolved' ? 'resolved' : 'updated',
         previousValues: { status: from },
-        newValues: { status, adminResponse, resolutionNote, resolutionType },
+        newValues: { status, adminResponse, resolutionNote, resolutionType, resolutionAmount, version: row.version },
       });
 
+      // Sent to the raiser even when the Admin is answering their own query —
+      // there is no "self" on a status change the queue reads.
       try {
-        if (data.raised_by) {
+        if (row.raised_by) {
           await notify({
             type: isFinanceTicketTerminal(status) ? 'finance_query_resolved' : 'finance_query_updated',
-            title: `Query ${data.query_no} — ${FINANCE_TICKET_STATUS_LABELS[status]}`,
-            message: adminResponse || resolutionNote || `Your query is now ${FINANCE_TICKET_STATUS_LABELS[status]}.`,
-            targetUserId: data.raised_by,
-            relatedId: data.id,
+            title: `Query ${row.query_no} — ${FINANCE_TICKET_STATUS_LABELS[status]}`,
+            message: queryNotice(row, req.user!.email, adminResponse || resolutionNote || undefined),
+            targetUserId: row.raised_by as string,
+            relatedId: row.id as string,
           });
         }
       } catch { /* best-effort */ }
 
-      res.json({ ticket: rowToApi(data) });
+      res.json({ ticket: rowToApi(row) });
     } catch (err) {
       next(err);
     }
@@ -1050,10 +1959,12 @@ router.post(
         return;
       }
 
+      const row = await recordVersion(req, before, data, 'reopened', reason);
+
       await logFinanceAudit(req, {
         entity: 'finance_ticket',
-        entityId: data.id,
-        entityRef: data.query_no,
+        entityId: row.id as string,
+        entityRef: row.query_no as string,
         action: 'reopened',
         previousValues: {
           status: from,
@@ -1065,19 +1976,9 @@ router.post(
         newValues: { status: 'reopened', reason, reopenCount: history.length },
       });
 
-      try {
-        if (data.raised_by && data.raised_by !== req.user!.uid) {
-          await notify({
-            type: 'finance_query_updated',
-            title: `Query ${data.query_no} — Reopened`,
-            message: `An Admin reopened your query.\n\nReason: ${reason}`,
-            targetUserId: data.raised_by as string,
-            relatedId: data.id,
-          });
-        }
-      } catch { /* best-effort */ }
+      await notifyRaiser(req, row, 'finance_query_updated', `Query ${row.query_no} — Reopened`, `Reason: ${reason}`);
 
-      res.json({ ticket: rowToApi(data) });
+      res.json({ ticket: rowToApi(row) });
     } catch (err) {
       next(err);
     }
