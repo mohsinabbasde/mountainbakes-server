@@ -593,52 +593,100 @@ export async function listDayClosings(days = 30): Promise<FinanceDayClosing[]> {
 // Dashboard
 // ---------------------------------------------------------------------------
 
-export async function getFinanceDashboard(businessDate = businessDateStr()): Promise<FinanceDashboard> {
-  const trendFrom = businessDaysAgoStr(6);
+export interface FinanceDashboardQuery {
+  /** Defaults to today's business date — unchanged behaviour when omitted. */
+  from?: string;
+  /** Defaults to `from`, i.e. a single day, matching the pre-range behaviour. */
+  to?: string;
+  /**
+   * Scope every branch-attributable figure to one branch. Cash/bank/closing
+   * balance stay company-wide regardless — there is one treasury, not one per
+   * branch, so `finance_day_summary` is never branch-filtered.
+   */
+  branchId?: string | null;
+}
 
-  const [day, shares, pendingIncome, pendingTxns, pendingPartners, pendingSalaries, pendingAdvances, recent, trendRows] =
-    await Promise.all([
-      getDayClosing(businessDate),
-      shareTotals(businessDate),
-      withoutDeleted(
-        supabaseAdmin
-          .from('finance_income_approvals')
-          .select('total_amount')
-          .in('status', ['pending_verification', 'pending_approval']),
-      ),
-      withoutDeleted(supabaseAdmin.from('finance_transactions').select('amount').in('status', ['draft', 'pending_approval'])),
-      withoutDeleted(supabaseAdmin.from('partner_expenses').select('amount').in('status', ['draft', 'pending_approval'])),
-      withoutDeleted(supabaseAdmin.from('salary_payments').select('net_salary').in('status', ['draft', 'pending_approval'])),
-      withoutDeleted(supabaseAdmin.from('employee_advances').select('total_amount').in('status', ['draft', 'pending_approval'])),
-      withoutDeleted(supabaseAdmin.from('ledger_entries').select('*').order('seq', { ascending: false }).limit(10)),
-      withoutDeleted(
-        supabaseAdmin
-          .from('ledger_entries')
-          .select('entry_date, debit, credit')
-          .gte('entry_date', trendFrom)
-          .lte('entry_date', businessDate),
-      ),
-    ]);
+/** date-string stepping, same technique `businessDateSeries` already uses below. */
+function stepDateStr(dateStr: string, days: number): string {
+  return new Date(new Date(`${dateStr}T00:00:00Z`).getTime() + days * 86_400_000).toISOString().slice(0, 10);
+}
+
+export async function getFinanceDashboard(query: FinanceDashboardQuery = {}): Promise<FinanceDashboard> {
+  const to = query.to ?? businessDateStr();
+  const from = query.from ?? to;
+  const branchId = query.branchId ?? null;
+
+  // The trend card is a fixed trailing week ending on `to`, independent of the
+  // selected range — same fixed-week behaviour as before this took a range.
+  const trendFrom = stepDateStr(to, -6);
+
+  let pendingIncomeQ = supabaseAdmin
+    .from('finance_income_approvals')
+    .select('total_amount')
+    .in('status', ['pending_verification', 'pending_approval']);
+  if (branchId) pendingIncomeQ = pendingIncomeQ.eq('branch_id', branchId);
+
+  let pendingTxnsQ = supabaseAdmin.from('finance_transactions').select('amount').in('status', ['draft', 'pending_approval']);
+  if (branchId) pendingTxnsQ = pendingTxnsQ.eq('branch_id', branchId);
+
+  let recentQ = supabaseAdmin.from('ledger_entries').select('*').lte('entry_date', to).order('seq', { ascending: false }).limit(10);
+  if (branchId) recentQ = recentQ.eq('branch_id', branchId);
+
+  let trendQ = supabaseAdmin.from('ledger_entries').select('entry_date, debit, credit').gte('entry_date', trendFrom).lte('entry_date', to);
+  if (branchId) trendQ = trendQ.eq('branch_id', branchId);
+
+  const [
+    day,
+    shares,
+    rangeTotals,
+    pendingIncome,
+    pendingTxns,
+    pendingPartners,
+    pendingSalaries,
+    pendingAdvances,
+    recent,
+    trendRows,
+  ] = await Promise.all([
+    getDayClosing(to),
+    shareTotals(from, to, branchId),
+    supabaseAdmin.rpc('finance_ledger_totals', { p_from: from, p_to: to, p_branch_id: branchId }),
+    withoutDeleted(pendingIncomeQ),
+    withoutDeleted(pendingTxnsQ),
+    // partner_expenses / salary_payments / employee_advances carry no branch_id
+    // (payroll and partner costs are company-level, not attributed to a branch)
+    // — they are only counted into the "All Branches" view below.
+    withoutDeleted(supabaseAdmin.from('partner_expenses').select('amount').in('status', ['draft', 'pending_approval'])),
+    withoutDeleted(supabaseAdmin.from('salary_payments').select('net_salary').in('status', ['draft', 'pending_approval'])),
+    withoutDeleted(supabaseAdmin.from('employee_advances').select('total_amount').in('status', ['draft', 'pending_approval'])),
+    withoutDeleted(recentQ),
+    withoutDeleted(trendQ),
+  ]);
 
   for (const r of [pendingIncome, pendingTxns, pendingPartners, pendingSalaries, pendingAdvances, recent, trendRows]) {
     if (r.error) throw r.error;
   }
+  if (rangeTotals.error) throw rangeTotals.error;
+
+  const rt = (Array.isArray(rangeTotals.data) ? rangeTotals.data[0] : rangeTotals.data) as Record<string, unknown> | null;
+  const rangeIncome = round2(num(rt?.['total_debit']));
+  const rangeExpenses = round2(num(rt?.['total_credit']));
 
   const sum = (rows: unknown, key: string) =>
     ((rows ?? []) as Record<string, unknown>[]).reduce((s, r) => s + num(r[key]), 0);
 
   // Every expense-side approval queue rolled into one figure — a finance user
   // wants "what is waiting on me", not four separate counts they have to add up.
+  // Under a branch filter, only branch-attributable transactions count (salary,
+  // partner and advance payments are company-level and have no branch_id) —
+  // the "All Branches" total below is unchanged from before this took a branch.
   const pendingExpenseCount =
     (pendingTxns.data?.length ?? 0) +
-    (pendingPartners.data?.length ?? 0) +
-    (pendingSalaries.data?.length ?? 0) +
-    (pendingAdvances.data?.length ?? 0);
+    (branchId ? 0 : (pendingPartners.data?.length ?? 0) + (pendingSalaries.data?.length ?? 0) + (pendingAdvances.data?.length ?? 0));
   const pendingExpenseAmount =
     sum(pendingTxns.data, 'amount') +
-    sum(pendingPartners.data, 'amount') +
-    sum(pendingSalaries.data, 'net_salary') +
-    sum(pendingAdvances.data, 'total_amount');
+    (branchId
+      ? 0
+      : sum(pendingPartners.data, 'amount') + sum(pendingSalaries.data, 'net_salary') + sum(pendingAdvances.data, 'total_amount'));
 
   const trendMap = new Map<string, { income: number; expenses: number }>();
   for (const r of (trendRows.data ?? []) as Record<string, unknown>[]) {
@@ -648,16 +696,19 @@ export async function getFinanceDashboard(businessDate = businessDateStr()): Pro
     cur.expenses += num(r['credit']);
     trendMap.set(d, cur);
   }
-  const trend = businessDateSeries(trendFrom, businessDate).map((d) => {
+  const trend = businessDateSeries(trendFrom, to).map((d) => {
     const v = trendMap.get(d) ?? { income: 0, expenses: 0 };
     return { businessDate: d, income: round2(v.income), expenses: round2(v.expenses), net: round2(v.income - v.expenses) };
   });
 
   return {
-    businessDate,
-    todayIncome: day.totalIncome,
-    todayExpenses: day.totalExpenses,
-    // The book balance as it stands right now — opening carried in, plus today.
+    businessDate: to,
+    // Income/expenses across the selected range (a single day by default,
+    // which is exactly what this returned before a range existed).
+    todayIncome: rangeIncome,
+    todayExpenses: rangeExpenses,
+    // The book balance as it stands as of `to` — opening carried in, plus
+    // everything posted through that date. One treasury, so never branch-scoped.
     netCashBalance: day.closingBalance,
     companyShare: shares.company,
     branchShare: shares.branch,
@@ -674,27 +725,29 @@ export async function getFinanceDashboard(businessDate = businessDateStr()): Pro
   };
 }
 
-/** Today's company/branch split, read off the two system share heads. */
-async function shareTotals(businessDate: string): Promise<{ company: number; branch: number }> {
+/** Company/branch split for a date range, read off the two system share heads. */
+async function shareTotals(from: string, to: string, branchId: string | null): Promise<{ company: number; branch: number }> {
   const [company, branch] = await Promise.all([
     getLedgerHeadByCode(SYSTEM_LEDGER_HEAD_CODES.COMPANY_SHARE),
     getLedgerHeadByCode(SYSTEM_LEDGER_HEAD_CODES.BRANCH_SHARE),
   ]);
 
-  const { data, error } = await withoutDeleted(
-    supabaseAdmin
-      .from('ledger_entries')
-      .select('ledger_head_id, debit')
-      .eq('entry_date', businessDate)
-      .in('ledger_head_id', [company.id, branch.id]),
-  );
+  let query = supabaseAdmin
+    .from('ledger_entries')
+    .select('ledger_head_id, debit')
+    .gte('entry_date', from)
+    .lte('entry_date', to)
+    .in('ledger_head_id', [company.id, branch.id]);
+  if (branchId) query = query.eq('branch_id', branchId);
+
+  const { data, error } = await withoutDeleted(query);
   if (error) throw error;
 
   let c = 0;
   let b = 0;
   for (const r of (data ?? []) as Record<string, unknown>[]) {
     if (r['ledger_head_id'] === company.id) c += num(r['debit']);
-    else b += num(r['debit']);
+    else if (r['ledger_head_id'] === branch.id) b += num(r['debit']);
   }
   return { company: round2(c), branch: round2(b) };
 }
