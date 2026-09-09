@@ -20,6 +20,16 @@ import { rowToApi } from '../utils/case';
 export const router = Router();
 
 /**
+ * `GET /` and `/production-sales` below are both scoped to a caller-chosen date
+ * window (a business day, a picked range) rather than paginated — there is no
+ * page concept on the Sales/Branch Closing screens that read them. This is a
+ * ceiling, not a page size: at realistic volumes it never engages, and if a
+ * window ever legitimately exceeds it, that is itself worth knowing about
+ * rather than silently returning a partial, unlabelled result.
+ */
+const ORDERS_WINDOW_ROW_CAP = 5000;
+
+/**
  * The line items are normalised into their own `order_items` table
  * (migration 03). Every read therefore joins them back on so the API shape the
  * frontend compiles against is unchanged.
@@ -109,7 +119,8 @@ router.get('/production-sales', requireRole('super_admin', 'production_user'), a
       .eq('branch_id', branchId)
       .eq('status', 'delivered')
       .order('created_at', { ascending: false })
-      .order('line_no', ORDER_ITEMS_ORDER);
+      .order('line_no', ORDER_ITEMS_ORDER)
+      .limit(ORDERS_WINDOW_ROW_CAP);
 
     if (from) query = query.gte('created_at', String(from));
     if (to) query = query.lte('created_at', withUtcDesignator(String(to)));
@@ -132,7 +143,8 @@ router.get('/', async (req: AuthRequest, res, next) => {
       .from('orders')
       .select(ORDER_SELECT)
       .order('created_at', { ascending: false })
-      .order('line_no', ORDER_ITEMS_ORDER);
+      .order('line_no', ORDER_ITEMS_ORDER)
+      .limit(ORDERS_WINDOW_ROW_CAP);
 
     // Branch managers see only their branch.
     if (isBranchRole(req.user!.role) && req.user!.branchId) {

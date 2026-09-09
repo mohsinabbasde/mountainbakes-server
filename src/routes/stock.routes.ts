@@ -28,6 +28,7 @@ import {
   computeBranchStockHistory,
   reconcileBranchStockDay,
   computeStockRows,
+  preloadBranchStock,
   purgeBranchStock,
   DayClosedError,
   InsufficientStockError,
@@ -136,12 +137,16 @@ router.get('/history', async (req: AuthRequest, res, next) => {
     // question it did not ask.
     const date = (req.query['date'] as string | undefined)?.trim();
     if (date) {
-      const row = await computeBranchStockDay(branchId, date);
+      // Both calls below independently read the whole `products` table and this
+      // branch's `stock` balances — same rows, neither can change mid-request —
+      // so it's fetched once here and handed to both instead of 2-3x each.
+      const preload = await preloadBranchStock(branchId);
+      const row = await computeBranchStockDay(branchId, date, undefined, preload);
       // Shipped with the row, not behind its own endpoint: the statement is the
       // only place the aggregate is stated, so it is the only place that can say
       // whether the Stock page agrees with it — and a check that has to be asked
       // for separately is a check nobody runs.
-      const reconciliation = await reconcileBranchStockDay(branchId, date, row.balanceQty);
+      const reconciliation = await reconcileBranchStockDay(branchId, date, row.balanceQty, preload);
       res.json({ branchId, date, row, reconciliation });
       return;
     }

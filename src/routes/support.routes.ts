@@ -609,25 +609,65 @@ router.get('/lookup', async (req: AuthRequest, res, next) => {
 // queue, which is what it was being used for. `?includeArchived=1` brings them
 // back (admin only — a raiser has no archive view), which is how anyone answers
 // "what was the query behind this correction?" after the fact.
+//
+// Paginated + searched server-side (`page`/`pageSize`/`search`), mirroring
+// `GET /api/finance-tickets` (finance-tickets.routes.ts) — this used to be a flat
+// `.limit(500)` with no page concept, so a branch/production account with a long
+// history downloaded and rendered every one of its own tickets on every visit.
 router.get('/', async (req: AuthRequest, res, next) => {
   try {
     const isAdmin = req.user!.role === 'super_admin';
     const includeArchived = isAdmin && ['1', 'true'].includes(String(req.query['includeArchived'] ?? ''));
 
+    const rawPage = Number(req.query['page']);
+    const page = Number.isFinite(rawPage) && rawPage > 0 ? Math.floor(rawPage) : 1;
+    // Capped at 500 — the admin Support Center (SupportCenterPage.tsx) explicitly
+    // asks for that many so its cross-source client-side counts/search keep
+    // seeing the whole live queue, same as the old flat `.limit(500)`. Every
+    // other caller (the branch Help Desk) defaults to a real 20-row page.
+    const rawPageSize = Number(req.query['pageSize']);
+    const pageSize = Number.isFinite(rawPageSize) && rawPageSize > 0 ? Math.min(500, Math.floor(rawPageSize)) : 20;
+
     let query = supabaseAdmin
       .from('support_tickets')
-      .select('*')
-      .order('created_at', { ascending: false })
-      .limit(500);
+      .select('*', { count: 'exact' })
+      .order('created_at', { ascending: false });
     if (!includeArchived) query = query.is('archived_at', null);
-    if (!isAdmin) {
-      query = query.eq('raised_by', req.user!.uid);
-    } else if (req.query['status']) {
-      query = query.eq('status', String(req.query['status']));
+    // Branch scoping (unconditional for a non-admin raiser) and the status
+    // filter are independent — status only narrows an already-correctly-scoped
+    // query, for either caller, so a raiser can ask for their own open queue
+    // separately from their own history the same way the admin queue does.
+    if (!isAdmin) query = query.eq('raised_by', req.user!.uid);
+    if (req.query['status']) query = query.eq('status', String(req.query['status']));
+    // The Help Desk's "Resolved & rejected" history is everything but the open
+    // queue — one filter rather than asking twice and merging client-side.
+    if (req.query['excludeStatus']) query = query.neq('status', String(req.query['excludeStatus']));
+
+    // Free text across the handles someone actually remembers — same escaping
+    // as the Finance Help Desk's search (finance-tickets.routes.ts).
+    const search = String(req.query['search'] ?? '').trim();
+    if (search) {
+      const term = search.replace(/[(),*]/g, ' ').trim();
+      if (term) {
+        query = query.or(
+          [
+            `ticket_number.ilike.*${term}*`,
+            `message.ilike.*${term}*`,
+            `raised_by_name.ilike.*${term}*`,
+            `branch_name.ilike.*${term}*`,
+          ].join(','),
+        );
+      }
     }
-    const { data, error } = await query;
+
+    // §19/§13 — one page, not the table. `count: 'exact'` above is what makes the
+    // pager honest about how many pages there are.
+    const fromRow = (page - 1) * pageSize;
+    query = query.range(fromRow, fromRow + pageSize - 1);
+
+    const { data, error, count } = await query;
     if (error) throw error;
-    res.json({ tickets: rowToApi(data ?? []) });
+    res.json({ tickets: rowToApi(data ?? []), total: count ?? 0, page, pageSize });
   } catch (err) {
     next(err);
   }

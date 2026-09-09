@@ -73,15 +73,19 @@ export interface ReportSummary {
   totalExpenses: number;
   totalProfit: number;
   dailyData: DailySalesData[];
-  branchData: BranchSalesData[];
-  topProducts: TopProduct[];
   /**
-   * Optional because a client can be newer than the API it is talking to — the
-   * mobile app ships on its own cycle and this field arrived after some builds
-   * were already in shops. A screen must treat "absent" as "this server does not
-   * report it" and say so, never as zero.
+   * `branchData` / `topProducts` / `categoryBreakdown` / `paymentMethodBreakdown`
+   * are all optional for the same reason: `GET /api/reports/summary?fields=basic`
+   * (the Branch Dashboard's request — see BranchDashboard.tsx) skips computing
+   * all four server-side and omits them from the response entirely, rather than
+   * sending empty arrays a caller could mistake for "computed and zero". Also
+   * covers a client newer than the API it is talking to — the mobile app ships
+   * on its own cycle and `categoryBreakdown` arrived after some builds were
+   * already in shops. Either way: treat "absent" as "not reported", never as zero.
    */
+  branchData?: BranchSalesData[];
+  topProducts?: TopProduct[];
   categoryBreakdown?: CategoryBreakdown[];
-  paymentMethodBreakdown: PaymentMethodBreakdown[];
+  paymentMethodBreakdown?: PaymentMethodBreakdown[];
   budget?: BudgetSummary;
 }
