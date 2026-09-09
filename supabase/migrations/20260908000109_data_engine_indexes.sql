@@ -17,7 +17,6 @@
 -- Nothing here changes a row. Every statement is IF NOT EXISTS, so the file
 -- can be re-applied.
 
-create extension if not exists pg_trgm with schema extensions;
 
 -- ---------------------------------------------------------------------------
 -- production_stock_history — the Production Stock ledger. Filtered by branch,
@@ -75,29 +74,70 @@ create index if not exists finance_txn_branch_date_idx
   where branch_id is not null and deleted_at is null;
 
 -- ---------------------------------------------------------------------------
--- Trigram indexes for the search boxes. GIN + gin_trgm_ops serves
--- `col ILIKE '%term%'` for terms of three characters or more.
+-- Trigram indexes for the search boxes.
+--
+-- GIN + gin_trgm_ops serves `col ILIKE '%term%'`, which no B-tree can. Two
+-- things make this a DO block rather than plain DDL:
+--
+--   1. `gin_trgm_ops` has to be schema-qualified, and WHERE pg_trgm lives is
+--      not something this file can assume — Supabase's dashboard installs
+--      into `extensions`, a manual `create extension` usually lands in
+--      `public`. The opclass is looked up in whatever schema actually has it.
+--   2. These indexes are a SPEED optimisation, and `supabase db push` wraps
+--      every pending migration in ONE transaction. If pg_trgm is unavailable,
+--      failing here would roll back the migration that carries
+--      `data_engine_aggregate` as well — so an unavailable extension logs a
+--      notice and skips, leaving the searches correct but sequential.
 -- ---------------------------------------------------------------------------
-create index if not exists orders_customer_name_trgm_idx
-  on public.orders using gin (customer_name extensions.gin_trgm_ops);
-create index if not exists orders_customer_phone_trgm_idx
-  on public.orders using gin (customer_phone extensions.gin_trgm_ops);
-create index if not exists orders_order_number_trgm_idx
-  on public.orders using gin (order_number extensions.gin_trgm_ops);
+do $$
+declare
+  v_schema text;
+  v_target record;
+begin
+  begin
+    create extension if not exists pg_trgm;
+  exception when others then
+    raise notice 'data_engine: pg_trgm could not be installed (%). Trigram indexes skipped; ILIKE searches will be sequential scans.', sqlerrm;
+    return;
+  end;
 
-create index if not exists production_stock_history_product_name_trgm_idx
-  on public.production_stock_history using gin (product_name extensions.gin_trgm_ops);
-create index if not exists production_stock_history_txn_no_trgm_idx
-  on public.production_stock_history using gin (transaction_no extensions.gin_trgm_ops);
+  select n.nspname into v_schema
+    from pg_opclass oc
+    join pg_namespace n on n.oid = oc.opcnamespace
+   where oc.opcname = 'gin_trgm_ops'
+   limit 1;
 
-create index if not exists stock_history_product_name_trgm_idx
-  on public.stock_history using gin (product_name extensions.gin_trgm_ops);
+  if v_schema is null then
+    raise notice 'data_engine: gin_trgm_ops not found after installing pg_trgm. Trigram indexes skipped.';
+    return;
+  end if;
 
-create index if not exists login_sessions_user_name_trgm_idx
-  on public.login_sessions using gin (user_name extensions.gin_trgm_ops);
+  for v_target in
+    select * from (values
+      ('orders',                   'customer_name',  'orders_customer_name_trgm_idx'),
+      ('orders',                   'customer_phone', 'orders_customer_phone_trgm_idx'),
+      ('orders',                   'order_number',   'orders_order_number_trgm_idx'),
+      ('production_stock_history', 'product_name',   'production_stock_history_product_name_trgm_idx'),
+      ('production_stock_history', 'transaction_no', 'production_stock_history_txn_no_trgm_idx'),
+      ('stock_history',            'product_name',   'stock_history_product_name_trgm_idx'),
+      ('login_sessions',           'user_name',      'login_sessions_user_name_trgm_idx'),
+      ('expenses',                 'description',    'expenses_description_trgm_idx'),
+      ('ledger_entries',           'description',    'ledger_entries_description_trgm_idx')
+    ) as t(tbl, col, idx)
+  loop
+    -- Skip a column this database does not have rather than failing the push:
+    -- the remote schema has been observed running behind its migration ledger.
+    if not exists (
+      select 1 from information_schema.columns c
+       where c.table_schema = 'public' and c.table_name = v_target.tbl and c.column_name = v_target.col
+    ) then
+      raise notice 'data_engine: %.% absent, trigram index skipped', v_target.tbl, v_target.col;
+      continue;
+    end if;
 
-create index if not exists expenses_description_trgm_idx
-  on public.expenses using gin (description extensions.gin_trgm_ops);
-
-create index if not exists ledger_entries_description_trgm_idx
-  on public.ledger_entries using gin (description extensions.gin_trgm_ops);
+    execute format(
+      'create index if not exists %I on public.%I using gin (%I %I.gin_trgm_ops)',
+      v_target.idx, v_target.tbl, v_target.col, v_schema
+    );
+  end loop;
+end $$;
