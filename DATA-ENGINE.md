@@ -91,26 +91,33 @@ value, and has EXECUTE revoked from `anon` / `authenticated`.
 Until the migration is applied, a bare `metrics=count` still works (it is a
 HEAD request) and anything else answers `501` with a message saying so.
 
+**Migration 110 is not optional.** 108 revoked EXECUTE from `public`, which is
+the grant `service_role` was relying on for the two helpers in the `app`
+schema, so every non-count aggregate failed with `42501: permission denied for
+function data_engine_condition` until 110 granted it explicitly. The aggregate
+stays `security invoker` on purpose: it builds dynamic SQL, and as
+`security definer` the table allowlist would be the only thing between a caller
+and arbitrary reads.
+
 Migration 109 adds the indexes for the new filter/search/sort shapes (btree on
 scope + default sort, trigram GIN for the search columns).
 
-## The remote schema can be behind the migration ledger
+## Check the column exists on the DATABASE, not just in a migration file
 
-Checked 2026-09-09: migration 106 is only partially applied on the linked
-database — `finance_tickets` has `query_no`, `priority`, `query_type`,
-`assigned_to` and `voucher_ref`, but NOT `branch_id`, `branch_name`, `amount`,
-`business_date` or `recreated_from_id`. Migrations 105, 106, 107, 108 and 109
-all show as pending in `npx supabase migration list --linked`.
+Migrations 105 through 110 were applied on 2026-09-09, so every field the
+registry declares now resolves. Before that push the remote had been running
+behind its own ledger: migration 106 was only PARTIALLY applied, so
+`finance_tickets` carried `query_no`, `priority`, `query_type`, `assigned_to`
+and `voucher_ref` but not `branch_id`, `branch_name`, `amount` or
+`business_date`. The `financeHelpDesk` resource had to drop those four until
+the migration landed, and because `branchName` is one of its search columns,
+the plain search box was a `42703` until then.
 
-The `financeHelpDesk` resource therefore declares only the columns that exist;
-the five lines to restore are commented in place and marked `← migration 106`.
-This matters beyond the engine: the hand-written Help Desk route filters on
-`amount` and `branch_id`, so those filters cannot be working on the deployed
-API either.
-
-Before adding a field to any resource, confirm the column exists on the
-DATABASE, not just in a migration file. A declared column the table lacks
-turns a filter, a sort, or — worst — the plain search box into a 42703.
+A declared column the table lacks turns a filter, a sort, or — worst — the
+search box into a 500, and nothing in a typecheck will say so. The whole
+surface can be swept in one pass: for every resource, filter on each declared
+field, run one search, and sort by each sortable key, against the real
+database. That sweep is what found this, and the enum 500 below.
 
 ## Adding a resource
 

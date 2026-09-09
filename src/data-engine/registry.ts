@@ -577,14 +577,6 @@ const financeHelpDeskConfig: ResourceConfig = {
       },
     ];
   },
-  // NOTE: `branch_id`, `branch_name`, `amount` and `business_date` are declared
-  // by migration 106 but are NOT on the linked database — that migration is
-  // only partially applied there (checked 2026-09-09: query_no, priority,
-  // query_type, assigned_to and voucher_ref landed; these four did not).
-  // Declaring a column the table lacks turns a filter, a sort or — worst — the
-  // plain search box into a PostgREST 42703, so they stay out until the
-  // migration is actually applied. Restore all five commented lines together
-  // when `supabase db push` has run; nothing else needs to change.
   fields: [
     f('queryNo', 'text'),
     f('ticketNo', 'text'),
@@ -594,24 +586,24 @@ const financeHelpDeskConfig: ResourceConfig = {
     f('status', 'enum'),
     f('queryType', 'enum'),
     f('priority', 'enum'),
+    ...branchFields,
     f('raisedBy', 'uuid'),
     f('raisedByName', 'text'),
     f('raisedByRole', 'enum'),
     f('assignedTo', 'uuid'),
+    f('amount', 'number'),
+    f('businessDate', 'date'),
     f('createdAt', 'timestamp'),
     f('updatedAt', 'timestamp'),
     f('resolvedAt', 'timestamp'),
-    // ...branchFields, f('amount', 'number'), f('businessDate', 'date'),  ← migration 106
   ],
   searchableFields: [
-    'queryNo', 'ticketNo', 'referenceNo', 'subject', 'raisedByName', // 'branchName' ← migration 106
+    'queryNo', 'ticketNo', 'referenceNo', 'subject', 'raisedByName', 'branchName',
   ],
-  // 'amount', 'businessDate', 'branchName' ← migration 106
-  sortableFields: ['createdAt', 'updatedAt', 'queryNo', 'status', 'priority'],
+  sortableFields: ['createdAt', 'updatedAt', 'queryNo', 'status', 'priority', 'amount', 'businessDate', 'branchName'],
   defaultSort: { key: 'createdAt', direction: 'desc' },
-  // 'branchId', 'branchName' ← migration 106
-  groupableFields: ['status', 'queryType', 'priority', 'raisedBy'],
-  // aggregatableFields: ['amount'] ← migration 106
+  groupableFields: ['status', 'queryType', 'priority', 'branchId', 'branchName', 'raisedBy'],
+  aggregatableFields: ['amount'],
   // internal_note is the admin's working note and is stripped for everyone
   // else HERE, at the boundary (finance-tickets.routes.ts, ticketForCaller).
   transform: (rows, user) =>
@@ -628,8 +620,9 @@ const financeHelpDeskConfig: ResourceConfig = {
       { key: 'queryType', header: 'Type' },
       { key: 'referenceNo', header: 'Reference' },
       { key: 'subject', header: 'Subject' },
+      { key: 'branchName', header: 'Branch' },
       { key: 'raisedByName', header: 'Raised By' },
-      // { key: 'branchName', header: 'Branch' }, { key: 'amount', header: 'Amount' },  ← migration 106
+      { key: 'amount', header: 'Amount' },
     ],
   },
   cache: 'live',
