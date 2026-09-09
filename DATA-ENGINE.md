@@ -29,6 +29,12 @@ Operators: `eq neq gt gte lt lte in nin like ilike null notnull between`.
 `pageSize` must be 20, 50 or 100. Unknown fields, disallowed operators and bad
 values are a 400 that names the field.
 
+Enum values are validated by the DATABASE, not by a second copy of each enum
+here (that copy would drift the first time one changed). Postgres answers a
+bad member with `22P02`, and `asClientError` turns it into the 400 it is,
+naming the field — `?status=bogus` must not be a 500, and it happens for real
+when a renamed value leaves old bookmarks and shared links behind.
+
 Dates: a `YYYY-MM-DD` value on a `timestamp` field is widened to the whole day.
 Fields marked `businessDay` in the registry use the 2 AM Karachi rollover from
 `shared/utils/timezone.ts` (`businessDayBounds`); the rest use the civil day.
@@ -87,6 +93,24 @@ HEAD request) and anything else answers `501` with a message saying so.
 
 Migration 109 adds the indexes for the new filter/search/sort shapes (btree on
 scope + default sort, trigram GIN for the search columns).
+
+## The remote schema can be behind the migration ledger
+
+Checked 2026-09-09: migration 106 is only partially applied on the linked
+database — `finance_tickets` has `query_no`, `priority`, `query_type`,
+`assigned_to` and `voucher_ref`, but NOT `branch_id`, `branch_name`, `amount`,
+`business_date` or `recreated_from_id`. Migrations 105, 106, 107, 108 and 109
+all show as pending in `npx supabase migration list --linked`.
+
+The `financeHelpDesk` resource therefore declares only the columns that exist;
+the five lines to restore are commented in place and marked `← migration 106`.
+This matters beyond the engine: the hand-written Help Desk route filters on
+`amount` and `branch_id`, so those filters cannot be working on the deployed
+API either.
+
+Before adding a field to any resource, confirm the column exists on the
+DATABASE, not just in a migration file. A declared column the table lacks
+turns a filter, a sort, or — worst — the plain search box into a 42703.
 
 ## Adding a resource
 

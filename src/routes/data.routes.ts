@@ -18,10 +18,10 @@
 import { Router } from 'express';
 import { authenticate, type AuthRequest } from '../middleware/auth';
 import { getResource } from '../data-engine/registry';
-import { ListQueryError, columnOf, operatorsFor, parseListQuery } from '../data-engine/parseListQuery';
+import { ListQueryError, asClientError, operatorsFor, parseListQuery } from '../data-engine/parseListQuery';
 import { runFullQuery, runListQuery } from '../data-engine/queryBuilder';
 import { parseAggregateParams, runAggregate } from '../data-engine/aggregate';
-import { ScopeDenied, type ResourceConfig } from '../data-engine/types';
+import { ScopeDenied, type ResolvedListQuery, type ResourceConfig } from '../data-engine/types';
 import { genericCSV, genericExcel } from '../services/production-export.service';
 import type { ResourceMeta } from '../shared';
 
@@ -55,8 +55,20 @@ router.param('resource', (req: DataRequest, res, next, name: string) => {
   next();
 });
 
-/** Validation and scope refusals become 400/403 in words; the rest bubbles. */
-function fail(err: unknown, res: import('express').Response, next: import('express').NextFunction) {
+/**
+ * Validation and scope refusals become 400/403 in words; the rest bubbles.
+ *
+ * `resolved` lets a database rejection of a caller's VALUE (a bad enum member
+ * in a shared link) be named as the 400 it is rather than surfacing as a 500 —
+ * see `asClientError`.
+ */
+function fail(
+  raw: unknown,
+  res: import('express').Response,
+  next: import('express').NextFunction,
+  resolved?: ResolvedListQuery,
+) {
+  const err = resolved ? asClientError(raw, resolved) : raw;
   if (err instanceof ListQueryError) {
     res.status(400).json({ error: err.message, details: err.details });
     return;
@@ -102,14 +114,15 @@ router.get('/:resource/meta', (req: DataRequest, res) => {
 // aggregate — totals over the filtered set, for cards and reports
 // ---------------------------------------------------------------------------
 router.get('/:resource/aggregate', async (req: DataRequest, res, next) => {
+  let resolved: ResolvedListQuery | undefined;
   try {
     const config = req.resource!;
     const { metrics: _m, groupBy: _g, ...listParams } = req.query as Record<string, unknown>;
-    const resolved = parseListQuery(listParams, config, req.user!.role);
+    resolved = parseListQuery(listParams, config, req.user!.role);
     const agg = parseAggregateParams(req.query as Record<string, unknown>, config);
     res.json(await runAggregate(config, resolved, agg, req.user!));
   } catch (err) {
-    fail(err, res, next);
+    fail(err, res, next, resolved);
   }
 });
 
@@ -117,6 +130,7 @@ router.get('/:resource/aggregate', async (req: DataRequest, res, next) => {
 // export — the SAME filtered set the table shows, as a file
 // ---------------------------------------------------------------------------
 router.get('/:resource/export', async (req: DataRequest, res, next) => {
+  let resolved: ResolvedListQuery | undefined;
   try {
     const config = req.resource!;
     if (!config.export) {
@@ -126,7 +140,7 @@ router.get('/:resource/export', async (req: DataRequest, res, next) => {
     const { format: rawFormat, scope: rawScope, ...listParams } = req.query as Record<string, unknown>;
     const format = rawFormat === 'csv' ? 'csv' : 'excel';
     const scope = rawScope === 'page' ? 'page' : 'all';
-    const resolved = parseListQuery(listParams, config, req.user!.role);
+    resolved = parseListQuery(listParams, config, req.user!.role);
 
     let rows: Record<string, unknown>[];
     if (scope === 'page') {
@@ -160,7 +174,7 @@ router.get('/:resource/export', async (req: DataRequest, res, next) => {
     res.setHeader('Content-Disposition', `attachment; filename="${fileName}.xlsx"`);
     res.send(buffer);
   } catch (err) {
-    fail(err, res, next);
+    fail(err, res, next, resolved);
   }
 });
 
@@ -178,14 +192,15 @@ function exportCell(value: unknown): string | number {
 // list — one page
 // ---------------------------------------------------------------------------
 router.get('/:resource', async (req: DataRequest, res, next) => {
+  let resolved: ResolvedListQuery | undefined;
   try {
     const config = req.resource!;
-    const resolved = parseListQuery(req.query as Record<string, unknown>, config, req.user!.role);
+    resolved = parseListQuery(req.query as Record<string, unknown>, config, req.user!.role);
     const page = await runListQuery(config, resolved, req.user!);
     // Static resources may be held briefly by the browser; live ones never.
     res.setHeader('Cache-Control', config.cache === 'static' ? 'private, max-age=60' : 'no-store');
     res.json(page);
   } catch (err) {
-    fail(err, res, next);
+    fail(err, res, next, resolved);
   }
 });

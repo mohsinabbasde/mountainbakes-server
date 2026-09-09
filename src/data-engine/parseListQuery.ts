@@ -36,6 +36,38 @@ export class ListQueryError extends Error {
   }
 }
 
+/**
+ * Turn a Postgres rejection of a caller's VALUE into a 400 that names the
+ * field, rather than letting it reach `errorHandler` as a 500.
+ *
+ * The case that matters is `22P02` on an enum column: `?status=bogus` is a
+ * malformed request, not a server fault, and it happens for real — a renamed
+ * enum value leaves old bookmarks and shared links pointing at a value the
+ * database no longer knows. The engine deliberately does NOT keep its own copy
+ * of each enum's members (that list would drift from the database's the first
+ * time one changed), so the database is the one that decides, and this
+ * translates its answer.
+ *
+ * The offending value is quoted in the Postgres message, so the filter that
+ * sent it can be identified and named. If it cannot be, the error is returned
+ * unchanged and becomes a 500 — an unrecognised failure is not quietly
+ * relabelled as the caller's fault.
+ */
+export function asClientError(err: unknown, resolved: ResolvedListQuery): unknown {
+  const pg = err as { code?: string; message?: string };
+  if (pg?.code !== '22P02') return err;
+
+  const quoted = /"([^"]*)"\s*$/.exec(pg.message ?? '')?.[1];
+  const culprit = resolved.filters.find((f) =>
+    Array.isArray(f.value) ? f.value.some((v) => v === quoted) : f.value === quoted,
+  );
+  if (!culprit) return err;
+
+  return new ListQueryError('Validation error', [
+    { field: culprit.field.key, message: `“${quoted}” is not a valid value for ${culprit.field.key}` },
+  ]);
+}
+
 const RESERVED = new Set(['page', 'pageSize', 'search', 'sort', 'includeDeleted', 'resource']);
 
 /** Operators each kind of field accepts, before any per-field narrowing. */
