@@ -103,22 +103,29 @@ export class ReturnNotFoundError extends Error {
  */
 export async function listBranchReturns(
   branchId: string,
-  opts: { from?: string; to?: string } = {},
-): Promise<ProductionReturn[]> {
+  opts: { from?: string; to?: string; limit?: number; offset?: number } = {},
+): Promise<{ returns: ProductionReturn[]; total: number }> {
+  const limit = Math.min(Math.max(Number(opts.limit ?? 50), 1), 200);
+  const offset = Math.max(Number(opts.offset ?? 0), 0);
+
   let q = supabaseAdmin
     .from('production_returns')
-    .select('*')
+    .select('*', { count: 'exact' })
     .eq('branch_id', branchId)
-    .order('created_at', { ascending: false });
+    .order('created_at', { ascending: false })
+    .range(offset, offset + limit - 1);
 
   if (opts.from) q = q.gte('business_date', opts.from);
   if (opts.to) q = q.lte('business_date', opts.to);
 
-  const { data, error } = await q;
+  const { data, error, count } = await q;
   if (error) throw error;
 
   const rows = rowToApi<Record<string, unknown>[]>(data ?? []);
-  return rows.map(({ businessDate, ...rest }) => ({ ...rest, date: businessDate })) as ProductionReturn[];
+  return {
+    returns: rows.map(({ businessDate, ...rest }) => ({ ...rest, date: businessDate })) as ProductionReturn[],
+    total: count ?? 0,
+  };
 }
 
 /**

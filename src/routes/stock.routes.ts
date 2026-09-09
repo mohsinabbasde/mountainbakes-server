@@ -371,7 +371,7 @@ router.post('/return', requireRole('super_admin', ...BRANCH_ROLES), idempotent('
 // role, exactly as it does for the rest of this router.
 // ───────────────────────────────────────────────────────────────────────────────
 
-// GET /api/stock/returns?days=N — the branch's returns, most recent first.
+// GET /api/stock/returns?days=N&limit=&offset= — the branch's returns, most recent first.
 router.get('/returns', requireRole('super_admin', ...BRANCH_ROLES), async (req: AuthRequest, res, next) => {
   try {
     const branchId = isBranchRole(req.user!.role)
@@ -379,15 +379,19 @@ router.get('/returns', requireRole('super_admin', ...BRANCH_ROLES), async (req: 
       : ((req.query['branchId'] as string | undefined) ?? null);
     if (!branchId) { res.status(400).json({ error: 'Branch context required' }); return; }
 
-    // Bounded the same way the Production board is, and for the same reason: the
-    // table is unpaginated on the client, so the window is what keeps it finite.
-    // 90 days rather than that board's 30 — this is a branch auditing its own
-    // returns over a quarter, not a queue of today's work.
+    // The window (90 days by default, a branch auditing its own returns over a
+    // quarter rather than a queue of today's work) narrows the result set;
+    // limit/offset now page what's left, so a busy branch's 90-day history
+    // doesn't have to come down in one response.
     const requested = Number(req.query['days'] ?? 90);
     const days = Number.isFinite(requested) ? Math.max(1, Math.min(365, Math.floor(requested))) : 90;
 
-    const returns = await listBranchReturns(branchId, { from: businessDaysAgoStr(days - 1) });
-    res.json({ returns, total: returns.length });
+    const { returns, total } = await listBranchReturns(branchId, {
+      from: businessDaysAgoStr(days - 1),
+      limit: req.query['limit'] ? Number(req.query['limit']) : undefined,
+      offset: req.query['offset'] ? Number(req.query['offset']) : undefined,
+    });
+    res.json({ returns, total });
   } catch (err) {
     next(err);
   }
