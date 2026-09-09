@@ -180,14 +180,18 @@ export async function listIncomeApprovals(q: {
   from?: string;
   to?: string;
   limit?: number;
-}): Promise<FinanceIncomeApproval[]> {
+  offset?: number;
+}): Promise<{ approvals: FinanceIncomeApproval[]; total: number }> {
+  const limit = Math.min(Math.max(Number(q.limit ?? 200), 1), 500);
+  const offset = Math.max(Number(q.offset ?? 0), 0);
+
   let query = withoutDeleted(
     supabaseAdmin
       .from(TABLE)
-      .select('*')
+      .select('*', { count: 'exact' })
       .order('business_date', { ascending: false })
       .order('branch_name', { ascending: true })
-      .limit(Math.min(Math.max(Number(q.limit ?? 200), 1), 500)),
+      .range(offset, offset + limit - 1),
   );
 
   // 'pending' is the screen's default view and spans both waiting states — a
@@ -199,7 +203,7 @@ export async function listIncomeApprovals(q: {
   if (q.from) query = query.gte('business_date', q.from);
   if (q.to) query = query.lte('business_date', q.to);
 
-  const { data, error } = await query;
+  const { data, error, count } = await query;
   if (error) throw error;
 
   const rows = rowToApi<FinanceIncomeApproval[]>(data ?? []).map(normalise);
@@ -207,7 +211,10 @@ export async function listIncomeApprovals(q: {
     'finance_income_approval',
     rows.map((r) => r.id),
   );
-  return rows.map((r) => ({ ...r, attachments: photos.get(r.id) ?? [] }));
+  return {
+    approvals: rows.map((r) => ({ ...r, attachments: photos.get(r.id) ?? [] })),
+    total: count ?? 0,
+  };
 }
 
 export async function getIncomeApproval(id: string): Promise<FinanceIncomeApproval | null> {

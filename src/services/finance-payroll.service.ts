@@ -250,16 +250,22 @@ export interface SalaryQuery {
   department?: string;
   search?: string;
   limit?: number;
+  offset?: number;
 }
 
-export async function listSalaryPayments(q: SalaryQuery): Promise<SalaryPayment[]> {
+export async function listSalaryPayments(
+  q: SalaryQuery,
+): Promise<{ salaries: SalaryPayment[]; total: number }> {
+  const limit = Math.min(Math.max(Number(q.limit ?? 300), 1), 1000);
+  const offset = Math.max(Number(q.offset ?? 0), 0);
+
   let query = withoutDeleted(
     supabaseAdmin
       .from('salary_payments')
-      .select('*')
+      .select('*', { count: 'exact' })
       .order('salary_month', { ascending: false })
       .order('employee_name', { ascending: true })
-      .limit(Math.min(Math.max(Number(q.limit ?? 300), 1), 1000)),
+      .range(offset, offset + limit - 1),
   );
 
   if (q.status === 'pending') query = query.in('status', ['draft', 'pending_approval']);
@@ -272,7 +278,7 @@ export async function listSalaryPayments(q: SalaryQuery): Promise<SalaryPayment[
     if (term) query = query.or(`salary_no.ilike.%${term}%,employee_name.ilike.%${term}%,designation.ilike.%${term}%`);
   }
 
-  const { data, error } = await query;
+  const { data, error, count } = await query;
   if (error) throw error;
 
   const rows = rowToApi<SalaryPayment[]>(data ?? []).map(normalise);
@@ -280,7 +286,7 @@ export async function listSalaryPayments(q: SalaryQuery): Promise<SalaryPayment[
     'salary_payment',
     rows.map((s) => s.id),
   );
-  return rows.map((s) => ({ ...s, attachments: photos.get(s.id) ?? [] }));
+  return { salaries: rows.map((s) => ({ ...s, attachments: photos.get(s.id) ?? [] })), total: count ?? 0 };
 }
 
 function normalise(s: SalaryPayment): SalaryPayment {
@@ -555,6 +561,7 @@ export interface AdvanceQuery {
   outstandingOnly?: boolean;
   search?: string;
   limit?: number;
+  offset?: number;
 }
 
 function normaliseAdvance(a: EmployeeAdvance): EmployeeAdvance {
@@ -606,14 +613,18 @@ async function withRecovery(rows: EmployeeAdvance[]): Promise<EmployeeAdvance[]>
   });
 }
 
-export async function listEmployeeAdvances(q: AdvanceQuery): Promise<EmployeeAdvance[]> {
+export async function listEmployeeAdvances(
+  q: AdvanceQuery,
+): Promise<{ advances: EmployeeAdvance[]; total: number }> {
+  const limit = Math.min(Math.max(Number(q.limit ?? 300), 1), 1000);
+  const offset = Math.max(Number(q.offset ?? 0), 0);
+
   let query = withoutDeleted(
     supabaseAdmin
       .from('employee_advances')
-      .select('*')
+      .select('*', { count: 'exact' })
       .order('business_date', { ascending: false })
-      .order('created_at', { ascending: false })
-      .limit(Math.min(Math.max(Number(q.limit ?? 300), 1), 1000)),
+      .order('created_at', { ascending: false }),
   );
 
   if (q.outstandingOnly) query = query.in('status', ['posted', 'locked']);
@@ -630,19 +641,33 @@ export async function listEmployeeAdvances(q: AdvanceQuery): Promise<EmployeeAdv
     if (term) query = query.or(`advance_no.ilike.%${term}%,employee_name.ilike.%${term}%,designation.ilike.%${term}%`);
   }
 
-  const { data, error } = await query;
+  // "unclaimed OR claimed by a rejected payslip" spans two tables via
+  // `withRecovery`, which PostgREST cannot express as a `.range()`-able
+  // predicate. So `outstandingOnly` resolves the recovery join and filters
+  // over the WHOLE matching set (capped, not per-page) and pages in memory —
+  // otherwise a `total`/page slice taken before that filter would count and
+  // return rows that are actually already recovered.
+  if (q.outstandingOnly) {
+    const { data, error } = await query.limit(5000);
+    if (error) throw error;
+    const all = (await withRecovery(rowToApi<EmployeeAdvance[]>(data ?? []).map(normaliseAdvance))).filter(
+      (r) => !r.isRecovered,
+    );
+    const total = all.length;
+    const page = all.slice(offset, offset + limit);
+    const photos = await listAttachmentsFor('employee_advance', page.map((r) => r.id));
+    return { advances: page.map((r) => ({ ...r, attachments: photos.get(r.id) ?? [] })), total };
+  }
+
+  const { data, error, count } = await query.range(offset, offset + limit - 1);
   if (error) throw error;
 
-  let rows = await withRecovery(rowToApi<EmployeeAdvance[]>(data ?? []).map(normaliseAdvance));
-  // Filtered here rather than in SQL: "unclaimed OR claimed by a rejected
-  // payslip" spans two tables, and PostgREST cannot express the second half.
-  if (q.outstandingOnly) rows = rows.filter((r) => !r.isRecovered);
-
+  const rows = await withRecovery(rowToApi<EmployeeAdvance[]>(data ?? []).map(normaliseAdvance));
   const photos = await listAttachmentsFor(
     'employee_advance',
     rows.map((r) => r.id),
   );
-  return rows.map((r) => ({ ...r, attachments: photos.get(r.id) ?? [] }));
+  return { advances: rows.map((r) => ({ ...r, attachments: photos.get(r.id) ?? [] })), total: count ?? 0 };
 }
 
 export async function getEmployeeAdvance(id: string): Promise<EmployeeAdvance | null> {

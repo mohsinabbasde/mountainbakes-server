@@ -162,15 +162,16 @@ router.post(
 router.get('/salaries', requireFinance('view'), async (req: AuthRequest, res, next) => {
   try {
     const q = req.query as Record<string, string | undefined>;
-    const salaries = await listSalaryPayments({
+    const { salaries, total } = await listSalaryPayments({
       status: (q['status'] as FinanceDocStatus | 'pending') || undefined,
       salaryMonth: q['salaryMonth'],
       employeeId: q['employeeId'],
       department: q['department'],
       search: q['search'],
       limit: q['limit'] ? Number(q['limit']) : undefined,
+      offset: q['offset'] ? Number(q['offset']) : undefined,
     });
-    res.json({ salaries, total: salaries.length });
+    res.json({ salaries, total });
   } catch (err) {
     next(err);
   }
@@ -307,7 +308,7 @@ router.post(
 router.get('/advances', requireFinance('view'), async (req: AuthRequest, res, next) => {
   try {
     const q = req.query as Record<string, string | undefined>;
-    const advances = await listEmployeeAdvances({
+    const { advances, total } = await listEmployeeAdvances({
       status: (q['status'] as FinanceDocStatus | 'pending') || undefined,
       employeeId: q['employeeId'],
       department: q['department'],
@@ -317,8 +318,9 @@ router.get('/advances', requireFinance('view'), async (req: AuthRequest, res, ne
       outstandingOnly: q['outstandingOnly'] === 'true',
       search: q['search'],
       limit: q['limit'] ? Number(q['limit']) : undefined,
+      offset: q['offset'] ? Number(q['offset']) : undefined,
     });
-    res.json({ advances, total: advances.length });
+    res.json({ advances, total });
   } catch (err) {
     next(err);
   }

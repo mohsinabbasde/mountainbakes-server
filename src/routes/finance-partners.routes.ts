@@ -95,7 +95,7 @@ router.get('/share-summary', requireFinance('view'), async (req: AuthRequest, re
 router.get('/', requireFinance('view'), async (req: AuthRequest, res, next) => {
   try {
     const q = req.query as Record<string, string | undefined>;
-    const expenses = await listPartnerExpenses({
+    const { expenses, total } = await listPartnerExpenses({
       status: (q['status'] as FinanceDocStatus | 'pending') || undefined,
       partnerId: q['partnerId'],
       partnerName: q['partnerName'],
@@ -104,8 +104,9 @@ router.get('/', requireFinance('view'), async (req: AuthRequest, res, next) => {
       to: q['to'],
       search: q['search'],
       limit: q['limit'] ? Number(q['limit']) : undefined,
+      offset: q['offset'] ? Number(q['offset']) : undefined,
     });
-    res.json({ expenses, total: expenses.length });
+    res.json({ expenses, total });
   } catch (err) {
     next(err);
   }
