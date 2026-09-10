@@ -18,15 +18,48 @@ export const router = Router();
 
 router.use(authenticate, requireRole('super_admin', 'production_user'));
 
-// GET /api/production-returns — last 30 days, most recent first
-router.get('/', async (_req, res, next) => {
+const PRODUCTION_RETURN_STATUSES = ['pending', 'accepted', 'rejected', 'returned'] as const;
+
+// GET /api/production-returns?from=&to=&branchId=&productId=&status=&search=&limit=&offset=
+// — 30 days by default, most recent first, filtered and paginated in Postgres.
+router.get('/', async (req: AuthRequest, res, next) => {
   try {
-    const cutoff = businessDaysAgoStr(29);
-    const { data, error } = await supabaseAdmin
+    const limit = Math.min(Math.max(Number(req.query['limit'] ?? 50), 1), 200);
+    const offset = Math.max(Number(req.query['offset'] ?? 0), 0);
+    const from = (req.query['from'] as string | undefined) ?? businessDaysAgoStr(29);
+    const to = req.query['to'] as string | undefined;
+    const branchId = req.query['branchId'] as string | undefined;
+    const productId = req.query['productId'] as string | undefined;
+    const status = req.query['status'] as string | undefined;
+
+    let query = supabaseAdmin
       .from('production_returns')
-      .select('*')
-      .gte('business_date', cutoff)
-      .order('created_at', { ascending: false });
+      .select('*', { count: 'exact' })
+      .gte('business_date', from)
+      .order('created_at', { ascending: false })
+      .range(offset, offset + limit - 1);
+
+    if (to) query = query.lte('business_date', to);
+    if (branchId) query = query.eq('branch_id', branchId);
+    if (productId) query = query.eq('product_id', productId);
+    if (status && PRODUCTION_RETURN_STATUSES.includes(status as (typeof PRODUCTION_RETURN_STATUSES)[number])) {
+      query = query.eq('status', status);
+    }
+
+    // Free-text search over id/reason/product/branch, in Postgres rather than
+    // over the whole downloaded set — same convention as GET /api/products.
+    // Commas and parens are stripped because they are PostgREST `or` syntax.
+    const search = (req.query['search'] as string | undefined)?.trim();
+    if (search) {
+      const term = search.replace(/[(),*]/g, ' ').trim();
+      if (term) {
+        query = query.or(
+          `reason.ilike.%${term}%,product_name.ilike.%${term}%,branch_name.ilike.%${term}%,legacy_id.ilike.%${term}%`,
+        );
+      }
+    }
+
+    const { data, error, count } = await query;
     if (error) throw error;
 
     // The DB column is business_date; the API contract (ProductionReturn) exposes
@@ -35,7 +68,7 @@ router.get('/', async (_req, res, next) => {
     // the Return Date column renders formatDate's "—" placeholder on all of them.
     const rows = rowToApi<Record<string, unknown>[]>(data ?? []);
     const returns = rows.map(({ businessDate, ...rest }) => ({ ...rest, date: businessDate }));
-    res.json({ returns, total: returns.length });
+    res.json({ returns, total: count ?? 0 });
   } catch (err) {
     next(err);
   }

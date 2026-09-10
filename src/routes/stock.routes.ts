@@ -371,7 +371,8 @@ router.post('/return', requireRole('super_admin', ...BRANCH_ROLES), idempotent('
 // role, exactly as it does for the rest of this router.
 // ───────────────────────────────────────────────────────────────────────────────
 
-// GET /api/stock/returns?days=N&limit=&offset= — the branch's returns, most recent first.
+// GET /api/stock/returns?days=N&from=&to=&productId=&status=&search=&limit=&offset=
+// — the branch's returns, most recent first.
 router.get('/returns', requireRole('super_admin', ...BRANCH_ROLES), async (req: AuthRequest, res, next) => {
   try {
     const branchId = isBranchRole(req.user!.role)
@@ -382,14 +383,20 @@ router.get('/returns', requireRole('super_admin', ...BRANCH_ROLES), async (req: 
     // The window (90 days by default, a branch auditing its own returns over a
     // quarter rather than a queue of today's work) narrows the result set;
     // limit/offset now page what's left, so a busy branch's 90-day history
-    // doesn't have to come down in one response.
+    // doesn't have to come down in one response. An explicit `from` (a real
+    // date-range filter) overrides the rolling `days` window rather than
+    // combining with it — same convention as GET /api/branch-discounts.
     const requested = Number(req.query['days'] ?? 90);
     const days = Number.isFinite(requested) ? Math.max(1, Math.min(365, Math.floor(requested))) : 90;
 
     const { returns, total } = await listBranchReturns(branchId, {
-      from: businessDaysAgoStr(days - 1),
+      from: (req.query['from'] as string | undefined) ?? businessDaysAgoStr(days - 1),
+      to: req.query['to'] as string | undefined,
       limit: req.query['limit'] ? Number(req.query['limit']) : undefined,
       offset: req.query['offset'] ? Number(req.query['offset']) : undefined,
+      productId: req.query['productId'] as string | undefined,
+      status: req.query['status'] as string | undefined,
+      search: req.query['search'] as string | undefined,
     });
     res.json({ returns, total });
   } catch (err) {

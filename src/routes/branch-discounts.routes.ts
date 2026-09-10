@@ -96,18 +96,33 @@ router.get('/', async (req: AuthRequest, res, next) => {
     const days = Number.isFinite(requested) ? Math.max(1, Math.min(365, Math.floor(requested))) : 90;
     const limit = Math.min(Math.max(Number(req.query['limit'] ?? 50), 1), 200);
     const offset = Math.max(Number(req.query['offset'] ?? 0), 0);
+    // An explicit `from`/`to` (a real date-range filter) overrides the rolling
+    // `days` window rather than combining with it — the two express the same
+    // thing and `days` is only the default when no range was chosen.
+    const from = (req.query['from'] as string | undefined) ?? businessDaysAgoStr(days - 1);
+    const to = req.query['to'] as string | undefined;
 
     let query = supabaseAdmin
       .from('branch_discounts')
       .select('*', { count: 'exact' })
       .eq('branch_id', branchId)
-      .gte('business_date', businessDaysAgoStr(days - 1))
+      .gte('business_date', from)
       .order('created_at', { ascending: false })
       .range(offset, offset + limit - 1);
+
+    if (to) query = query.lte('business_date', to);
 
     const status = req.query['status'] as string | undefined;
     if (status && (BRANCH_DISCOUNT_STATUSES as readonly string[]).includes(status)) {
       query = query.eq('status', status);
+    }
+
+    // Free-text search over the demand number and reason — same convention as
+    // GET /api/products: strip `or` filter syntax, then ilike.
+    const search = (req.query['search'] as string | undefined)?.trim();
+    if (search) {
+      const term = search.replace(/[(),*]/g, ' ').trim();
+      if (term) query = query.or(`demand_number.ilike.%${term}%,reason.ilike.%${term}%`);
     }
 
     const { data, error, count } = await query;
