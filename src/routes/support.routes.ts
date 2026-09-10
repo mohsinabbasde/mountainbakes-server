@@ -4,6 +4,7 @@ import { authenticate, type AuthRequest } from '../middleware/auth';
 import { requireRole } from '../middleware/requireRole';
 import { validate } from '../middleware/validate';
 import {
+  BRANCH_ROLES,
   CreateSupportTicketSchema,
   EditSupportTicketSchema,
   ResolveSupportTicketSchema,
@@ -621,12 +622,8 @@ router.get('/', async (req: AuthRequest, res, next) => {
 
     const rawPage = Number(req.query['page']);
     const page = Number.isFinite(rawPage) && rawPage > 0 ? Math.floor(rawPage) : 1;
-    // Capped at 500 — the admin Support Center (SupportCenterPage.tsx) explicitly
-    // asks for that many so its cross-source client-side counts/search keep
-    // seeing the whole live queue, same as the old flat `.limit(500)`. Every
-    // other caller (the branch Help Desk) defaults to a real 20-row page.
     const rawPageSize = Number(req.query['pageSize']);
-    const pageSize = Number.isFinite(rawPageSize) && rawPageSize > 0 ? Math.min(500, Math.floor(rawPageSize)) : 20;
+    const pageSize = Number.isFinite(rawPageSize) && rawPageSize > 0 ? Math.min(200, Math.floor(rawPageSize)) : 20;
 
     let query = supabaseAdmin
       .from('support_tickets')
@@ -642,6 +639,12 @@ router.get('/', async (req: AuthRequest, res, next) => {
     // The Help Desk's "Resolved & rejected" history is everything but the open
     // queue — one filter rather than asking twice and merging client-side.
     if (req.query['excludeStatus']) query = query.neq('status', String(req.query['excludeStatus']));
+    // §5's Source filter (SupportCenterPage.tsx) — WHERE a query came from.
+    // Branch/production both raise into this same table, so "source" is really
+    // a role filter: `raised_by_role` in BRANCH_ROLES vs exactly production_user.
+    const source = req.query['source'] as string | undefined;
+    if (source === 'branch') query = query.in('raised_by_role', BRANCH_ROLES);
+    else if (source === 'production') query = query.eq('raised_by_role', 'production_user');
 
     // Free text across the handles someone actually remembers — same escaping
     // as the Finance Help Desk's search (finance-tickets.routes.ts).
@@ -668,6 +671,34 @@ router.get('/', async (req: AuthRequest, res, next) => {
     const { data, error, count } = await query;
     if (error) throw error;
     res.json({ tickets: rowToApi(data ?? []), total: count ?? 0, page, pageSize });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// GET /api/support/stats — open-ticket counts by source, for the Source filter's
+// badges (SupportCenterPage.tsx). Two `head: true` counts rather than a full
+// row fetch: the badges need a number, not the rows, and they must reflect the
+// WHOLE open queue regardless of which page the table is currently showing.
+router.get('/stats', requireRole('super_admin'), async (_req, res, next) => {
+  try {
+    const [branchRes, productionRes] = await Promise.all([
+      supabaseAdmin
+        .from('support_tickets')
+        .select('*', { count: 'exact', head: true })
+        .is('archived_at', null)
+        .eq('status', 'open')
+        .in('raised_by_role', BRANCH_ROLES),
+      supabaseAdmin
+        .from('support_tickets')
+        .select('*', { count: 'exact', head: true })
+        .is('archived_at', null)
+        .eq('status', 'open')
+        .eq('raised_by_role', 'production_user'),
+    ]);
+    if (branchRes.error) throw branchRes.error;
+    if (productionRes.error) throw productionRes.error;
+    res.json({ branchOpen: branchRes.count ?? 0, productionOpen: productionRes.count ?? 0 });
   } catch (err) {
     next(err);
   }

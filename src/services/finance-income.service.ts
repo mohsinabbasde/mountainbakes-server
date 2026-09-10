@@ -179,6 +179,7 @@ export async function listIncomeApprovals(q: {
   branchId?: string;
   from?: string;
   to?: string;
+  search?: string;
   limit?: number;
   offset?: number;
 }): Promise<{ approvals: FinanceIncomeApproval[]; total: number }> {
@@ -202,6 +203,13 @@ export async function listIncomeApprovals(q: {
   if (q.branchId) query = query.eq('branch_id', q.branchId);
   if (q.from) query = query.gte('business_date', q.from);
   if (q.to) query = query.lte('business_date', q.to);
+
+  // Free-text search over the reference number and branch — same convention as
+  // GET /api/products: strip `or` filter syntax, then ilike.
+  if (q.search?.trim()) {
+    const term = q.search.trim().replace(/[(),*]/g, ' ').trim();
+    if (term) query = query.or(`reference_no.ilike.%${term}%,branch_name.ilike.%${term}%`);
+  }
 
   const { data, error, count } = await query;
   if (error) throw error;

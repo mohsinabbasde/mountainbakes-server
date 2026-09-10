@@ -48,13 +48,14 @@ async function sendSpreadsheet(
   res.send(buffer);
 }
 
-// GET /api/products/price/history?productId=&limit=&offset=
+// GET /api/products/price/history?productId=&search=&limit=&offset=
 router.get('/history', async (req: AuthRequest, res, next) => {
   try {
     const productId = req.query['productId'] ? String(req.query['productId']) : undefined;
     const limit = Math.max(1, Math.min(1000, parseInt(String(req.query['limit'] ?? '300'), 10) || 300));
     const offset = Math.max(0, parseInt(String(req.query['offset'] ?? '0'), 10) || 0);
-    const { history, total } = await listPriceHistory(productId, limit, offset);
+    const search = req.query['search'] ? String(req.query['search']) : undefined;
+    const { history, total } = await listPriceHistory(productId, limit, offset, search);
     res.json({ history, total });
   } catch (err) {
     next(err);

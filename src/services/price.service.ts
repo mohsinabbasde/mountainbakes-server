@@ -215,6 +215,7 @@ export async function listPriceHistory(
   productId?: string,
   limit = 300,
   offset = 0,
+  search?: string,
 ): Promise<{ history: PriceHistoryDoc[]; total: number }> {
   // Ordering and paging now happen in Postgres (indexed by changed_on desc)
   // rather than by fetching the whole collection and sorting/slicing in memory.
@@ -224,6 +225,17 @@ export async function listPriceHistory(
     .order('changed_on', { ascending: false })
     .range(offset, offset + limit - 1);
   if (productId) query = query.eq('product_id', productId);
+
+  // Free-text search over the price change number, product, code and reason —
+  // same convention as GET /api/products: strip `or` filter syntax, then ilike.
+  if (search?.trim()) {
+    const term = search.trim().replace(/[(),*]/g, ' ').trim();
+    if (term) {
+      query = query.or(
+        `price_number.ilike.%${term}%,product_name.ilike.%${term}%,product_code.ilike.%${term}%,reason.ilike.%${term}%`,
+      );
+    }
+  }
 
   const { data, error, count } = await query;
   if (error) throw error;

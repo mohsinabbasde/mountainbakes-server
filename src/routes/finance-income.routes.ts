@@ -62,6 +62,7 @@ router.get('/', requireFinance('view'), async (req: AuthRequest, res, next) => {
       branchId: q['branchId'],
       from: q['from'],
       to: q['to'],
+      search: q['search'],
       limit: q['limit'] ? Number(q['limit']) : undefined,
       offset: q['offset'] ? Number(q['offset']) : undefined,
     });
