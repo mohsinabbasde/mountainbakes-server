@@ -22,6 +22,7 @@ import {
   getDayClosing,
   getFinanceDashboard,
   getLedgerEntry,
+  getLedgerSummary,
   listDayClosings,
   listLedgerHeads,
   queryLedger,
@@ -105,6 +106,25 @@ router.get('/ledger', requireFinance('view'), async (req: AuthRequest, res, next
     };
 
     res.json(await queryLedger(query));
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * GET /api/finance/ledger/summary — the Daily Ledger's top summary cards.
+ *
+ * Must come before `/ledger/:id` so Express doesn't match "summary" as an id.
+ * Month-to-date as of `date` (defaults to today, same as `/ledger`), scoped
+ * by the same optional `branchId` the ledger table itself filters by.
+ */
+router.get('/ledger/summary', requireFinance('view'), async (req: AuthRequest, res, next) => {
+  try {
+    const q = req.query as Record<string, string | undefined>;
+    const to = q['date'] || q['to'] || businessDateStr();
+    const branchId = q['branchId'] || undefined;
+
+    res.json(await getLedgerSummary({ to, branchId }));
   } catch (err) {
     next(err);
   }

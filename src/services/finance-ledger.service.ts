@@ -13,6 +13,7 @@ import {
   type LedgerPage,
   type LedgerQuery,
   type LedgerSourceType,
+  type LedgerSummary,
   type UpdateLedgerHeadInput,
 } from '../shared';
 import { rowToApi } from '../utils/case';
@@ -337,6 +338,75 @@ export async function queryLedger(q: LedgerQuery): Promise<LedgerPage> {
     closingBalance: last ? last.balance : num(agg?.['opening_balance']),
     totalDebit: num(agg?.['total_debit']),
     totalCredit: num(agg?.['total_credit']),
+  };
+}
+
+/** `2026-09-01` → `2026-08-31`. Plain calendar-date arithmetic — `dateStr` is
+ *  already a resolved business date, so this needs no timezone handling. */
+function dayBefore(dateStr: string): string {
+  const d = new Date(`${dateStr}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() - 1);
+  return d.toISOString().slice(0, 10);
+}
+
+/**
+ * The Daily Ledger's top summary — Opening Balance, Total Received, Total
+ * Expense and Balance, month-to-date as of `to`.
+ *
+ * Deliberately NOT `queryLedger()`'s `openingBalance`/`closingBalance`: those
+ * are read off the current PAGE's first/last row, so they are only correct on
+ * whichever page happens to hold the filtered range's first/last entry. This
+ * calls `finance_ledger_totals` on its own, scoped to the calendar month
+ * containing `to` — its `opening_balance` output (everything before month
+ * start) IS the previous month's closing balance, by the same carry-forward
+ * principle `finance_day_summary`/`getDayClosing` already rely on.
+ *
+ * ONE WRINKLE: `finance_ledger_totals`'s own `opening_balance` column is NOT
+ * branch-filtered — its SQL sums `ledger_entries` company-wide before `p_from`
+ * regardless of `p_branch_id` (verified against the migration). Fine when
+ * `branchId` is absent, wrong when it isn't: a branch manager narrowed to
+ * their branch would otherwise see every OTHER branch's opening balance mixed
+ * into theirs. So when a branch is given, the opening balance is computed from
+ * the same RPC's `total_debit`/`total_credit` instead (which ARE branch-
+ * filtered) over everything before month start — one extra cheap RPC call,
+ * still pure server-side aggregation, no row download.
+ */
+export async function getLedgerSummary(params: { to: string; branchId?: string | null }): Promise<LedgerSummary> {
+  const to = params.to;
+  const branchId = params.branchId ?? null;
+  const monthStart = `${to.slice(0, 7)}-01`;
+
+  const { data, error } = await supabaseAdmin.rpc('finance_ledger_totals', {
+    p_from: monthStart,
+    p_to: to,
+    p_branch_id: branchId,
+  });
+  if (error) throw error;
+
+  const agg = (Array.isArray(data) ? data[0] : data) as Record<string, unknown> | null;
+  const totalReceived = round2(num(agg?.['total_debit']));
+  const totalExpense = round2(num(agg?.['total_credit']));
+
+  let openingBalance: number;
+  if (branchId) {
+    const { data: priorData, error: priorError } = await supabaseAdmin.rpc('finance_ledger_totals', {
+      p_to: dayBefore(monthStart),
+      p_branch_id: branchId,
+    });
+    if (priorError) throw priorError;
+    const priorAgg = (Array.isArray(priorData) ? priorData[0] : priorData) as Record<string, unknown> | null;
+    openingBalance = round2(num(priorAgg?.['total_debit']) - num(priorAgg?.['total_credit']));
+  } else {
+    openingBalance = round2(num(agg?.['opening_balance']));
+  }
+
+  return {
+    businessDate: to,
+    monthStart,
+    openingBalance,
+    totalReceived,
+    totalExpense,
+    balance: round2(openingBalance + totalReceived - totalExpense),
   };
 }
 

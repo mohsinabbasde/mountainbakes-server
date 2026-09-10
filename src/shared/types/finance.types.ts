@@ -330,6 +330,21 @@ export interface LedgerPage {
   totalCredit: number;
 }
 
+/**
+ * The Daily Ledger's top summary — month-to-date as of `businessDate`, and
+ * independent of the ledger table's own pagination/filters. `openingBalance`
+ * is the previous month's final closing balance, carried forward the same way
+ * `FinanceDayClosing.openingBalance` is: everything posted before `monthStart`.
+ */
+export interface LedgerSummary {
+  businessDate: string;
+  monthStart: string;
+  openingBalance: number;
+  totalReceived: number;
+  totalExpense: number;
+  balance: number;
+}
+
 // ---------------------------------------------------------------------------
 // Branch income approvals
 // ---------------------------------------------------------------------------
