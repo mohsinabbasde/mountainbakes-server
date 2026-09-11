@@ -415,6 +415,13 @@ export const FinanceReportQuerySchema = z.object({
   employeeId: z.string().uuid().optional(),
   department: z.string().max(80).optional(),
   salaryMonth: salaryMonth.optional(),
+  // Only meaningful for the row-level reports (cash book, general ledger,
+  // expense report, share reports, salary, partner expense) — the aggregated
+  // ones (income statement, P&L, trial balance) always return every head. The
+  // route decides whether to honour these at all: /export never does, because
+  // the exported file is the document of record and must hold every row.
+  page: z.coerce.number().int().min(1).optional(),
+  pageSize: z.coerce.number().int().min(1).max(500).optional(),
 });
 
 // ---------------------------------------------------------------------------

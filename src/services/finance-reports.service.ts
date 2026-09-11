@@ -44,39 +44,89 @@ const num = (v: unknown) => Number(v ?? 0);
  */
 const ROW_CAP = 20_000;
 
+/**
+ * Report types whose row count scales with the number of underlying documents
+ * in the period (one row per ledger entry / salary payment / partner expense /
+ * share-approval), so a wide enough range can genuinely need paging.
+ *
+ * The other three types (income_statement, profit_loss, trial_balance)
+ * aggregate into one row per ledger head — inherently bounded, small — and
+ * never carry a `pagination` field.
+ */
+const PAGINATED_REPORT_TYPES = new Set<FinanceReportType>([
+  'daily_cash_book',
+  'general_ledger',
+  'expense_report',
+  'company_share',
+  'branch_share',
+  'salary',
+  'partner_expense',
+]);
+
+/**
+ * Slices `rows` to one page. Only called with the FULL filtered row set — the
+ * builders above always compute `totals`/`summary` from every row first, so
+ * paging afterwards here cannot skew a financial total.
+ */
+function paginateRows(
+  rows: FinanceReport['rows'],
+  q: FinanceReportQueryInput,
+): { rows: FinanceReport['rows']; pagination: NonNullable<FinanceReport['pagination']> } {
+  const pageSize = q.pageSize ?? 50;
+  const total = rows.length;
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  const page = Math.min(q.page ?? 1, totalPages);
+  const start = (page - 1) * pageSize;
+  return {
+    rows: rows.slice(start, start + pageSize),
+    pagination: { page, pageSize, total, totalPages, hasNext: page < totalPages, hasPrevious: page > 1 },
+  };
+}
+
 export async function buildFinanceReport(
   q: FinanceReportQueryInput,
   generatedBy: string,
+  opts?: { paginate?: boolean },
 ): Promise<FinanceReport> {
   const { from, to } = defaultRange(q.type, q.from, q.to);
 
-  switch (q.type) {
-    case 'daily_cash_book':
-      return dailyCashBook(q, from, to, generatedBy);
-    case 'general_ledger':
-      return generalLedger(q, from, to, generatedBy);
-    case 'income_statement':
-      return headBreakdown(q, from, to, generatedBy, 'income');
-    case 'expense_report':
-      return expenseReport(q, from, to, generatedBy);
-    case 'profit_loss':
-      return profitAndLoss(q, from, to, generatedBy);
-    case 'company_share':
-    case 'branch_share':
-      return shareReport(q, from, to, generatedBy);
-    case 'salary':
-      return salaryReport(q, from, to, generatedBy);
-    case 'partner_expense':
-      return partnerExpenseReport(q, from, to, generatedBy);
-    case 'trial_balance':
-      return trialBalance(q, from, to, generatedBy);
-    default: {
-      // Exhaustiveness: adding a report type without a builder becomes a compile
-      // error rather than an empty page in production.
-      const never: never = q.type;
-      throw new Error(`Unhandled report type: ${String(never)}`);
+  const report = await (async (): Promise<FinanceReport> => {
+    switch (q.type) {
+      case 'daily_cash_book':
+        return dailyCashBook(q, from, to, generatedBy);
+      case 'general_ledger':
+        return generalLedger(q, from, to, generatedBy);
+      case 'income_statement':
+        return headBreakdown(q, from, to, generatedBy, 'income');
+      case 'expense_report':
+        return expenseReport(q, from, to, generatedBy);
+      case 'profit_loss':
+        return profitAndLoss(q, from, to, generatedBy);
+      case 'company_share':
+      case 'branch_share':
+        return shareReport(q, from, to, generatedBy);
+      case 'salary':
+        return salaryReport(q, from, to, generatedBy);
+      case 'partner_expense':
+        return partnerExpenseReport(q, from, to, generatedBy);
+      case 'trial_balance':
+        return trialBalance(q, from, to, generatedBy);
+      default: {
+        // Exhaustiveness: adding a report type without a builder becomes a compile
+        // error rather than an empty page in production.
+        const never: never = q.type;
+        throw new Error(`Unhandled report type: ${String(never)}`);
+      }
     }
+  })();
+
+  // /export always calls with paginate: false — the exported file is the
+  // document of record and must hold every row, not one page of it.
+  if (opts?.paginate && PAGINATED_REPORT_TYPES.has(q.type)) {
+    const { rows, pagination } = paginateRows(report.rows, q);
+    return { ...report, rows, pagination };
   }
+  return report;
 }
 
 /** A cash book defaults to today; everything else to the last 30 business days. */
