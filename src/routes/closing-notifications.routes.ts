@@ -136,18 +136,23 @@ router.get('/reports', async (req: AuthRequest, res, next) => {
 // Delivery logs + manual dispatch — Admin only
 // ---------------------------------------------------------------------------
 
-// GET /api/closing-notifications/logs?businessDate=&status=
+// GET /api/closing-notifications/logs?businessDate=&status=&channel=&recipientId=&limit=&offset=
 router.get('/logs', requireRole('super_admin'), async (req: AuthRequest, res, next) => {
   try {
+    const limit = Math.min(Math.max(Number(req.query['limit'] ?? 20), 1), 200);
+    const offset = Math.max(Number(req.query['offset'] ?? 0), 0);
+
     let query = supabaseAdmin
       .from('notification_logs')
-      .select('*, recipient:notification_recipients(recipient_name, mobile_number)')
+      .select('*, recipient:notification_recipients(recipient_name, mobile_number)', { count: 'exact' })
       .order('created_at', { ascending: false })
-      .limit(500);
+      .range(offset, offset + limit - 1);
     if (req.query['businessDate']) query = query.eq('business_date', String(req.query['businessDate']));
     if (req.query['status']) query = query.eq('status', String(req.query['status']));
+    if (req.query['channel']) query = query.eq('channel', String(req.query['channel']));
+    if (req.query['recipientId']) query = query.eq('recipient_id', String(req.query['recipientId']));
 
-    const { data, error } = await query;
+    const { data, error, count } = await query;
     if (error) throw error;
 
     const rows = ((data ?? []) as Record<string, unknown>[]).map((r) => {
@@ -158,7 +163,7 @@ router.get('/logs', requireRole('super_admin'), async (req: AuthRequest, res, ne
         mobile_number: recipient?.mobile_number ?? null,
       };
     });
-    res.json({ logs: rowToApi(rows) });
+    res.json({ logs: rowToApi(rows), total: count ?? 0 });
   } catch (err) {
     next(err);
   }
