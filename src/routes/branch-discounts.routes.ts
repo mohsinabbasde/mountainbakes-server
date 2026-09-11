@@ -79,29 +79,57 @@ function toApi(rows: unknown): Record<string, unknown>[] {
   }));
 }
 
-// GET /api/branch-discounts?days=N — this branch's claims, most recent first.
+const BRANCH_DISCOUNT_STATUSES = ['pending', 'approved', 'rejected', 'returned'] as const;
+
+// GET /api/branch-discounts?days=N&status=&limit=&offset= — this branch's
+// claims, most recent first.
 router.get('/', async (req: AuthRequest, res, next) => {
   try {
     const branchId = scopeBranch(req);
     if (!branchId) { res.status(400).json({ error: 'Branch context required' }); return; }
 
-    // 90 days, bounded exactly as GET /api/stock/returns is: the client table is
-    // unpaginated, so the window is the only thing keeping it finite. Longer than
-    // Production's 30-day board because this is a branch auditing its own claims
-    // over a quarter rather than a queue of today's work.
+    // The window (90 days — a branch auditing its own claims over a quarter,
+    // longer than Production's 30-day board of today's work) narrows the
+    // result set; limit/offset now page what's left instead of relying on the
+    // window alone to keep the response finite.
     const requested = Number(req.query['days'] ?? 90);
     const days = Number.isFinite(requested) ? Math.max(1, Math.min(365, Math.floor(requested))) : 90;
+    const limit = Math.min(Math.max(Number(req.query['limit'] ?? 50), 1), 200);
+    const offset = Math.max(Number(req.query['offset'] ?? 0), 0);
+    // An explicit `from`/`to` (a real date-range filter) overrides the rolling
+    // `days` window rather than combining with it — the two express the same
+    // thing and `days` is only the default when no range was chosen.
+    const from = (req.query['from'] as string | undefined) ?? businessDaysAgoStr(days - 1);
+    const to = req.query['to'] as string | undefined;
 
-    const { data, error } = await supabaseAdmin
+    let query = supabaseAdmin
       .from('branch_discounts')
-      .select('*')
+      .select('*', { count: 'exact' })
       .eq('branch_id', branchId)
-      .gte('business_date', businessDaysAgoStr(days - 1))
-      .order('created_at', { ascending: false });
+      .gte('business_date', from)
+      .order('created_at', { ascending: false })
+      .range(offset, offset + limit - 1);
+
+    if (to) query = query.lte('business_date', to);
+
+    const status = req.query['status'] as string | undefined;
+    if (status && (BRANCH_DISCOUNT_STATUSES as readonly string[]).includes(status)) {
+      query = query.eq('status', status);
+    }
+
+    // Free-text search over the demand number and reason — same convention as
+    // GET /api/products: strip `or` filter syntax, then ilike.
+    const search = (req.query['search'] as string | undefined)?.trim();
+    if (search) {
+      const term = search.replace(/[(),*]/g, ' ').trim();
+      if (term) query = query.or(`demand_number.ilike.%${term}%,reason.ilike.%${term}%`);
+    }
+
+    const { data, error, count } = await query;
     if (error) throw error;
 
     const discounts = toApi(data);
-    res.json({ discounts, total: discounts.length });
+    res.json({ discounts, total: count ?? 0 });
   } catch (err) {
     next(err);
   }

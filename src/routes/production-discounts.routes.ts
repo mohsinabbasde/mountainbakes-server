@@ -29,6 +29,8 @@ export const router = Router();
 
 router.use(authenticate, requireRole('super_admin', 'production_user'));
 
+const BRANCH_DISCOUNT_STATUSES = ['pending', 'approved', 'rejected', 'returned'] as const;
+
 /**
  * One DB row → the API's BranchDiscount shape.
  *
@@ -53,22 +55,45 @@ function toApi(rows: unknown): Record<string, unknown>[] {
   }));
 }
 
-// GET /api/production-discounts — last 30 days, most recent first.
-//
-// The same window the returns board uses, and it is a window rather than a page
-// for the same reason: the client table is unpaginated, so this is what keeps the
-// response finite as the table grows.
-router.get('/', async (_req, res, next) => {
+// GET /api/production-discounts?from=&to=&branchId=&status=&search=&limit=&offset=
+// — 30 days by default, most recent first, filtered and paginated in Postgres.
+router.get('/', async (req: AuthRequest, res, next) => {
   try {
-    const { data, error } = await supabaseAdmin
+    const limit = Math.min(Math.max(Number(req.query['limit'] ?? 50), 1), 200);
+    const offset = Math.max(Number(req.query['offset'] ?? 0), 0);
+    const from = (req.query['from'] as string | undefined) ?? businessDaysAgoStr(29);
+    const to = req.query['to'] as string | undefined;
+    const branchId = req.query['branchId'] as string | undefined;
+    const status = req.query['status'] as string | undefined;
+
+    let query = supabaseAdmin
       .from('branch_discounts')
-      .select('*')
-      .gte('business_date', businessDaysAgoStr(29))
-      .order('created_at', { ascending: false });
+      .select('*', { count: 'exact' })
+      .gte('business_date', from)
+      .order('created_at', { ascending: false })
+      .range(offset, offset + limit - 1);
+
+    if (to) query = query.lte('business_date', to);
+    if (branchId) query = query.eq('branch_id', branchId);
+    if (status && (BRANCH_DISCOUNT_STATUSES as readonly string[]).includes(status)) {
+      query = query.eq('status', status);
+    }
+
+    // Free-text search over the demand number, branch and reason — same
+    // convention as GET /api/products: strip `or` filter syntax, then ilike.
+    const search = (req.query['search'] as string | undefined)?.trim();
+    if (search) {
+      const term = search.replace(/[(),*]/g, ' ').trim();
+      if (term) {
+        query = query.or(`demand_number.ilike.%${term}%,reason.ilike.%${term}%,branch_name.ilike.%${term}%`);
+      }
+    }
+
+    const { data, error, count } = await query;
     if (error) throw error;
 
     const discounts = toApi(data);
-    res.json({ discounts, total: discounts.length });
+    res.json({ discounts, total: count ?? 0 });
   } catch (err) {
     next(err);
   }

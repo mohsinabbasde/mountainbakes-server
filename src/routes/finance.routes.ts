@@ -22,6 +22,7 @@ import {
   getDayClosing,
   getFinanceDashboard,
   getLedgerEntry,
+  getLedgerSummary,
   listDayClosings,
   listLedgerHeads,
   queryLedger,
@@ -59,8 +60,13 @@ function actorOf(req: AuthRequest): { uid: string; name: string } {
 
 router.get('/dashboard', requireFinance('view'), async (req: AuthRequest, res, next) => {
   try {
-    const businessDate = typeof req.query['date'] === 'string' ? req.query['date'] : businessDateStr();
-    res.json(await getFinanceDashboard(businessDate));
+    // `date` is the pre-range param, kept as a fallback for `from`/`to` so an
+    // old cached URL/tab still resolves to the same single-day view it always did.
+    const legacyDate = typeof req.query['date'] === 'string' ? req.query['date'] : undefined;
+    const from = typeof req.query['from'] === 'string' ? req.query['from'] : legacyDate;
+    const to = typeof req.query['to'] === 'string' ? req.query['to'] : legacyDate;
+    const branchId = typeof req.query['branchId'] === 'string' && req.query['branchId'] ? req.query['branchId'] : null;
+    res.json(await getFinanceDashboard({ from, to, branchId }));
   } catch (err) {
     next(err);
   }
@@ -100,6 +106,25 @@ router.get('/ledger', requireFinance('view'), async (req: AuthRequest, res, next
     };
 
     res.json(await queryLedger(query));
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * GET /api/finance/ledger/summary — the Daily Ledger's top summary cards.
+ *
+ * Must come before `/ledger/:id` so Express doesn't match "summary" as an id.
+ * Month-to-date as of `date` (defaults to today, same as `/ledger`), scoped
+ * by the same optional `branchId` the ledger table itself filters by.
+ */
+router.get('/ledger/summary', requireFinance('view'), async (req: AuthRequest, res, next) => {
+  try {
+    const q = req.query as Record<string, string | undefined>;
+    const to = q['date'] || q['to'] || businessDateStr();
+    const branchId = q['branchId'] || undefined;
+
+    res.json(await getLedgerSummary({ to, branchId }));
   } catch (err) {
     next(err);
   }

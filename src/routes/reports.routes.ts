@@ -29,6 +29,15 @@ const ORDER_SELECT = `
   items:order_items(product_id, product_name, category_name, qty, line_total)
 `;
 
+// Same row, minus the order_items embed — for a caller (Branch Dashboard) that
+// only reads the top-level totals + dailyData and never branchData/topProducts/
+// categoryBreakdown/paymentMethodBreakdown. Skipping the embed drops the join
+// Postgres would otherwise do for every order in range, not just the Node loops.
+const ORDER_SELECT_BASIC = `
+  id, status, grand_total, discount_total, branch_id, branch_name, payment_method,
+  business_date, created_at
+`;
+
 interface OrderRow {
   id: string;
   status: string;
@@ -39,7 +48,8 @@ interface OrderRow {
   payment_method: string | null;
   business_date: string;
   created_at: string;
-  items: { product_id: string | null; product_name: string; category_name: string | null; qty: number | string; line_total: number | string }[] | null;
+  // Absent entirely when fetched via ORDER_SELECT_BASIC (fields=basic).
+  items?: { product_id: string | null; product_name: string; category_name: string | null; qty: number | string; line_total: number | string }[] | null;
 }
 
 // Day/week/month/year boundaries follow the business day (rolls over at 2 AM Karachi).
@@ -56,10 +66,11 @@ router.get('/summary', async (req: AuthRequest, res, next) => {
   try {
     const period = String(req.query['period'] || 'monthly');
     const { from, to } = getDateRange(period, String(req.query['from'] || ''), String(req.query['to'] || ''));
+    const basic = String(req.query['fields'] || '') === 'basic';
 
     let query = supabaseAdmin
       .from('orders')
-      .select(ORDER_SELECT)
+      .select(basic ? ORDER_SELECT_BASIC : ORDER_SELECT)
       .gte('created_at', from)
       .lte('created_at', to);
 
@@ -110,67 +121,74 @@ router.get('/summary', async (req: AuthRequest, res, next) => {
       if (o.status === 'cancelled') dayMap[day]!.totalCancelled++;
     }
 
-    // Branch aggregation (admin only)
+    // branchData/topProducts/categoryBreakdown/paymentMethodBreakdown are all
+    // skipped under `fields=basic` — the Branch Dashboard is the only caller
+    // that passes it, and it renders none of the four (branchData/topProducts/
+    // paymentMethodBreakdown come from the sales_analytics RPC there instead;
+    // categoryBreakdown has no frontend consumer at all, basic or not).
     const branchMap: Record<string, { branchId: string; branchName: string; totalOrders: number; totalRevenue: number }> = {};
-    for (const o of paid) {
-      if (!branchMap[o.branch_id]) {
-        branchMap[o.branch_id] = { branchId: o.branch_id, branchName: o.branch_name ?? '', totalOrders: 0, totalRevenue: 0 };
-      }
-      branchMap[o.branch_id]!.totalOrders++;
-      branchMap[o.branch_id]!.totalRevenue += total(o.grand_total);
-    }
-
-    // Top products — reads the embedded order_items rows.
     const productMap: Record<string, { productId: string; productName: string; categoryName: string; totalQty: number; totalRevenue: number }> = {};
-    for (const o of paid) {
-      for (const item of o.items ?? []) {
-        // product_id is nullable (ON DELETE SET NULL); fall back to the name
-        // snapshot so a deleted product still aggregates instead of collapsing
-        // every such line into one 'null' bucket.
-        const key = item.product_id ?? `name:${item.product_name}`;
-        if (!productMap[key]) {
-          productMap[key] = {
-            productId: item.product_id ?? '',
-            productName: item.product_name,
-            categoryName: item.category_name ?? '',
-            totalQty: 0,
-            totalRevenue: 0,
-          };
-        }
-        productMap[key]!.totalQty += total(item.qty);
-        productMap[key]!.totalRevenue += total(item.line_total);
-      }
-    }
-
-    // Category rollup.
-    //
-    // Over EVERY line in range, not over `topProducts`. Folding the top ten
-    // products into categories would report a slice of each category's revenue
-    // under the category's own name — a wrong number that reads like a right
-    // one. Same `paid` set as the product rollup, so the two agree.
-    //
-    // The name comes from the snapshot on the line, so a renamed or deleted
-    // category still reports under what it was sold as. An empty snapshot is
-    // bucketed rather than skipped: the parts have to sum to the whole.
     const categoryMap: Record<string, CategoryBreakdown> = {};
-    for (const o of paid) {
-      for (const item of o.items ?? []) {
-        const name = item.category_name?.trim() || 'Uncategorised';
-        if (!categoryMap[name]) {
-          categoryMap[name] = { categoryName: name, totalQty: 0, totalRevenue: 0 };
-        }
-        categoryMap[name]!.totalQty += total(item.qty);
-        categoryMap[name]!.totalRevenue += total(item.line_total);
-      }
-    }
-
-    // Payment-method breakdown (non-cancelled sales)
     const pmMap: Record<string, PaymentMethodBreakdown> = {};
-    for (const o of live) {
-      const method = o.payment_method || 'cash';
-      if (!pmMap[method]) pmMap[method] = { method, total: 0, count: 0 };
-      pmMap[method]!.total += total(o.grand_total);
-      pmMap[method]!.count++;
+    if (!basic) {
+      // Branch aggregation (admin only)
+      for (const o of paid) {
+        if (!branchMap[o.branch_id]) {
+          branchMap[o.branch_id] = { branchId: o.branch_id, branchName: o.branch_name ?? '', totalOrders: 0, totalRevenue: 0 };
+        }
+        branchMap[o.branch_id]!.totalOrders++;
+        branchMap[o.branch_id]!.totalRevenue += total(o.grand_total);
+      }
+
+      // Top products — reads the embedded order_items rows.
+      for (const o of paid) {
+        for (const item of o.items ?? []) {
+          // product_id is nullable (ON DELETE SET NULL); fall back to the name
+          // snapshot so a deleted product still aggregates instead of collapsing
+          // every such line into one 'null' bucket.
+          const key = item.product_id ?? `name:${item.product_name}`;
+          if (!productMap[key]) {
+            productMap[key] = {
+              productId: item.product_id ?? '',
+              productName: item.product_name,
+              categoryName: item.category_name ?? '',
+              totalQty: 0,
+              totalRevenue: 0,
+            };
+          }
+          productMap[key]!.totalQty += total(item.qty);
+          productMap[key]!.totalRevenue += total(item.line_total);
+        }
+      }
+
+      // Category rollup.
+      //
+      // Over EVERY line in range, not over `topProducts`. Folding the top ten
+      // products into categories would report a slice of each category's revenue
+      // under the category's own name — a wrong number that reads like a right
+      // one. Same `paid` set as the product rollup, so the two agree.
+      //
+      // The name comes from the snapshot on the line, so a renamed or deleted
+      // category still reports under what it was sold as. An empty snapshot is
+      // bucketed rather than skipped: the parts have to sum to the whole.
+      for (const o of paid) {
+        for (const item of o.items ?? []) {
+          const name = item.category_name?.trim() || 'Uncategorised';
+          if (!categoryMap[name]) {
+            categoryMap[name] = { categoryName: name, totalQty: 0, totalRevenue: 0 };
+          }
+          categoryMap[name]!.totalQty += total(item.qty);
+          categoryMap[name]!.totalRevenue += total(item.line_total);
+        }
+      }
+
+      // Payment-method breakdown (non-cancelled sales)
+      for (const o of live) {
+        const method = o.payment_method || 'cash';
+        if (!pmMap[method]) pmMap[method] = { method, total: 0, count: 0 };
+        pmMap[method]!.total += total(o.grand_total);
+        pmMap[method]!.count++;
+      }
     }
 
     // Expenses in range (branch-scoped when applicable)
@@ -236,13 +254,17 @@ router.get('/summary', async (req: AuthRequest, res, next) => {
       totalExpenses,
       totalProfit,
       dailyData,
-      branchData: Object.values(branchMap).map(b => ({ ...b, averageOrderValue: b.totalOrders ? b.totalRevenue / b.totalOrders : 0 })),
-      topProducts: Object.values(productMap).sort((a, b) => b.totalRevenue - a.totalRevenue).slice(0, 10),
-      // Not truncated: a category list is short by nature (one row per category
-      // the branch actually sold from), and a "top N categories" would leave a
-      // rest bucket nobody can name.
-      categoryBreakdown: Object.values(categoryMap).sort((a, b) => b.totalRevenue - a.totalRevenue),
-      paymentMethodBreakdown: Object.values(pmMap),
+      // Omitted (not sent as empty arrays) under `fields=basic`, so a caller
+      // can't mistake "not computed" for "computed and empty".
+      ...(basic ? {} : {
+        branchData: Object.values(branchMap).map(b => ({ ...b, averageOrderValue: b.totalOrders ? b.totalRevenue / b.totalOrders : 0 })),
+        topProducts: Object.values(productMap).sort((a, b) => b.totalRevenue - a.totalRevenue).slice(0, 10),
+        // Not truncated: a category list is short by nature (one row per category
+        // the branch actually sold from), and a "top N categories" would leave a
+        // rest bucket nobody can name.
+        categoryBreakdown: Object.values(categoryMap).sort((a, b) => b.totalRevenue - a.totalRevenue),
+        paymentMethodBreakdown: Object.values(pmMap),
+      }),
       budget,
     });
   } catch (err) {

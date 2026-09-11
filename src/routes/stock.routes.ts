@@ -28,6 +28,7 @@ import {
   computeBranchStockHistory,
   reconcileBranchStockDay,
   computeStockRows,
+  preloadBranchStock,
   purgeBranchStock,
   DayClosedError,
   InsufficientStockError,
@@ -136,12 +137,16 @@ router.get('/history', async (req: AuthRequest, res, next) => {
     // question it did not ask.
     const date = (req.query['date'] as string | undefined)?.trim();
     if (date) {
-      const row = await computeBranchStockDay(branchId, date);
+      // Both calls below independently read the whole `products` table and this
+      // branch's `stock` balances — same rows, neither can change mid-request —
+      // so it's fetched once here and handed to both instead of 2-3x each.
+      const preload = await preloadBranchStock(branchId);
+      const row = await computeBranchStockDay(branchId, date, undefined, preload);
       // Shipped with the row, not behind its own endpoint: the statement is the
       // only place the aggregate is stated, so it is the only place that can say
       // whether the Stock page agrees with it — and a check that has to be asked
       // for separately is a check nobody runs.
-      const reconciliation = await reconcileBranchStockDay(branchId, date, row.balanceQty);
+      const reconciliation = await reconcileBranchStockDay(branchId, date, row.balanceQty, preload);
       res.json({ branchId, date, row, reconciliation });
       return;
     }
@@ -366,7 +371,8 @@ router.post('/return', requireRole('super_admin', ...BRANCH_ROLES), idempotent('
 // role, exactly as it does for the rest of this router.
 // ───────────────────────────────────────────────────────────────────────────────
 
-// GET /api/stock/returns?days=N — the branch's returns, most recent first.
+// GET /api/stock/returns?days=N&from=&to=&productId=&status=&search=&limit=&offset=
+// — the branch's returns, most recent first.
 router.get('/returns', requireRole('super_admin', ...BRANCH_ROLES), async (req: AuthRequest, res, next) => {
   try {
     const branchId = isBranchRole(req.user!.role)
@@ -374,15 +380,25 @@ router.get('/returns', requireRole('super_admin', ...BRANCH_ROLES), async (req: 
       : ((req.query['branchId'] as string | undefined) ?? null);
     if (!branchId) { res.status(400).json({ error: 'Branch context required' }); return; }
 
-    // Bounded the same way the Production board is, and for the same reason: the
-    // table is unpaginated on the client, so the window is what keeps it finite.
-    // 90 days rather than that board's 30 — this is a branch auditing its own
-    // returns over a quarter, not a queue of today's work.
+    // The window (90 days by default, a branch auditing its own returns over a
+    // quarter rather than a queue of today's work) narrows the result set;
+    // limit/offset now page what's left, so a busy branch's 90-day history
+    // doesn't have to come down in one response. An explicit `from` (a real
+    // date-range filter) overrides the rolling `days` window rather than
+    // combining with it — same convention as GET /api/branch-discounts.
     const requested = Number(req.query['days'] ?? 90);
     const days = Number.isFinite(requested) ? Math.max(1, Math.min(365, Math.floor(requested))) : 90;
 
-    const returns = await listBranchReturns(branchId, { from: businessDaysAgoStr(days - 1) });
-    res.json({ returns, total: returns.length });
+    const { returns, total } = await listBranchReturns(branchId, {
+      from: (req.query['from'] as string | undefined) ?? businessDaysAgoStr(days - 1),
+      to: req.query['to'] as string | undefined,
+      limit: req.query['limit'] ? Number(req.query['limit']) : undefined,
+      offset: req.query['offset'] ? Number(req.query['offset']) : undefined,
+      productId: req.query['productId'] as string | undefined,
+      status: req.query['status'] as string | undefined,
+      search: req.query['search'] as string | undefined,
+    });
+    res.json({ returns, total });
   } catch (err) {
     next(err);
   }

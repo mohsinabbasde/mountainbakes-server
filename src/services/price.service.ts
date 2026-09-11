@@ -211,15 +211,35 @@ export async function activateDuePrices(
 }
 
 /** History rows for the Price History page (most recent first). */
-export async function listPriceHistory(productId?: string, limit = 300): Promise<PriceHistoryDoc[]> {
-  // Ordering and limiting now happen in Postgres (indexed by changed_on desc)
-  // rather than by fetching the whole collection and sorting in memory.
-  let query = supabaseAdmin.from(HISTORY).select('*').order('changed_on', { ascending: false }).limit(limit);
+export async function listPriceHistory(
+  productId?: string,
+  limit = 300,
+  offset = 0,
+  search?: string,
+): Promise<{ history: PriceHistoryDoc[]; total: number }> {
+  // Ordering and paging now happen in Postgres (indexed by changed_on desc)
+  // rather than by fetching the whole collection and sorting/slicing in memory.
+  let query = supabaseAdmin
+    .from(HISTORY)
+    .select('*', { count: 'exact' })
+    .order('changed_on', { ascending: false })
+    .range(offset, offset + limit - 1);
   if (productId) query = query.eq('product_id', productId);
 
-  const { data, error } = await query;
+  // Free-text search over the price change number, product, code and reason —
+  // same convention as GET /api/products: strip `or` filter syntax, then ilike.
+  if (search?.trim()) {
+    const term = search.trim().replace(/[(),*]/g, ' ').trim();
+    if (term) {
+      query = query.or(
+        `price_number.ilike.%${term}%,product_name.ilike.%${term}%,product_code.ilike.%${term}%,reason.ilike.%${term}%`,
+      );
+    }
+  }
+
+  const { data, error, count } = await query;
   if (error) throw error;
-  return rowToApi<PriceHistoryDoc[]>(data ?? []);
+  return { history: rowToApi<PriceHistoryDoc[]>(data ?? []), total: count ?? 0 };
 }
 
 // ─── Export ─────────────────────────────────────────────────────────────────
@@ -309,7 +329,7 @@ export const PRICE_HISTORY_HEADERS = [
 /** Rows for the price-history export. Mirrors the Price History page's columns. */
 export async function buildPriceHistoryRows(productId?: string): Promise<(string | number)[][]> {
   // Same 300-row default as the page; the export is an audit aid, not a bulk dump.
-  const history = await listPriceHistory(productId, 1000);
+  const { history } = await listPriceHistory(productId, 1000);
   return history.map((h) => [
     h.productCode ?? '',
     h.productName ?? '',

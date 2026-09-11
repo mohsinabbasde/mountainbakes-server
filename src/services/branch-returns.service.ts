@@ -101,24 +101,50 @@ export class ReturnNotFoundError extends Error {
  * reaches the client with `date: undefined` and the table renders a column of
  * placeholders.
  */
+const OPEN_OR_CLOSED_STATUSES = ['pending', 'accepted', 'rejected', 'returned'];
+
 export async function listBranchReturns(
   branchId: string,
-  opts: { from?: string; to?: string } = {},
-): Promise<ProductionReturn[]> {
+  opts: {
+    from?: string;
+    to?: string;
+    limit?: number;
+    offset?: number;
+    productId?: string;
+    status?: string;
+    search?: string;
+  } = {},
+): Promise<{ returns: ProductionReturn[]; total: number }> {
+  const limit = Math.min(Math.max(Number(opts.limit ?? 50), 1), 200);
+  const offset = Math.max(Number(opts.offset ?? 0), 0);
+
   let q = supabaseAdmin
     .from('production_returns')
-    .select('*')
+    .select('*', { count: 'exact' })
     .eq('branch_id', branchId)
-    .order('created_at', { ascending: false });
+    .order('created_at', { ascending: false })
+    .range(offset, offset + limit - 1);
 
   if (opts.from) q = q.gte('business_date', opts.from);
   if (opts.to) q = q.lte('business_date', opts.to);
+  if (opts.productId) q = q.eq('product_id', opts.productId);
+  if (opts.status && OPEN_OR_CLOSED_STATUSES.includes(opts.status)) q = q.eq('status', opts.status);
 
-  const { data, error } = await q;
+  // Free-text search over the reason and product name — same convention as
+  // GET /api/products: strip `or` filter syntax, then ilike.
+  if (opts.search?.trim()) {
+    const term = opts.search.trim().replace(/[(),*]/g, ' ').trim();
+    if (term) q = q.or(`reason.ilike.%${term}%,product_name.ilike.%${term}%,legacy_id.ilike.%${term}%`);
+  }
+
+  const { data, error, count } = await q;
   if (error) throw error;
 
   const rows = rowToApi<Record<string, unknown>[]>(data ?? []);
-  return rows.map(({ businessDate, ...rest }) => ({ ...rest, date: businessDate })) as ProductionReturn[];
+  return {
+    returns: rows.map(({ businessDate, ...rest }) => ({ ...rest, date: businessDate })) as ProductionReturn[],
+    total: count ?? 0,
+  };
 }
 
 /**

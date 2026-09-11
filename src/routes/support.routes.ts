@@ -4,6 +4,7 @@ import { authenticate, type AuthRequest } from '../middleware/auth';
 import { requireRole } from '../middleware/requireRole';
 import { validate } from '../middleware/validate';
 import {
+  BRANCH_ROLES,
   CreateSupportTicketSchema,
   EditSupportTicketSchema,
   ResolveSupportTicketSchema,
@@ -609,25 +610,95 @@ router.get('/lookup', async (req: AuthRequest, res, next) => {
 // queue, which is what it was being used for. `?includeArchived=1` brings them
 // back (admin only — a raiser has no archive view), which is how anyone answers
 // "what was the query behind this correction?" after the fact.
+//
+// Paginated + searched server-side (`page`/`pageSize`/`search`), mirroring
+// `GET /api/finance-tickets` (finance-tickets.routes.ts) — this used to be a flat
+// `.limit(500)` with no page concept, so a branch/production account with a long
+// history downloaded and rendered every one of its own tickets on every visit.
 router.get('/', async (req: AuthRequest, res, next) => {
   try {
     const isAdmin = req.user!.role === 'super_admin';
     const includeArchived = isAdmin && ['1', 'true'].includes(String(req.query['includeArchived'] ?? ''));
 
+    const rawPage = Number(req.query['page']);
+    const page = Number.isFinite(rawPage) && rawPage > 0 ? Math.floor(rawPage) : 1;
+    const rawPageSize = Number(req.query['pageSize']);
+    const pageSize = Number.isFinite(rawPageSize) && rawPageSize > 0 ? Math.min(200, Math.floor(rawPageSize)) : 20;
+
     let query = supabaseAdmin
       .from('support_tickets')
-      .select('*')
-      .order('created_at', { ascending: false })
-      .limit(500);
+      .select('*', { count: 'exact' })
+      .order('created_at', { ascending: false });
     if (!includeArchived) query = query.is('archived_at', null);
-    if (!isAdmin) {
-      query = query.eq('raised_by', req.user!.uid);
-    } else if (req.query['status']) {
-      query = query.eq('status', String(req.query['status']));
+    // Branch scoping (unconditional for a non-admin raiser) and the status
+    // filter are independent — status only narrows an already-correctly-scoped
+    // query, for either caller, so a raiser can ask for their own open queue
+    // separately from their own history the same way the admin queue does.
+    if (!isAdmin) query = query.eq('raised_by', req.user!.uid);
+    if (req.query['status']) query = query.eq('status', String(req.query['status']));
+    // The Help Desk's "Resolved & rejected" history is everything but the open
+    // queue — one filter rather than asking twice and merging client-side.
+    if (req.query['excludeStatus']) query = query.neq('status', String(req.query['excludeStatus']));
+    // §5's Source filter (SupportCenterPage.tsx) — WHERE a query came from.
+    // Branch/production both raise into this same table, so "source" is really
+    // a role filter: `raised_by_role` in BRANCH_ROLES vs exactly production_user.
+    const source = req.query['source'] as string | undefined;
+    if (source === 'branch') query = query.in('raised_by_role', BRANCH_ROLES);
+    else if (source === 'production') query = query.eq('raised_by_role', 'production_user');
+
+    // Free text across the handles someone actually remembers — same escaping
+    // as the Finance Help Desk's search (finance-tickets.routes.ts).
+    const search = String(req.query['search'] ?? '').trim();
+    if (search) {
+      const term = search.replace(/[(),*]/g, ' ').trim();
+      if (term) {
+        query = query.or(
+          [
+            `ticket_number.ilike.*${term}*`,
+            `message.ilike.*${term}*`,
+            `raised_by_name.ilike.*${term}*`,
+            `branch_name.ilike.*${term}*`,
+          ].join(','),
+        );
+      }
     }
-    const { data, error } = await query;
+
+    // §19/§13 — one page, not the table. `count: 'exact'` above is what makes the
+    // pager honest about how many pages there are.
+    const fromRow = (page - 1) * pageSize;
+    query = query.range(fromRow, fromRow + pageSize - 1);
+
+    const { data, error, count } = await query;
     if (error) throw error;
-    res.json({ tickets: rowToApi(data ?? []) });
+    res.json({ tickets: rowToApi(data ?? []), total: count ?? 0, page, pageSize });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// GET /api/support/stats — open-ticket counts by source, for the Source filter's
+// badges (SupportCenterPage.tsx). Two `head: true` counts rather than a full
+// row fetch: the badges need a number, not the rows, and they must reflect the
+// WHOLE open queue regardless of which page the table is currently showing.
+router.get('/stats', requireRole('super_admin'), async (_req, res, next) => {
+  try {
+    const [branchRes, productionRes] = await Promise.all([
+      supabaseAdmin
+        .from('support_tickets')
+        .select('*', { count: 'exact', head: true })
+        .is('archived_at', null)
+        .eq('status', 'open')
+        .in('raised_by_role', BRANCH_ROLES),
+      supabaseAdmin
+        .from('support_tickets')
+        .select('*', { count: 'exact', head: true })
+        .is('archived_at', null)
+        .eq('status', 'open')
+        .eq('raised_by_role', 'production_user'),
+    ]);
+    if (branchRes.error) throw branchRes.error;
+    if (productionRes.error) throw productionRes.error;
+    res.json({ branchOpen: branchRes.count ?? 0, productionOpen: productionRes.count ?? 0 });
   } catch (err) {
     next(err);
   }

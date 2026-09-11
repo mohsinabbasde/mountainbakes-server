@@ -56,15 +56,17 @@ function actorOf(req: AuthRequest): { uid: string; name: string } {
 router.get('/', requireFinance('view'), async (req: AuthRequest, res, next) => {
   try {
     const q = req.query as Record<string, string | undefined>;
-    const approvals = await listIncomeApprovals({
+    const { approvals, total } = await listIncomeApprovals({
       // 'pending' spans both waiting states and is what the screen opens on.
       status: (q['status'] as IncomeApprovalStatus | 'pending') || 'pending',
       branchId: q['branchId'],
       from: q['from'],
       to: q['to'],
+      search: q['search'],
       limit: q['limit'] ? Number(q['limit']) : undefined,
+      offset: q['offset'] ? Number(q['offset']) : undefined,
     });
-    res.json({ approvals, total: approvals.length });
+    res.json({ approvals, total });
   } catch (err) {
     next(err);
   }
@@ -207,7 +209,7 @@ entriesRouter.use(authenticate);
 entriesRouter.get('/', requireFinance('view'), async (req: AuthRequest, res, next) => {
   try {
     const q = req.query as Record<string, string | undefined>;
-    const entries = await listTransactions({
+    const { transactions: entries, total } = await listTransactions({
       status: (q['status'] as FinanceDocStatus | 'pending') || undefined,
       type: (q['type'] as 'income' | 'expense') || undefined,
       branchId: q['branchId'],
@@ -216,8 +218,9 @@ entriesRouter.get('/', requireFinance('view'), async (req: AuthRequest, res, nex
       to: q['to'],
       search: q['search'],
       limit: q['limit'] ? Number(q['limit']) : undefined,
+      offset: q['offset'] ? Number(q['offset']) : undefined,
     });
-    res.json({ entries, total: entries.length });
+    res.json({ entries, total });
   } catch (err) {
     next(err);
   }

@@ -222,6 +222,7 @@ export async function computeStockRows(
   branchId: string,
   date: string = businessDateStr(),
   options: { activityOnly?: boolean } = {},
+  preload?: StockPreload,
 ): Promise<StockRow[]> {
   const today = businessDateStr();
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
@@ -245,8 +246,8 @@ export async function computeStockRows(
   // day's closing balance. The date filter is a real indexed predicate
   // (stock_history_branch_date_idx). Asking for today reads one day, as before.
   const [products, stock, history] = await Promise.all([
-    supabaseAdmin.from('products').select('id, name, stock_code, is_active'),
-    supabaseAdmin.from('stock').select('product_id, balance').eq('branch_id', branchId),
+    preload?.products ?? fetchAllProducts(),
+    preload?.stock ?? fetchBranchStock(branchId),
     supabaseAdmin
       .from('stock_history')
       .select('product_id, business_date, type, delta')
@@ -255,8 +256,6 @@ export async function computeStockRows(
       .order('business_date', { ascending: true })
       .range(0, HISTORY_ROW_CAP - 1),
   ]);
-  if (products.error) throw products.error;
-  if (stock.error) throw stock.error;
   if (history.error) throw history.error;
 
   const movements = (history.data ?? []) as
@@ -270,7 +269,7 @@ export async function computeStockRows(
   }
 
   const balanceByProduct = new Map<string, number>();
-  for (const s of (stock.data ?? []) as { product_id: string; balance: number | string }[]) {
+  for (const s of stock) {
     balanceByProduct.set(s.product_id, Number(s.balance ?? 0));
   }
 
@@ -297,7 +296,7 @@ export async function computeStockRows(
     if (h.type === 'adjustment') adjustment.set(h.product_id, (adjustment.get(h.product_id) ?? 0) + delta);
   }
 
-  return ((products.data ?? []) as { id: string; name: string; stock_code: string; is_active: boolean }[])
+  return products
     .map((p) => {
       // Closing balance FOR THIS DAY: today's live figure with everything that
       // happened after it taken back off.
@@ -373,17 +372,63 @@ function shiftDate(dateStr: string, n: number): string {
   return d.toISOString().slice(0, 10);
 }
 
+/**
+ * `products` (whole table, no filter) and a branch's `stock` balances
+ * (`product_id, balance` for one `branch_id`) are read, byte-identically, by
+ * several of the functions below whenever a single API request chains more
+ * than one of them (`/api/stock/history?date=` calls `computeBranchStockDay`
+ * AND `reconcileBranchStockDay`, which between them used to issue this same
+ * pair of reads three times each). Neither table can change mid-request, so a
+ * caller that already has one may pass it in via `preload` and skip the
+ * refetch — this changes nothing about how balances/deltas are derived, only
+ * how many times the same rows cross the wire.
+ */
+interface PreloadedProductRow {
+  id: string;
+  name: string;
+  stock_code: string;
+  is_active: boolean;
+  price: number | string;
+}
+interface PreloadedStockRow {
+  product_id: string;
+  balance: number | string;
+}
+export interface StockPreload {
+  products?: PreloadedProductRow[];
+  stock?: PreloadedStockRow[];
+}
+
+async function fetchAllProducts(): Promise<PreloadedProductRow[]> {
+  const { data, error } = await supabaseAdmin.from('products').select('id, name, stock_code, is_active, price');
+  if (error) throw error;
+  return (data ?? []) as PreloadedProductRow[];
+}
+
+async function fetchBranchStock(branchId: string): Promise<PreloadedStockRow[]> {
+  const { data, error } = await supabaseAdmin.from('stock').select('product_id, balance').eq('branch_id', branchId);
+  if (error) throw error;
+  return (data ?? []) as PreloadedStockRow[];
+}
+
+/** Fetch both preloadable reads once, for a caller about to chain several of the functions below. */
+export async function preloadBranchStock(branchId: string): Promise<Required<StockPreload>> {
+  const [products, stock] = await Promise.all([fetchAllProducts(), fetchBranchStock(branchId)]);
+  return { products, stock };
+}
+
 export async function computeBranchStockHistory(
   branchId: string,
   days: number,
   today: string = businessDateStr(),
+  preload?: StockPreload,
 ): Promise<BranchStockHistoryResult> {
   const span = Math.max(1, Math.min(365, Math.floor(days)));
   let from = shiftDate(today, -(span - 1));
 
   const [products, stock, history] = await Promise.all([
-    supabaseAdmin.from('products').select('id, price'),
-    supabaseAdmin.from('stock').select('product_id, balance').eq('branch_id', branchId),
+    preload?.products ?? fetchAllProducts(),
+    preload?.stock ?? fetchBranchStock(branchId),
     supabaseAdmin
       .from('stock_history')
       .select('product_id, business_date, type, delta')
@@ -392,12 +437,10 @@ export async function computeBranchStockHistory(
       .order('business_date', { ascending: false })
       .range(0, HISTORY_ROW_CAP - 1),
   ]);
-  if (products.error) throw products.error;
-  if (stock.error) throw stock.error;
   if (history.error) throw history.error;
 
   const priceByProduct = new Map<string, number>();
-  for (const p of (products.data ?? []) as { id: string; price: number | string }[]) {
+  for (const p of products) {
     priceByProduct.set(p.id, Number(p.price ?? 0));
   }
   const price = (productId: string) => priceByProduct.get(productId) ?? 0;
@@ -419,7 +462,7 @@ export async function computeBranchStockHistory(
   // Live total, in units and in money — this is `closing` for TODAY.
   let closingQty = 0;
   let closingAmount = 0;
-  for (const s of (stock.data ?? []) as { product_id: string; balance: number | string }[]) {
+  for (const s of stock) {
     const bal = Number(s.balance ?? 0);
     closingQty += bal;
     closingAmount += bal * price(s.product_id);
@@ -512,6 +555,7 @@ export async function computeBranchStockDay(
   branchId: string,
   date: string,
   today: string = businessDateStr(),
+  preload?: StockPreload,
 ): Promise<BranchStockHistoryRow> {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
     throw new UnreachableStockDateError(`"${date}" is not a YYYY-MM-DD business date.`);
@@ -529,7 +573,7 @@ export async function computeBranchStockDay(
     );
   }
 
-  const { rows, from, capped } = await computeBranchStockHistory(branchId, span, today);
+  const { rows, from, capped } = await computeBranchStockHistory(branchId, span, today, preload);
   // The walk emits today first and the requested day last.
   const row = rows[rows.length - 1];
   if (!row || row.date !== date) {
@@ -559,9 +603,10 @@ export async function computeBranchStockDay(
 async function closingBalancesByProduct(
   branchId: string,
   date: string,
+  preload?: StockPreload,
 ): Promise<Map<string, number>> {
   const [stock, history] = await Promise.all([
-    supabaseAdmin.from('stock').select('product_id, balance').eq('branch_id', branchId),
+    preload?.stock ?? fetchBranchStock(branchId),
     supabaseAdmin
       .from('stock_history')
       .select('product_id, delta')
@@ -570,11 +615,10 @@ async function closingBalancesByProduct(
       .order('business_date', { ascending: true })
       .range(0, HISTORY_ROW_CAP - 1),
   ]);
-  if (stock.error) throw stock.error;
   if (history.error) throw history.error;
 
   const closing = new Map<string, number>();
-  for (const s of (stock.data ?? []) as { product_id: string; balance: number | string }[]) {
+  for (const s of stock) {
     closing.set(s.product_id, Number(s.balance ?? 0));
   }
   // Take back off everything that happened AFTER the day being asked about.
@@ -605,16 +649,16 @@ export async function reconcileBranchStockDay(
   branchId: string,
   date: string,
   statementQty: number,
+  preload?: StockPreload,
 ): Promise<StockReconciliation> {
   const [closing, rows, products] = await Promise.all([
-    closingBalancesByProduct(branchId, date),
-    computeStockRows(branchId, date),
-    supabaseAdmin.from('products').select('id, name, is_active'),
+    closingBalancesByProduct(branchId, date, preload),
+    computeStockRows(branchId, date, {}, preload),
+    preload?.products ?? fetchAllProducts(),
   ]);
-  if (products.error) throw products.error;
 
   const meta = new Map<string, { name: string; isActive: boolean }>();
-  for (const p of (products.data ?? []) as { id: string; name: string; is_active: boolean }[]) {
+  for (const p of products) {
     meta.set(p.id, { name: p.name, isActive: p.is_active });
   }
 

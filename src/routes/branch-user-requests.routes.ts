@@ -29,19 +29,31 @@ async function getRequest(id: string): Promise<BranchUserRequest | null> {
 }
 
 // ---------------------------------------------------------------------------
-// GET /api/branch-user-requests — the queue.
+// GET /api/branch-user-requests?page=&limit=&search=&status= — the queue.
 //
 // A manager sees their OWN branch's requests and nothing else; an admin sees
 // every branch. Scoped from the JWT's branchId rather than a query parameter,
 // so there is no branch to tamper with.
+//
+// `limit` defaults to 200 rather than a real 20-row page when the caller
+// never asks for one: a branch manager's own queue is a handful of shift
+// requests and AccountRequestsPage.tsx (the admin's cross-branch view) is the
+// only caller that actually needs to page through this — it now sends real
+// `page`/`limit`. Before this, the whole endpoint was a flat `.limit(200)`
+// with no `count`, so an admin with more than 200 requests on record could
+// never see the rest and no total was ever reported.
 // ---------------------------------------------------------------------------
 router.get('/', requireRole('super_admin', 'branch_manager'), async (req: AuthRequest, res, next) => {
   try {
+    const rawPage = Number(req.query['page']);
+    const page = Number.isFinite(rawPage) && rawPage > 0 ? Math.floor(rawPage) : 1;
+    const rawLimit = Number(req.query['limit']);
+    const limit = Number.isFinite(rawLimit) && rawLimit > 0 ? Math.min(200, Math.floor(rawLimit)) : 200;
+
     let query = supabaseAdmin
       .from('branch_user_requests')
-      .select('*')
-      .order('created_at', { ascending: false })
-      .limit(200);
+      .select('*', { count: 'exact' })
+      .order('created_at', { ascending: false });
 
     if (req.user!.role === 'branch_manager') {
       const branchId = req.user!.branchId;
@@ -49,9 +61,27 @@ router.get('/', requireRole('super_admin', 'branch_manager'), async (req: AuthRe
       query = query.eq('branch_id', branchId);
     }
 
-    const { data, error } = await query;
+    const status = req.query['status'] as string | undefined;
+    if (status) query = query.eq('status', status);
+
+    // Free-text search over the request number, staff name, email and branch —
+    // same convention as GET /api/products: strip `or` filter syntax, then ilike.
+    const search = (req.query['search'] as string | undefined)?.trim();
+    if (search) {
+      const term = search.replace(/[(),*]/g, ' ').trim();
+      if (term) {
+        query = query.or(
+          `request_no.ilike.%${term}%,display_name.ilike.%${term}%,email.ilike.%${term}%,branch_name.ilike.%${term}%`,
+        );
+      }
+    }
+
+    const fromRow = (page - 1) * limit;
+    query = query.range(fromRow, fromRow + limit - 1);
+
+    const { data, error, count } = await query;
     if (error) throw error;
-    res.json({ requests: (data ?? []).map((r) => rowToApi<BranchUserRequest>(r)) });
+    res.json({ requests: (data ?? []).map((r) => rowToApi<BranchUserRequest>(r)), total: count ?? 0, page, limit });
   } catch (err) { next(err); }
 });
 

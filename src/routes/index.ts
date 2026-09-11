@@ -39,6 +39,7 @@ import { router as financeBranchShareRouter } from './finance-branch-share.route
 import { router as financeReportsRouter } from './finance-reports.routes';
 import { router as financeTicketsRouter } from './finance-tickets.routes';
 import { router as attachmentsRouter } from './attachments.routes';
+import { router as dataRouter } from './data.routes';
 
 export function setupRoutes(app: Express) {
   app.use('/api/auth', authRouter);
@@ -98,6 +99,10 @@ export function setupRoutes(app: Express) {
   // Shared by finance and branch: one upload endpoint for every captured photo,
   // which decides what the caller may attach to from the `entity` field.
   app.use('/api/attachments', attachmentsRouter);
+  // Data Engine: one generic list/aggregate/export endpoint per published
+  // resource (src/data-engine/registry.ts). The URL names a resource, never
+  // a table.
+  app.use('/api/data', dataRouter);
 
   // ── Finance Ledger ──
   // PREFIX ORDER MATTERS here exactly as it does for /api/products/price above:

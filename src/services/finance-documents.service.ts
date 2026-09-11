@@ -77,16 +77,22 @@ export interface TransactionQuery {
   to?: string;
   search?: string;
   limit?: number;
+  offset?: number;
 }
 
-export async function listTransactions(q: TransactionQuery): Promise<FinanceTransaction[]> {
+export async function listTransactions(
+  q: TransactionQuery,
+): Promise<{ transactions: FinanceTransaction[]; total: number }> {
+  const limit = Math.min(Math.max(Number(q.limit ?? 200), 1), 500);
+  const offset = Math.max(Number(q.offset ?? 0), 0);
+
   let query = withoutDeleted(
     supabaseAdmin
       .from('finance_transactions')
-      .select('*')
+      .select('*', { count: 'exact' })
       .order('business_date', { ascending: false })
       .order('created_at', { ascending: false })
-      .limit(Math.min(Math.max(Number(q.limit ?? 200), 1), 500)),
+      .range(offset, offset + limit - 1),
   );
 
   if (q.status === 'pending') query = query.in('status', ['draft', 'pending_approval']);
@@ -105,7 +111,7 @@ export async function listTransactions(q: TransactionQuery): Promise<FinanceTran
     }
   }
 
-  const { data, error } = await query;
+  const { data, error, count } = await query;
   if (error) throw error;
 
   const rows = rowToApi<FinanceTransaction[]>(data ?? []).map((t) => ({ ...t, amount: num(t.amount) }));
@@ -114,7 +120,10 @@ export async function listTransactions(q: TransactionQuery): Promise<FinanceTran
     'finance_transaction',
     rows.map((t) => t.id),
   );
-  return rows.map((t) => ({ ...t, attachments: photos.get(t.id) ?? [] }));
+  return {
+    transactions: rows.map((t) => ({ ...t, attachments: photos.get(t.id) ?? [] })),
+    total: count ?? 0,
+  };
 }
 
 /**
@@ -390,16 +399,22 @@ export interface PartnerExpenseQuery {
   to?: string;
   search?: string;
   limit?: number;
+  offset?: number;
 }
 
-export async function listPartnerExpenses(q: PartnerExpenseQuery): Promise<PartnerExpense[]> {
+export async function listPartnerExpenses(
+  q: PartnerExpenseQuery,
+): Promise<{ expenses: PartnerExpense[]; total: number }> {
+  const limit = Math.min(Math.max(Number(q.limit ?? 200), 1), 500);
+  const offset = Math.max(Number(q.offset ?? 0), 0);
+
   let query = withoutDeleted(
     supabaseAdmin
       .from('partner_expenses')
-      .select('*')
+      .select('*', { count: 'exact' })
       .order('business_date', { ascending: false })
       .order('created_at', { ascending: false })
-      .limit(Math.min(Math.max(Number(q.limit ?? 200), 1), 500)),
+      .range(offset, offset + limit - 1),
   );
 
   if (q.status === 'pending') query = query.in('status', ['draft', 'pending_approval']);
@@ -418,7 +433,7 @@ export async function listPartnerExpenses(q: PartnerExpenseQuery): Promise<Partn
     }
   }
 
-  const { data, error } = await query;
+  const { data, error, count } = await query;
   if (error) throw error;
 
   const rows = rowToApi<PartnerExpense[]>(data ?? []).map((p) => ({ ...p, amount: num(p.amount) }));
@@ -426,7 +441,10 @@ export async function listPartnerExpenses(q: PartnerExpenseQuery): Promise<Partn
     'partner_expense',
     rows.map((p) => p.id),
   );
-  return rows.map((p) => ({ ...p, attachments: photos.get(p.id) ?? [] }));
+  return {
+    expenses: rows.map((p) => ({ ...p, attachments: photos.get(p.id) ?? [] })),
+    total: count ?? 0,
+  };
 }
 
 const TXN_KIND_LABEL: Record<'advance' | 'draw', string> = { advance: 'Advance to', draw: 'Draw by' };
