@@ -273,6 +273,15 @@ router.get('/summary', async (req: AuthRequest, res, next) => {
 });
 
 /**
+ * Raw `production_orders` rows read to build one usage report cannot exceed
+ * this — otherwise a wide date range across every branch is an unbounded
+ * Node-memory read (PostgREST has no aggregate query here, only Node
+ * reduction below), the same reasoning `finance-reports.service.ts` documents
+ * for its own ROW_CAP.
+ */
+const PACKING_USAGE_ROW_CAP = 20_000;
+
+/**
  * GET /api/reports/packing-usage — Daily Packing Material Usage.
  *
  * One row per (business date, branch, material), aggregated across however many
@@ -284,11 +293,15 @@ router.get('/summary', async (req: AuthRequest, res, next) => {
  * real delivery confirmation is ever added, this is the single place that changes.
  *
  * Filters: from / to (business dates), branchId, packingMaterialId.
+ * `totals` are always summed over the FULL filtered result before `page`/
+ * `pageSize` slice the per-row table — paging can never skew the range totals.
  */
 router.get('/packing-usage', async (req: AuthRequest, res, next) => {
   try {
     const from = String(req.query['from'] || format(startOfMonth(new Date()), 'yyyy-MM-dd'));
     const to = String(req.query['to'] || format(endOfMonth(new Date()), 'yyyy-MM-dd'));
+    const page = Math.max(1, Math.trunc(Number(req.query['page'])) || 1);
+    const pageSize = Math.min(500, Math.max(1, Math.trunc(Number(req.query['pageSize'])) || 50));
 
     let query = supabaseAdmin
       .from('production_orders')
@@ -301,7 +314,8 @@ router.get('/packing-usage', async (req: AuthRequest, res, next) => {
       // requestedQty is summed across every status, so a demand the branch
       // deleted would still read as packing material somebody asked for.
       .neq('status', 'cancelled')
-      .order('business_date', { ascending: false });
+      .order('business_date', { ascending: false })
+      .range(0, PACKING_USAGE_ROW_CAP - 1);
 
     // Branch managers are scoped to their own branch, same rule as every other
     // handler in this router.
@@ -313,6 +327,7 @@ router.get('/packing-usage', async (req: AuthRequest, res, next) => {
 
     const { data, error } = await query;
     if (error) throw error;
+    const capped = (data ?? []).length >= PACKING_USAGE_ROW_CAP;
 
     const materialFilter = req.query['packingMaterialId'] ? String(req.query['packingMaterialId']) : null;
     const num = (v: unknown) => Number(v ?? 0);
@@ -373,7 +388,40 @@ router.get('/packing-usage', async (req: AuthRequest, res, next) => {
     const usage = [...rows.values()].sort(
       (a, b) => b.date.localeCompare(a.date) || a.materialName.localeCompare(b.materialName),
     );
-    res.json({ usage, from, to, total: usage.length });
+
+    // Summed over every filtered row BEFORE the page slice below — the range
+    // cards on screen must reflect the whole selection, not just page 1.
+    const totals = usage.reduce(
+      (a, r) => ({
+        requested: a.requested + r.requestedQty,
+        approved: a.approved + r.approvedQty,
+        delivered: a.delivered + r.deliveredQty,
+      }),
+      { requested: 0, approved: 0, delivered: 0 },
+    );
+
+    const total = usage.length;
+    const totalPages = Math.max(1, Math.ceil(total / pageSize));
+    const currentPage = Math.min(page, totalPages);
+    const start = (currentPage - 1) * pageSize;
+    const pageRows = usage.slice(start, start + pageSize);
+
+    res.json({
+      usage: pageRows,
+      totals,
+      from,
+      to,
+      total,
+      capped,
+      pagination: {
+        page: currentPage,
+        pageSize,
+        total,
+        totalPages,
+        hasNext: currentPage < totalPages,
+        hasPrevious: currentPage > 1,
+      },
+    });
   } catch (err) {
     next(err);
   }

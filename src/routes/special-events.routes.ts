@@ -201,14 +201,16 @@ async function decorateEvents(events: SpecialEventView[]): Promise<SpecialEventV
 // GET /api/special-events — list, filtered by year / category / status.
 router.get('/', async (req: AuthRequest, res, next) => {
   try {
-    const year = req.query['year'] ? Number(req.query['year']) : null;
+    // Defaults to the current business year so an unscoped call can't pull every
+    // materialised year at once — the frontend always passes one anyway.
+    const year = req.query['year'] ? Number(req.query['year']) : Number(businessDateStr().slice(0, 4));
     const category = (req.query['category'] as string) || null;
     const status = (req.query['status'] as string) || null;
     // Only a super admin may see soft-deleted events.
     const includeInactive = req.query['includeInactive'] === 'true' && req.user!.role === 'super_admin';
 
     // Auto-detect the requested year before reading it.
-    if (year) await ensureYearMaterialised(year);
+    await ensureYearMaterialised(year);
 
     const rows = await scopedEventRows(req, (table) => {
       let q = table.select('*').order('event_date', { ascending: true, nullsFirst: false });

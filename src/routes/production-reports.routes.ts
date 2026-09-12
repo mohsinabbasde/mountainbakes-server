@@ -230,7 +230,13 @@ async function buildReport(
       // Every row counts here regardless of status, so a demand the branch
       // deleted has to be dropped at the query or it inflates that branch's
       // demand and order count.
-      const { data, error } = await supabaseAdmin.from('production_orders').select(ORDER_WITH_ITEMS).gte('business_date', fromStr).neq('status', 'cancelled');
+      const { data, error } = await supabaseAdmin
+        .from('production_orders')
+        .select(ORDER_WITH_ITEMS)
+        .gte('business_date', fromStr)
+        .lte('business_date', toStr)
+        .neq('status', 'cancelled')
+        .range(0, PREPARED_ROW_CAP - 1);
       if (error) throw error;
       const orders = ((data ?? []) as unknown as RDoc[]).filter((o) => inRange(o.business_date));
       const map: Record<string, { name: string; qty: number; required: number; pending: number; orders: number }> = {};
@@ -252,7 +258,12 @@ async function buildReport(
       };
     }
     case 'approved-orders': {
-      const { data, error } = await supabaseAdmin.from('production_orders').select(ORDER_WITH_ITEMS).gte('business_date', fromStr);
+      const { data, error } = await supabaseAdmin
+        .from('production_orders')
+        .select(ORDER_WITH_ITEMS)
+        .gte('business_date', fromStr)
+        .lte('business_date', toStr)
+        .range(0, PREPARED_ROW_CAP - 1);
       if (error) throw error;
       const orders = ((data ?? []) as unknown as RDoc[]).filter((o) => o.status === 'approved' && inRange(o.business_date));
       return {
@@ -291,7 +302,9 @@ async function buildReport(
       const { data, error } = await supabaseAdmin
         .from('production_returns')
         .select('business_date, branch_name, product_name, qty, reason, status')
-        .gte('business_date', fromStr);
+        .gte('business_date', fromStr)
+        .lte('business_date', toStr)
+        .range(0, PREPARED_ROW_CAP - 1);
       if (error) throw error;
       const returns = ((data ?? []) as { business_date: string; branch_name: string; product_name: string; qty: number; reason: string; status: string }[])
         .filter((r) => inRange(r.business_date));
@@ -415,7 +428,11 @@ async function buildReport(
       const { data, error } = await supabaseAdmin
         .from('production_stock_history')
         .select('type, delta, business_date')
-        .gte('business_date', fromStr);
+        .gte('business_date', fromStr)
+        .lte('business_date', toStr)
+        // Same reasoning as `prepared-detail` above: this aggregates in Node, so
+        // an unbounded window is an unbounded memory read.
+        .range(0, PREPARED_ROW_CAP - 1);
       if (error) throw error;
       const byDay: Record<string, number> = {};
       for (const h of (data ?? []) as { type: string; delta: number; business_date: string }[]) {
@@ -431,7 +448,16 @@ async function buildReport(
   }
 }
 
-// GET /api/production-reports/summary?report=&period=&from=&to= — JSON preview
+/**
+ * The only two report types whose row count is one-per-record (a demand order,
+ * a return) rather than aggregated to one-per-branch/date/product — every other
+ * type stays small by construction, so paginating it would just be UI for no
+ * reason. `/export` never consults this: the exported file is the document of
+ * record and must hold every (capped) row, not one screen's worth.
+ */
+const PAGINATED_PRODUCTION_REPORT_TYPES = new Set(['approved-orders', 'returned-products']);
+
+// GET /api/production-reports/summary?report=&period=&from=&to=&page=&pageSize= — JSON preview
 router.get('/summary', async (req: AuthRequest, res, next) => {
   try {
     const report = String(req.query['report'] || 'production');
@@ -439,7 +465,22 @@ router.get('/summary', async (req: AuthRequest, res, next) => {
     const range = usesDateRange(report) ? explicitDateRange(req.query['from'], req.query['to']) : undefined;
     const branchId = typeof req.query['branchId'] === 'string' ? req.query['branchId'] : '';
     const data = await buildReport(report, period, range, branchId);
-    res.json(data);
+
+    if (!PAGINATED_PRODUCTION_REPORT_TYPES.has(report)) {
+      res.json(data);
+      return;
+    }
+
+    const pageSize = Math.min(500, Math.max(1, Math.trunc(Number(req.query['pageSize'])) || 50));
+    const total = data.rows.length;
+    const totalPages = Math.max(1, Math.ceil(total / pageSize));
+    const page = Math.min(Math.max(1, Math.trunc(Number(req.query['page'])) || 1), totalPages);
+    const start = (page - 1) * pageSize;
+    res.json({
+      ...data,
+      rows: data.rows.slice(start, start + pageSize),
+      pagination: { page, pageSize, total, totalPages, hasNext: page < totalPages, hasPrevious: page > 1 },
+    });
   } catch (err) {
     next(err);
   }

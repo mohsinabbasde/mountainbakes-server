@@ -42,7 +42,7 @@ function parseQuery(req: AuthRequest) {
 
 router.get('/', requireFinance('view'), async (req: AuthRequest, res, next) => {
   try {
-    const report = await buildFinanceReport(parseQuery(req), req.user!.email);
+    const report = await buildFinanceReport(parseQuery(req), req.user!.email, { paginate: true });
     res.json({ report });
   } catch (err) {
     next(err);
@@ -55,7 +55,9 @@ router.get('/export', requireFinance('view'), async (req: AuthRequest, res, next
     const format = (String(req.query['format'] || 'excel').toLowerCase() as FinanceExportFormat);
 
     const [report, settings] = await Promise.all([
-      buildFinanceReport(query, req.user!.email),
+      // paginate: false — an export is the document of record and must hold
+      // every row the filters matched, not just the page the screen is on.
+      buildFinanceReport(query, req.user!.email, { paginate: false }),
       // The company name on the letterhead comes from app settings, so a rename
       // reaches every finance PDF without touching this module.
       getAppSettings().catch(() => ({ companyName: 'Mountain Bakes' })),

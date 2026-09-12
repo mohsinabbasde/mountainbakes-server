@@ -973,6 +973,15 @@ export interface FinanceReport {
   totals: Record<string, number>;
   /** Headline figures printed above the table. */
   summary: { label: string; value: number; format?: ReportCellFormat }[];
+  /**
+   * Present only for the row-level reports (cash book, general ledger, expense
+   * report, share reports, salary, partner expense) when the caller asked for
+   * a page — `rows` above is then one page, but `total` is the FILTERED count
+   * across the whole period (totals/summary are always computed over the full
+   * set, never just the visible page). Absent for the aggregated reports
+   * (income statement, P&L, trial balance), which always return every row.
+   */
+  pagination?: { page: number; pageSize: number; total: number; totalPages: number; hasNext: boolean; hasPrevious: boolean };
 }
 
 export interface FinanceReportQuery {
