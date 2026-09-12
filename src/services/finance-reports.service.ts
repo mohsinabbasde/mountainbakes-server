@@ -579,7 +579,10 @@ async function salaryReport(
   if (q.salaryMonth) query = query.eq('salary_month', q.salaryMonth);
   else query = query.gte('payment_date', from).lte('payment_date', to);
   if (q.employeeId) query = query.eq('employee_id', q.employeeId);
-  if (q.department) query = query.eq('department', q.department);
+  // Case-insensitive: department is free text, so a pre-normalization row
+  // (or a direct DB write) can still differ only by case from the dropdown's
+  // canonical value.
+  if (q.department) query = query.ilike('department', q.department);
 
   const { data, error } = await query;
   if (error) throw error;

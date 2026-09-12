@@ -25,6 +25,22 @@ import { approveDocument, rejectDocument } from './finance-documents.service';
 import { getLedgerHeadByCode, round2 } from './finance-settings.service';
 
 /**
+ * Canonicalizes a free-text department name: trims, collapses internal
+ * whitespace, and title-cases it, so "production", "Production " and
+ * "PRODUCTION" all save as the same string. `department` is a plain `<Input>`
+ * (see `EmployeeForm`), not a fixed list, so without this every keystroke
+ * variant becomes its own value — a dropdown built from distinct employee
+ * departments then shows the same department twice. Mirrors the Postgres
+ * `initcap()` used by the migration that cleaned up pre-existing rows.
+ */
+export function normalizeDepartment(raw: string): string {
+  return raw
+    .trim()
+    .replace(/\s+/g, ' ')
+    .replace(/\S+/g, (word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase());
+}
+
+/**
  * Payroll — the employee master and the salary ledger.
  *
  * `finance_employees` is deliberately not `users`: `users` is the set of people
@@ -60,7 +76,9 @@ export async function listEmployees(opts: {
     .order('name', { ascending: true });
 
   if (!opts.includeInactive) query = query.eq('is_active', true);
-  if (opts.department) query = query.eq('department', opts.department);
+  // Case-insensitive: the dropdown feeding this dedupes departments
+  // case-insensitively too, so a pre-normalization row must still match.
+  if (opts.department) query = query.ilike('department', opts.department);
   if (opts.search) {
     const term = opts.search.replace(/[,()*]/g, ' ').trim();
     if (term) query = query.or(`name.ilike.%${term}%,employee_code.ilike.%${term}%,designation.ilike.%${term}%`);
@@ -129,7 +147,7 @@ export async function createEmployee(input: CreateEmployeeInput): Promise<Financ
     .from('finance_employees')
     .insert({
       name: input.name,
-      department: input.department,
+      department: normalizeDepartment(input.department),
       designation: input.designation,
       branch_id: branch?.id ?? null,
       branch_name: branch?.name ?? null,
@@ -146,7 +164,7 @@ export async function createEmployee(input: CreateEmployeeInput): Promise<Financ
 export async function updateEmployee(id: string, input: UpdateEmployeeInput): Promise<FinanceEmployee> {
   const row: Record<string, unknown> = {};
   if (input.name !== undefined) row['name'] = input.name;
-  if (input.department !== undefined) row['department'] = input.department;
+  if (input.department !== undefined) row['department'] = normalizeDepartment(input.department);
   if (input.designation !== undefined) row['designation'] = input.designation;
   if (input.phone !== undefined) row['phone'] = input.phone;
   if (input.joinedOn !== undefined) row['joined_on'] = input.joinedOn;
@@ -272,7 +290,7 @@ export async function listSalaryPayments(
   else if (q.status) query = query.eq('status', q.status);
   if (q.salaryMonth) query = query.eq('salary_month', q.salaryMonth);
   if (q.employeeId) query = query.eq('employee_id', q.employeeId);
-  if (q.department) query = query.eq('department', q.department);
+  if (q.department) query = query.ilike('department', q.department);
   if (q.search) {
     const term = q.search.replace(/[,()*]/g, ' ').trim();
     if (term) query = query.or(`salary_no.ilike.%${term}%,employee_name.ilike.%${term}%,designation.ilike.%${term}%`);
@@ -633,7 +651,7 @@ export async function listEmployeeAdvances(
 
   if (q.employeeId) query = query.eq('employee_id', q.employeeId);
   if (q.salaryId) query = query.eq('recovered_by_salary_id', q.salaryId);
-  if (q.department) query = query.eq('department', q.department);
+  if (q.department) query = query.ilike('department', q.department);
   if (q.from) query = query.gte('business_date', q.from);
   if (q.to) query = query.lte('business_date', q.to);
   if (q.search) {

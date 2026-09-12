@@ -167,7 +167,7 @@ export const VerifyIncomeSchema = z.object({
 
 export const CreateEmployeeSchema = z.object({
   name: z.string().min(2, 'Name is required').max(120),
-  department: z.string().min(1, 'Department is required').max(80),
+  department: z.string().trim().min(1, 'Department is required').max(80),
   designation: z.string().min(1, 'Designation is required').max(80),
   branchId: z.string().uuid().nullish(),
   baseSalary: z.number().nonnegative('Base salary cannot be negative').max(9_999_999_999.99).default(0),
