@@ -18,6 +18,7 @@ import { router as productionDiscountsRouter } from './production-discounts.rout
 import { router as branchDiscountsRouter } from './branch-discounts.routes';
 import { router as productionReportsRouter } from './production-reports.routes';
 import { router as expensesRouter } from './expenses.routes';
+import { router as financeQueriesRouter } from './finance-queries.routes';
 import { router as branchClosingRouter } from './branch-closing.routes';
 import { router as dailySaleRouter } from './daily-sale.routes';
 import { router as stockRouter } from './stock.routes';
@@ -70,6 +71,7 @@ export function setupRoutes(app: Express) {
   app.use('/api/branch-discounts', branchDiscountsRouter);
   app.use('/api/production-reports', productionReportsRouter);
   app.use('/api/expenses', expensesRouter);
+  app.use('/api/finance-queries', financeQueriesRouter);
   app.use('/api/branch-closing', branchClosingRouter);
   // Daily Sale Record — the branch's daily reconciliation of system sales against
   // physically counted receipts. Its own prefix rather than a path under

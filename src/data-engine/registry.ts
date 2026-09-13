@@ -406,6 +406,52 @@ const expensesConfig: ResourceConfig = {
   cache: 'live',
 };
 
+/**
+ * Finance Query — a plain, standalone finance record (§8 of
+ * ../../frontend/.claude/ProjectMDFiles/chagneQuery.md). Distinct from the
+ * Help Desk ticket queue (`financeHelpDeskConfig`, below): a query IS the
+ * record, with no reference to another table.
+ */
+const financeQueriesConfig: ResourceConfig = {
+  table: 'finance_queries',
+  roles: FINANCE_READERS,
+  fields: [
+    f('queryNo', 'text'),
+    f('businessDate', 'date'),
+    f('title', 'text'),
+    f('amount', 'number'),
+    f('category', 'text'),
+    ...branchFields,
+    f('type', 'enum'),
+    f('comment', 'text'),
+    f('createdBy', 'uuid'),
+    f('createdByName', 'text'),
+    f('createdAt', 'timestamp'),
+    f('updatedAt', 'timestamp'),
+  ],
+  searchableFields: ['queryNo', 'title', 'comment'],
+  sortableFields: ['businessDate', 'createdAt', 'queryNo', 'amount', 'category', 'branchName', 'type'],
+  defaultSort: { key: 'createdAt', direction: 'desc' },
+  aggregatableFields: ['amount'],
+  groupableFields: ['category', 'type', 'branchId', 'branchName'],
+  // The FinanceQuery type calls the business date `date` (finance-queries.routes.ts).
+  transform: (rows) => rows.map(({ businessDate, ...rest }) => ({ ...rest, businessDate, date: businessDate })),
+  export: {
+    fileName: 'finance-queries',
+    columns: [
+      { key: 'queryNo', header: 'Query ID' },
+      { key: 'date', header: 'Date' },
+      { key: 'title', header: 'Title' },
+      { key: 'amount', header: 'Amount' },
+      { key: 'category', header: 'Category' },
+      { key: 'branchName', header: 'Branch' },
+      { key: 'type', header: 'Type' },
+      { key: 'comment', header: 'Comment' },
+    ],
+  },
+  cache: 'live',
+};
+
 // ---------------------------------------------------------------------------
 // Finance
 // ---------------------------------------------------------------------------
@@ -961,6 +1007,7 @@ export const resources = {
   closingStock: closingStockConfig,
   dailySaleRecords: dailySaleRecordsConfig,
   expenses: expensesConfig,
+  financeQueries: financeQueriesConfig,
   income: incomeConfig,
   finance: financeConfig,
   financeHelpDesk: financeHelpDeskConfig,
