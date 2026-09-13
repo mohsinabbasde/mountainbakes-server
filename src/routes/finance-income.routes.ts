@@ -257,7 +257,7 @@ entriesRouter.put(
     try {
       const id = String(req.params['id']);
       const before = await getTransaction(id);
-      const doc = await updateTransaction(id, req.body);
+      const doc = await updateTransaction(id, req.body, actorOf(req));
 
       await logFinanceAudit(req, {
         entity: 'finance_transaction',
@@ -267,7 +267,10 @@ entriesRouter.put(
         previousValues: before
           ? auditSnapshot(before as unknown as Record<string, unknown>, ['ledgerHeadName', 'description', 'amount', 'account', 'businessDate', 'status'])
           : null,
-        newValues: auditSnapshot(doc as unknown as Record<string, unknown>, ['ledgerHeadName', 'description', 'amount', 'account', 'businessDate', 'status']),
+        newValues: {
+          ...auditSnapshot(doc as unknown as Record<string, unknown>, ['ledgerHeadName', 'description', 'amount', 'account', 'businessDate', 'status']),
+          photoReplaced: Boolean(req.body.attachmentIds),
+        },
       });
 
       res.json({ entry: doc });

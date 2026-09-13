@@ -98,15 +98,18 @@ export const CreateFinanceTransactionSchema = z.object({
   attachmentIds: requiredAttachmentIds,
 });
 
-// attachmentIds is omitted: an edit revises the figures on a draft or rejected
-// document, and the photos bound at creation stay bound. Rebinding on update
-// would let a rejected voucher swap its evidence for a different receipt before
-// coming back to the same approver.
-export const UpdateFinanceTransactionSchema = CreateFinanceTransactionSchema.partial().omit({
-  asDraft: true,
-  confirmDuplicate: true,
-  attachmentIds: true,
-});
+// attachmentIds is optional here, not omitted: an edit revises the figures on a
+// draft or rejected document, and by default the photo bound at creation stays
+// bound. Sending attachmentIds explicitly REPLACES it (at least one new, staged
+// id required) — a deliberate, admin-facing exception to "the evidence never
+// changes", so a receipt can be corrected without recreating the whole entry.
+export const UpdateFinanceTransactionSchema = CreateFinanceTransactionSchema.partial()
+  .omit({
+    asDraft: true,
+    confirmDuplicate: true,
+    attachmentIds: true,
+  })
+  .extend({ attachmentIds: requiredAttachmentIds.optional() });
 
 // ---------------------------------------------------------------------------
 // Approvals — one shape reused by every document type

@@ -226,6 +226,45 @@ export async function bindAttachments(input: {
 }
 
 /**
+ * Swap the receipt bound to an existing entity: bind the new staged ids first
+ * (so a failure here leaves the old photo untouched), then delete the
+ * previously-bound rows and their storage objects.
+ *
+ * `attachments` is not soft-deleted, so this is a hard delete — consistent with
+ * `uploadAttachment`'s own rollback-on-failure behaviour.
+ */
+export async function replaceAttachments(input: {
+  entity: AttachmentEntity;
+  entityId: string;
+  attachmentIds: string[];
+  actor: { uid: string };
+}): Promise<Attachment[]> {
+  const { data: old, error: oldErr } = await supabaseAdmin
+    .from('attachments')
+    .select(SELECT)
+    .eq('entity', input.entity)
+    .eq('entity_id', input.entityId);
+  if (oldErr) throw oldErr;
+
+  const bound = await bindAttachments(input);
+
+  const oldRows = rowToApi<AttachmentRow[]>(old ?? []);
+  if (oldRows.length > 0) {
+    const { error: removeErr } = await supabaseAdmin.storage
+      .from(BUCKET)
+      .remove(oldRows.map((r) => r.storagePath));
+    if (removeErr) console.warn('[attachments] could not remove old receipt files:', removeErr.message);
+    const { error: delErr } = await supabaseAdmin
+      .from('attachments')
+      .delete()
+      .in('id', oldRows.map((r) => r.id));
+    if (delErr) console.warn('[attachments] could not delete old receipt rows:', delErr.message);
+  }
+
+  return bound;
+}
+
+/**
  * Photos for one parent, newest last.
  *
  * Prefer `listAttachmentsFor` when reading more than one parent — this issues a
