@@ -18,7 +18,7 @@ import {
 } from '../shared';
 import { rowToApi } from '../utils/case';
 import { withoutDeleted } from '../utils/softDelete';
-import { bindAttachments, listAttachments, listAttachmentsFor, replaceAttachments } from './attachments.service';
+import { bindAttachments, listAttachments, listAttachmentsFor } from './attachments.service';
 import { postEntry, requireActiveHead } from './finance-ledger.service';
 import { getLedgerHeadByCode, round2 } from './finance-settings.service';
 
@@ -234,7 +234,6 @@ export async function createTransaction(
 export async function updateTransaction(
   id: string,
   input: UpdateFinanceTransactionInput,
-  actor: { uid: string; name: string },
 ): Promise<FinanceTransaction> {
   const current = await getTransaction(id);
   if (!current) throw Object.assign(new Error('Entry not found'), { status: 404 });
@@ -273,17 +272,7 @@ export async function updateTransaction(
     .select('*')
     .single();
   if (error) throw error;
-
-  if (input.attachmentIds !== undefined) {
-    await replaceAttachments({
-      entity: 'finance_transaction',
-      entityId: id,
-      attachmentIds: input.attachmentIds,
-      actor,
-    });
-  }
-
-  return { ...rowToApi<FinanceTransaction>(data), attachments: await listAttachments('finance_transaction', id) };
+  return rowToApi<FinanceTransaction>(data);
 }
 
 export async function getTransaction(id: string): Promise<FinanceTransaction | null> {
