@@ -11,6 +11,7 @@ import {
   type LedgerEntry,
 } from '../shared';
 import { rowToApi } from '../utils/case';
+import { sortRows } from '../utils/sortRows';
 import { withoutDeleted } from '../utils/softDelete';
 import { getDayClosing } from './finance-ledger.service';
 import { getLedgerHeadByCode, round2 } from './finance-settings.service';
@@ -120,13 +121,32 @@ export async function buildFinanceReport(
     }
   })();
 
+  const sorted = applyReportSort(report, q);
+
   // /export always calls with paginate: false — the exported file is the
   // document of record and must hold every row, not one page of it.
   if (opts?.paginate && PAGINATED_REPORT_TYPES.has(q.type)) {
-    const { rows, pagination } = paginateRows(report.rows, q);
-    return { ...report, rows, pagination };
+    const { rows, pagination } = paginateRows(sorted.rows, q);
+    return { ...sorted, rows, pagination };
   }
-  return report;
+  return sorted;
+}
+
+/**
+ * `sortBy` is validated against THIS report's own `columns` — the sortable
+ * key set differs per report type (a cash book has `debit`/`credit`, a trial
+ * balance doesn't), so there is no single global allowlist the way the Data
+ * Engine has one. An unrecognized key (stale from a report-type switch, or
+ * simply never sent) leaves `rows` exactly as its builder produced them —
+ * every builder already has its own sensible default order.
+ */
+function applyReportSort(report: FinanceReport, q: FinanceReportQueryInput): FinanceReport {
+  if (!q.sortBy) return report;
+  const known = report.columns.some((c) => c.key === q.sortBy);
+  if (!known) return report;
+  const key = q.sortBy;
+  const rows = sortRows(report.rows, (row) => row[key], q.sortDir ?? 'asc');
+  return { ...report, rows };
 }
 
 /** A cash book defaults to today; everything else to the last 30 business days. */

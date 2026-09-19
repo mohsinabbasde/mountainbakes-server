@@ -17,6 +17,18 @@ export const router = Router();
 
 router.use(authenticate);
 
+/** Allowlist for `GET /?sortBy=` — never let a client-supplied column reach `.order()`. */
+const REQUEST_SORTABLE_COLUMNS: Record<string, string> = {
+  requestNo: 'request_no',
+  branchName: 'branch_name',
+  displayName: 'display_name',
+  email: 'email',
+  shift: 'shift',
+  requestedByName: 'requested_by_name',
+  status: 'status',
+  createdAt: 'created_at',
+};
+
 /** Read one request row, or null. */
 async function getRequest(id: string): Promise<BranchUserRequest | null> {
   const { data, error } = await supabaseAdmin
@@ -50,10 +62,14 @@ router.get('/', requireRole('super_admin', 'branch_manager'), async (req: AuthRe
     const rawLimit = Number(req.query['limit']);
     const limit = Number.isFinite(rawLimit) && rawLimit > 0 ? Math.min(200, Math.floor(rawLimit)) : 200;
 
+    const sortByKey = req.query['sortBy'] as string | undefined;
+    const sortCol = (sortByKey && REQUEST_SORTABLE_COLUMNS[sortByKey]) || 'created_at';
+    const ascending = req.query['sortDir'] === 'asc';
+
     let query = supabaseAdmin
       .from('branch_user_requests')
       .select('*', { count: 'exact' })
-      .order('created_at', { ascending: false });
+      .order(sortCol, { ascending });
 
     if (req.user!.role === 'branch_manager') {
       const branchId = req.user!.branchId;

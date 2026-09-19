@@ -211,18 +211,34 @@ export async function activateDuePrices(
 }
 
 /** History rows for the Price History page (most recent first). */
+/** Allowlist for `?sortBy=` — never let a client-supplied column reach `.order()`. */
+const PRICE_HISTORY_SORTABLE_COLUMNS: Record<string, string> = {
+  priceNumber: 'price_number',
+  productName: 'product_name',
+  oldPrice: 'old_price',
+  newPrice: 'new_price',
+  effectiveDate: 'effective_date',
+  changedByName: 'changed_by_name',
+  changedOn: 'changed_on',
+  status: 'status',
+};
+
 export async function listPriceHistory(
   productId?: string,
   limit = 300,
   offset = 0,
   search?: string,
+  sortBy?: string,
+  sortDir?: 'asc' | 'desc',
 ): Promise<{ history: PriceHistoryDoc[]; total: number }> {
   // Ordering and paging now happen in Postgres (indexed by changed_on desc)
   // rather than by fetching the whole collection and sorting/slicing in memory.
+  const sortCol = (sortBy && PRICE_HISTORY_SORTABLE_COLUMNS[sortBy]) || 'changed_on';
+  const ascending = sortDir === 'asc';
   let query = supabaseAdmin
     .from(HISTORY)
     .select('*', { count: 'exact' })
-    .order('changed_on', { ascending: false })
+    .order(sortCol, { ascending })
     .range(offset, offset + limit - 1);
   if (productId) query = query.eq('product_id', productId);
 

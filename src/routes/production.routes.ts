@@ -120,12 +120,12 @@ router.get('/branch-stock', async (_req, res, next) => {
       (balances[s.product_id] ||= {})[s.branch_id] = Number(s.balance ?? 0);
     }
 
-    // Matrix rows have no single qty column — rank by total stock across all branches.
-    const total = (byBranch: Record<string, number>) => Object.values(byBranch).reduce((s, v) => s + v, 0);
-
+    // The whole matrix ships unpaginated, so ordering is the frontend's call —
+    // `BranchStockMatrix.tsx` sorts client-side (defaulting to total-stock
+    // descending, matching what this endpoint used to do server-side, so the
+    // first render looks unchanged).
     const rows = ((productsRes.data ?? []) as { id: string; name: string }[])
-      .map((p) => ({ productId: p.id, productName: p.name, byBranch: balances[p.id] || {} }))
-      .sort((a, b) => total(b.byBranch) - total(a.byBranch) || a.productName.localeCompare(b.productName));
+      .map((p) => ({ productId: p.id, productName: p.name, byBranch: balances[p.id] || {} }));
 
     res.json({ branches, rows });
   } catch (err) {

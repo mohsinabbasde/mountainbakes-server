@@ -35,6 +35,8 @@ import {
   updateEmployee,
   updateEmployeeAdvance,
   updateSalaryPayment,
+  type AdvanceQuery,
+  type SalaryQuery,
 } from '../services/finance-payroll.service';
 import { auditSnapshot, logFinanceAudit } from '../services/finance-audit.service';
 
@@ -170,6 +172,8 @@ router.get('/salaries', requireFinance('view'), async (req: AuthRequest, res, ne
       search: q['search'],
       limit: q['limit'] ? Number(q['limit']) : undefined,
       offset: q['offset'] ? Number(q['offset']) : undefined,
+      sortBy: q['sortBy'] as SalaryQuery['sortBy'],
+      sortDir: q['sortDir'] as SalaryQuery['sortDir'],
     });
     res.json({ salaries, total });
   } catch (err) {
@@ -319,6 +323,8 @@ router.get('/advances', requireFinance('view'), async (req: AuthRequest, res, ne
       search: q['search'],
       limit: q['limit'] ? Number(q['limit']) : undefined,
       offset: q['offset'] ? Number(q['offset']) : undefined,
+      sortBy: q['sortBy'] as AdvanceQuery['sortBy'],
+      sortDir: q['sortDir'] as AdvanceQuery['sortDir'],
     });
     res.json({ advances, total });
   } catch (err) {

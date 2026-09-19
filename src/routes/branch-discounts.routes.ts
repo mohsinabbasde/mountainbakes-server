@@ -81,6 +81,17 @@ function toApi(rows: unknown): Record<string, unknown>[] {
 
 const BRANCH_DISCOUNT_STATUSES = ['pending', 'approved', 'rejected', 'returned'] as const;
 
+/** Allowlist for `?sortBy=` — `date` is this API's own rename of `business_date` (see `toApi`). */
+const BRANCH_DISCOUNT_SORTABLE_COLUMNS: Record<string, string> = {
+  date: 'business_date',
+  createdAt: 'created_at',
+  reviewedAt: 'reviewed_at',
+  demandNumber: 'demand_number',
+  amount: 'amount',
+  reason: 'reason',
+  status: 'status',
+};
+
 // GET /api/branch-discounts?days=N&status=&limit=&offset= — this branch's
 // claims, most recent first.
 router.get('/', async (req: AuthRequest, res, next) => {
@@ -102,12 +113,16 @@ router.get('/', async (req: AuthRequest, res, next) => {
     const from = (req.query['from'] as string | undefined) ?? businessDaysAgoStr(days - 1);
     const to = req.query['to'] as string | undefined;
 
+    const sortByKey = req.query['sortBy'] as string | undefined;
+    const sortCol = (sortByKey && BRANCH_DISCOUNT_SORTABLE_COLUMNS[sortByKey]) || 'created_at';
+    const ascending = req.query['sortDir'] === 'asc';
+
     let query = supabaseAdmin
       .from('branch_discounts')
       .select('*', { count: 'exact' })
       .eq('branch_id', branchId)
       .gte('business_date', from)
-      .order('created_at', { ascending: false })
+      .order(sortCol, { ascending })
       .range(offset, offset + limit - 1);
 
     if (to) query = query.lte('business_date', to);

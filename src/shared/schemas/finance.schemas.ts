@@ -422,6 +422,11 @@ export const FinanceReportQuerySchema = z.object({
   // the exported file is the document of record and must hold every row.
   page: z.coerce.number().int().min(1).optional(),
   pageSize: z.coerce.number().int().min(1).max(500).optional(),
+  // Validated against the JUST-BUILT report's own `columns` in
+  // `buildFinanceReport` — the sortable key set differs per report type, so it
+  // can't be a fixed enum here the way `type` above is.
+  sortBy: z.string().optional(),
+  sortDir: z.enum(['asc', 'desc']).optional(),
 });
 
 // ---------------------------------------------------------------------------

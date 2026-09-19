@@ -26,7 +26,18 @@ import {
   auditSessionView,
   revokeSession,
   revokeAllOtherSessions,
+  SESSION_SORT_COLUMNS,
+  type SessionSortKey,
 } from '../services/login-history.service';
+
+/** Not on `LoginHistoryQuerySchema` (the shared, mirrored schema) on purpose —
+ * see `SESSION_SORT_COLUMNS`. An unrecognized value silently falls back to the
+ * default column/direction rather than 400ing. */
+function parseSort(query: Record<string, unknown>): { sortBy?: SessionSortKey; sortDir?: 'asc' | 'desc' } {
+  const sortBy = typeof query.sortBy === 'string' && query.sortBy in SESSION_SORT_COLUMNS ? (query.sortBy as SessionSortKey) : undefined;
+  const sortDir = query.sortDir === 'asc' || query.sortDir === 'desc' ? query.sortDir : undefined;
+  return { sortBy, sortDir };
+}
 
 export const router = Router();
 
@@ -271,6 +282,7 @@ router.get('/', async (req: AuthRequest, res, next) => {
         pageSize: q.pageSize,
         searchEmail: admin,
         viewer: { id: user.uid, admin },
+        ...parseSort(req.query),
       }),
     );
   } catch (err) {

@@ -19,6 +19,7 @@ import {
   type UpdateSalaryPaymentInput,
 } from '../shared';
 import { rowToApi } from '../utils/case';
+import { sortRows } from '../utils/sortRows';
 import { withoutDeleted } from '../utils/softDelete';
 import { bindAttachments, listAttachments, listAttachmentsFor } from './attachments.service';
 import { approveDocument, rejectDocument } from './finance-documents.service';
@@ -261,6 +262,33 @@ export async function listSalaryRevisions(employeeId: string): Promise<SalaryRev
 // Salary payments
 // ---------------------------------------------------------------------------
 
+export type SalarySortKey =
+  | 'salaryNo'
+  | 'employeeName'
+  | 'department'
+  | 'designation'
+  | 'salaryMonth'
+  | 'grossSalary'
+  | 'bonus'
+  | 'deductions'
+  | 'netSalary'
+  | 'paymentDate'
+  | 'status';
+
+const SALARY_SORTABLE_COLUMNS: Record<SalarySortKey, string> = {
+  salaryNo: 'salary_no',
+  employeeName: 'employee_name',
+  department: 'department',
+  designation: 'designation',
+  salaryMonth: 'salary_month',
+  grossSalary: 'gross_salary',
+  bonus: 'bonus',
+  deductions: 'deductions',
+  netSalary: 'net_salary',
+  paymentDate: 'payment_date',
+  status: 'status',
+};
+
 export interface SalaryQuery {
   status?: FinanceDocStatus | 'pending';
   salaryMonth?: string;
@@ -269,6 +297,8 @@ export interface SalaryQuery {
   search?: string;
   limit?: number;
   offset?: number;
+  sortBy?: SalarySortKey;
+  sortDir?: 'asc' | 'desc';
 }
 
 export async function listSalaryPayments(
@@ -277,14 +307,18 @@ export async function listSalaryPayments(
   const limit = Math.min(Math.max(Number(q.limit ?? 300), 1), 1000);
   const offset = Math.max(Number(q.offset ?? 0), 0);
 
+  const sortCol = q.sortBy ? SALARY_SORTABLE_COLUMNS[q.sortBy] : 'salary_month';
+  const ascending = q.sortDir === 'asc';
+
   let query = withoutDeleted(
     supabaseAdmin
       .from('salary_payments')
       .select('*', { count: 'exact' })
-      .order('salary_month', { ascending: false })
-      .order('employee_name', { ascending: true })
+      .order(sortCol, { ascending })
       .range(offset, offset + limit - 1),
   );
+  // Tiebreak: the no-`sortBy` default was always `employee_name asc`.
+  if (sortCol !== 'employee_name') query = query.order('employee_name', { ascending: sortCol === 'salary_month' ? true : ascending });
 
   if (q.status === 'pending') query = query.in('status', ['draft', 'pending_approval']);
   else if (q.status) query = query.eq('status', q.status);
@@ -567,6 +601,47 @@ export async function rejectSalaryPayment(
 // `withRecovery` below is the one place that happens.
 // ---------------------------------------------------------------------------
 
+export type AdvanceSortKey =
+  | 'advanceNo'
+  | 'employeeName'
+  | 'department'
+  | 'businessDate'
+  | 'advanceAmount'
+  | 'bonusAmount'
+  | 'loanAmount'
+  | 'totalAmount'
+  | 'status';
+
+/** For the normal path's `.order()` — DB column names. */
+const ADVANCE_SORTABLE_COLUMNS: Record<AdvanceSortKey, string> = {
+  advanceNo: 'advance_no',
+  employeeName: 'employee_name',
+  department: 'department',
+  businessDate: 'business_date',
+  advanceAmount: 'advance_amount',
+  bonusAmount: 'bonus_amount',
+  loanAmount: 'loan_amount',
+  totalAmount: 'total_amount',
+  status: 'status',
+};
+
+/**
+ * For `outstandingOnly`'s in-memory sort — the same keys, read off the
+ * already-`rowToApi`'d (camelCase) `EmployeeAdvance` object instead of a DB
+ * column, since that branch can't express its ordering as a `.order()`.
+ */
+const ADVANCE_SORT_ACCESSORS: Record<AdvanceSortKey, (r: EmployeeAdvance) => string | number | null> = {
+  advanceNo: (r) => r.advanceNo,
+  employeeName: (r) => r.employeeName,
+  department: (r) => r.department,
+  businessDate: (r) => r.businessDate,
+  advanceAmount: (r) => r.advanceAmount,
+  bonusAmount: (r) => r.bonusAmount,
+  loanAmount: (r) => r.loanAmount,
+  totalAmount: (r) => r.totalAmount,
+  status: (r) => r.status,
+};
+
 export interface AdvanceQuery {
   status?: FinanceDocStatus | 'pending';
   employeeId?: string;
@@ -580,6 +655,8 @@ export interface AdvanceQuery {
   search?: string;
   limit?: number;
   offset?: number;
+  sortBy?: AdvanceSortKey;
+  sortDir?: 'asc' | 'desc';
 }
 
 function normaliseAdvance(a: EmployeeAdvance): EmployeeAdvance {
@@ -637,13 +714,16 @@ export async function listEmployeeAdvances(
   const limit = Math.min(Math.max(Number(q.limit ?? 300), 1), 1000);
   const offset = Math.max(Number(q.offset ?? 0), 0);
 
+  const sortCol = q.sortBy ? ADVANCE_SORTABLE_COLUMNS[q.sortBy] : 'business_date';
+  const ascending = q.sortDir === 'asc';
+
   let query = withoutDeleted(
     supabaseAdmin
       .from('employee_advances')
       .select('*', { count: 'exact' })
-      .order('business_date', { ascending: false })
-      .order('created_at', { ascending: false }),
+      .order(sortCol, { ascending }),
   );
+  if (sortCol !== 'created_at') query = query.order('created_at', { ascending });
 
   if (q.outstandingOnly) query = query.in('status', ['posted', 'locked']);
   else if (q.status === 'pending') query = query.in('status', ['draft', 'pending_approval']);
@@ -668,9 +748,15 @@ export async function listEmployeeAdvances(
   if (q.outstandingOnly) {
     const { data, error } = await query.limit(5000);
     if (error) throw error;
-    const all = (await withRecovery(rowToApi<EmployeeAdvance[]>(data ?? []).map(normaliseAdvance))).filter(
+    const filtered = (await withRecovery(rowToApi<EmployeeAdvance[]>(data ?? []).map(normaliseAdvance))).filter(
       (r) => !r.isRecovered,
     );
+    // `.order()` above already put the fetched 5000 in the requested order,
+    // and `.filter()` preserves relative order — so this is belt-and-suspenders
+    // today, but it's the one branch that can't rely on `.order()` alone (a
+    // future change to `withRecovery`'s fetch shape must not silently lose
+    // sorting), so sort explicitly rather than lean on filter's ordering guarantee.
+    const all = q.sortBy ? sortRows(filtered, ADVANCE_SORT_ACCESSORS[q.sortBy], q.sortDir === 'desc' ? 'desc' : 'asc') : filtered;
     const total = all.length;
     const page = all.slice(offset, offset + limit);
     const photos = await listAttachmentsFor('employee_advance', page.map((r) => r.id));

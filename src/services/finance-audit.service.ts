@@ -85,6 +85,16 @@ export async function logFinanceAudit(req: AuthRequest, input: FinanceAuditInput
   }
 }
 
+export type FinanceAuditSortKey = 'createdAt' | 'action' | 'entity' | 'entityRef' | 'actorName';
+
+const FINANCE_AUDIT_SORTABLE_COLUMNS: Record<FinanceAuditSortKey, string> = {
+  createdAt: 'created_at',
+  action: 'action',
+  entity: 'entity',
+  entityRef: 'entity_ref',
+  actorName: 'actor_name',
+};
+
 export interface FinanceAuditQuery {
   entity?: string;
   entityId?: string;
@@ -94,6 +104,8 @@ export interface FinanceAuditQuery {
   to?: string;
   limit?: number;
   offset?: number;
+  sortBy?: FinanceAuditSortKey;
+  sortDir?: 'asc' | 'desc';
 }
 
 export async function listFinanceAudit(
@@ -102,10 +114,13 @@ export async function listFinanceAudit(
   const limit = Math.min(Math.max(Number(q.limit ?? 100), 1), 500);
   const offset = Math.max(Number(q.offset ?? 0), 0);
 
+  const sortCol = q.sortBy ? FINANCE_AUDIT_SORTABLE_COLUMNS[q.sortBy] : 'created_at';
+  const ascending = q.sortDir === 'asc';
+
   let query = supabaseAdmin
     .from('finance_audit_logs')
     .select('*', { count: 'exact' })
-    .order('created_at', { ascending: false })
+    .order(sortCol, { ascending })
     .range(offset, offset + limit - 1);
 
   if (q.entity) query = query.eq('entity', q.entity);

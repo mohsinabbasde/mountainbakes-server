@@ -115,17 +115,35 @@ export async function recordAttempt(params: {
  * would search for, and widening it to the user agent would let a search for a
  * name return rows because a browser build number happened to contain it.
  */
+/** The column a `sortBy` key resolves to. Not part of the shared `LoginAttemptFilters`
+ * type — sort is a presentation concern the route parses on its own (see the route),
+ * so this stays a plain backend-local contract instead of a mirrored-tree addition. */
+export const ATTEMPT_SORT_COLUMNS = {
+  attemptedAt: 'attempted_at',
+  email: 'email',
+  country: 'country',
+  city: 'city',
+  ipAddress: 'ip_address',
+  reason: 'reason',
+} as const;
+export type AttemptSortKey = keyof typeof ATTEMPT_SORT_COLUMNS;
+
 export async function listAttempts(opts: {
   filters: LoginAttemptFilters;
   page: number;
   pageSize: number;
+  sortBy?: AttemptSortKey;
+  sortDir?: 'asc' | 'desc';
 }): Promise<LoginAttemptsPage> {
   const { filters } = opts;
+
+  const sortCol = opts.sortBy ? ATTEMPT_SORT_COLUMNS[opts.sortBy] : 'attempted_at';
+  const ascending = opts.sortDir === 'asc';
 
   let q = supabaseAdmin
     .from('login_attempts')
     .select(COLUMNS, { count: 'exact' })
-    .order('attempted_at', { ascending: false });
+    .order(sortCol, { ascending });
 
   if (filters.reason) q = q.eq('reason', filters.reason);
   if (filters.country) q = q.eq('country', filters.country);

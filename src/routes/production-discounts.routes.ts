@@ -31,6 +31,17 @@ router.use(authenticate, requireRole('super_admin', 'production_user'));
 
 const BRANCH_DISCOUNT_STATUSES = ['pending', 'approved', 'rejected', 'returned'] as const;
 
+/** Allowlist for `?sortBy=` — `date` is this API's own rename of `business_date` (see `toApi`). */
+const BRANCH_DISCOUNT_SORTABLE_COLUMNS: Record<string, string> = {
+  date: 'business_date',
+  createdAt: 'created_at',
+  branchName: 'branch_name',
+  demandNumber: 'demand_number',
+  amount: 'amount',
+  reason: 'reason',
+  status: 'status',
+};
+
 /**
  * One DB row → the API's BranchDiscount shape.
  *
@@ -66,11 +77,15 @@ router.get('/', async (req: AuthRequest, res, next) => {
     const branchId = req.query['branchId'] as string | undefined;
     const status = req.query['status'] as string | undefined;
 
+    const sortByKey = req.query['sortBy'] as string | undefined;
+    const sortCol = (sortByKey && BRANCH_DISCOUNT_SORTABLE_COLUMNS[sortByKey]) || 'created_at';
+    const ascending = req.query['sortDir'] === 'asc';
+
     let query = supabaseAdmin
       .from('branch_discounts')
       .select('*', { count: 'exact' })
       .gte('business_date', from)
-      .order('created_at', { ascending: false })
+      .order(sortCol, { ascending })
       .range(offset, offset + limit - 1);
 
     if (to) query = query.lte('business_date', to);

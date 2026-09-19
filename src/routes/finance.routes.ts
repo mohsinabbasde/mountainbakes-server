@@ -29,7 +29,7 @@ import {
   updateLedgerHead,
 } from '../services/finance-ledger.service';
 import { getFinanceSettings, updateFinanceSettings } from '../services/finance-settings.service';
-import { auditSnapshot, listFinanceAudit, logFinanceAudit } from '../services/finance-audit.service';
+import { auditSnapshot, listFinanceAudit, logFinanceAudit, type FinanceAuditQuery } from '../services/finance-audit.service';
 
 /**
  * /api/finance — the ledger, its chart of accounts, the daily closing, settings
@@ -382,6 +382,8 @@ router.get('/audit', requireFinance('view'), async (req: AuthRequest, res, next)
       to: q['to'],
       limit: q['limit'] ? Number(q['limit']) : undefined,
       offset: q['offset'] ? Number(q['offset']) : undefined,
+      sortBy: q['sortBy'] as FinanceAuditQuery['sortBy'],
+      sortDir: q['sortDir'] as FinanceAuditQuery['sortDir'],
     });
     res.json({ logs, total });
   } catch (err) {

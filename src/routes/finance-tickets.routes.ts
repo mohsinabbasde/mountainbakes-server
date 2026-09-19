@@ -591,10 +591,22 @@ router.get('/', requireFinance('view'), async (req: AuthRequest, res, next) => {
     }
     const q = parsed.data;
 
+    const FINANCE_TICKET_SORTABLE_COLUMNS: Record<NonNullable<typeof q.sortBy>, string> = {
+      queryNo: 'query_no',
+      raisedByName: 'raised_by_name',
+      subject: 'subject',
+      amount: 'amount',
+      priority: 'priority',
+      status: 'status',
+      createdAt: 'created_at',
+    };
+    const sortCol = q.sortBy ? FINANCE_TICKET_SORTABLE_COLUMNS[q.sortBy] : 'created_at';
+    const ascending = q.sortDir === 'asc';
+
     let query = supabaseAdmin
       .from('finance_tickets')
       .select('*', { count: 'exact' })
-      .order('created_at', { ascending: false });
+      .order(sortCol, { ascending });
 
     // A stamped query is an ADMIN view and off by default even for them: the
     // queue is a list of work, and deleted rows are not work. `deletedOnly` is
