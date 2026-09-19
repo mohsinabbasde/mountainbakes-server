@@ -214,9 +214,12 @@ entriesRouter.get('/', requireFinance('view'), async (req: AuthRequest, res, nex
       type: (q['type'] as 'income' | 'expense') || undefined,
       branchId: q['branchId'],
       ledgerHeadId: q['ledgerHeadId'],
+      paymentMethod: q['paymentMethod'],
       from: q['from'],
       to: q['to'],
       search: q['search'],
+      minAmount: q['minAmount'] ? Number(q['minAmount']) : undefined,
+      maxAmount: q['maxAmount'] ? Number(q['maxAmount']) : undefined,
       limit: q['limit'] ? Number(q['limit']) : undefined,
       offset: q['offset'] ? Number(q['offset']) : undefined,
     });

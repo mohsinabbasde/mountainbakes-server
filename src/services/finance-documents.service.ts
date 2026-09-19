@@ -73,9 +73,12 @@ export interface TransactionQuery {
   type?: 'income' | 'expense';
   branchId?: string;
   ledgerHeadId?: string;
+  paymentMethod?: string;
   from?: string;
   to?: string;
   search?: string;
+  minAmount?: number;
+  maxAmount?: number;
   limit?: number;
   offset?: number;
 }
@@ -100,8 +103,11 @@ export async function listTransactions(
   if (q.type) query = query.eq('txn_type', q.type);
   if (q.branchId) query = query.eq('branch_id', q.branchId);
   if (q.ledgerHeadId) query = query.eq('ledger_head_id', q.ledgerHeadId);
+  if (q.paymentMethod) query = query.eq('payment_method', q.paymentMethod);
   if (q.from) query = query.gte('business_date', q.from);
   if (q.to) query = query.lte('business_date', q.to);
+  if (q.minAmount !== undefined) query = query.gte('amount', q.minAmount);
+  if (q.maxAmount !== undefined) query = query.lte('amount', q.maxAmount);
   if (q.search) {
     const term = q.search.replace(/[,()*]/g, ' ').trim();
     if (term) {
