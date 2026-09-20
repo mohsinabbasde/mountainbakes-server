@@ -16,9 +16,12 @@
     "purge:price-history": "tsx --env-file .env src/scripts/purge-price-history.ts",
     "purge:idempotency-keys": "tsx --env-file .env src/scripts/purge-idempotency-keys.ts",
     "verify:idempotency": "tsx --env-file .env src/scripts/verify-idempotency.ts",
-    "verify:login-identity": "tsx src/scripts/verify-login-identity.ts"
+    "verify:login-identity": "tsx src/scripts/verify-login-identity.ts",
+    "backup:s3": "tsx --env-file .env src/scripts/backup-to-s3.ts"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.700.0",
+    "@aws-sdk/lib-storage": "^3.700.0",
     "@supabase/server": "^1.4.0",
     "@supabase/ssr": "^0.12.3",
     "@supabase/supabase-js": "^2.109.0",
