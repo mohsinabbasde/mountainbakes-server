@@ -29,6 +29,7 @@ export * from './types/branch-user-request.types';
 export * from './types/attachment.types';
 export * from './types/login-session.types';
 export * from './types/data-engine.types';
+export * from './types/backup.types';
 
 // Zod schemas + inferred input types
 export * from './schemas/user.schemas';
@@ -55,6 +56,7 @@ export * from './schemas/finance-ticket.schemas';
 export * from './schemas/branch-user-request.schemas';
 export * from './schemas/attachment.schemas';
 export * from './schemas/daily-sale.schemas';
+export * from './schemas/backup.schemas';
 
 // Utils
 export * from './utils/timezone';

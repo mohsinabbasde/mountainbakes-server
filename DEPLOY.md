@@ -65,47 +65,100 @@ baked into its build:
 3. Set `NEXT_PUBLIC_API_URL` on the web app to this API's URL.
 4. Push the web app.
 
-## Daily Supabase → S3 backup (Heroku Scheduler)
+## Database backups (pg_dump → S3, Heroku Scheduler)
 
-`pnpm backup:s3` (`src/scripts/backup-to-s3.ts`) exports every public-schema
-table to S3 as gzipped NDJSON. It deliberately does **not** run via the
-in-process `node-cron` schedulers below — those only fire while the web dyno
-is awake, and this job should run daily regardless. Heroku Scheduler runs it
-on its own one-off dyno instead:
+The database is backed up by `pnpm backup:daily|weekly|monthly`
+(`src/scripts/backup.ts`): a real `pg_dump` of the Supabase database, uploaded
+to `s3://mountainbakes-bucket/database-backups/` with SSE-S3, a SHA-256
+checksum and a manifest, then read back and verified before it is recorded as
+a backup. Full account, IAM policy, lifecycle rules and restore procedure:
+[docs/database-backup.md](docs/database-backup.md).
+
+It deliberately does **not** run via the in-process `node-cron` schedulers —
+those only fire while the web dyno is awake. Heroku Scheduler runs each job on
+its own one-off dyno.
+
+### 1. `pg_dump` on the dyno (apt buildpack)
+
+Heroku's Node buildpack ships no PostgreSQL client, and Ubuntu noble's own
+`postgresql-client` is 16, which refuses to dump the 17.x server. `Aptfile`
+(repo root) pulls `postgresql-client-17` from the PGDG repository:
 
 ```bash
-heroku addons:create scheduler:standard -a <api-app>
-heroku addons:open scheduler -a <api-app>
+heroku buildpacks:add --index 1 heroku-community/apt -a mountainproject
+git push heroku HEAD:main
+heroku run "/app/.apt/usr/lib/postgresql/17/bin/pg_dump --version" -a mountainproject   # → pg_dump (PostgreSQL) 17.x
 ```
 
-In the Scheduler UI, add a job: `pnpm backup:s3`, frequency **Daily**. Times
-are **UTC** — pick something comfortably after the 2 AM Asia/Karachi closing
-job (= 21:00 UTC the previous day) and during low write traffic, e.g. `23:00
-UTC`.
+Debian installs `/app/.apt/usr/bin/pg_dump` as a perl wrapper that may not
+resolve on a dyno, so the real binary directory is passed explicitly via
+`PG_BIN_DIR` below. If the `[trusted=yes]` PGDG line in `Aptfile` is ever
+refused by the buildpack, the fallback is documented in
+docs/database-backup.md ("pg_dump on Heroku").
 
-Add the backup's own config vars alongside the ones above:
+### 2. Config vars
+
+```bash
+heroku config:set -a mountainproject \
+  BACKUP_ENABLED=true \
+  SUPABASE_DB_URL='postgresql://postgres.<ref>:<db-password>@aws-0-ap-northeast-1.pooler.supabase.com:5432/postgres' \
+  AWS_ACCESS_KEY_ID=<backup-user-key> \
+  AWS_SECRET_ACCESS_KEY=<backup-user-secret> \
+  AWS_REGION=ap-southeast-1 \
+  BACKUP_S3_BUCKET=mountainbakes-bucket \
+  BACKUP_S3_PREFIX=database-backups \
+  BACKUP_TIMEZONE=Asia/Karachi \
+  PG_BIN_DIR=/app/.apt/usr/lib/postgresql/17/bin
+```
 
 | Variable | When | Value |
 | --- | --- | --- |
-| `AWS_ACCESS_KEY_ID` | **Required for backup:s3** | IAM user/role scoped to write to the backup bucket only |
-| `AWS_SECRET_ACCESS_KEY` | **Required for backup:s3** | Same IAM credential's secret |
-| `AWS_REGION` | **Required for backup:s3** | No default — a wrong region is a confusing SDK error, not a clean failure |
-| `BACKUP_S3_BUCKET` | **Required for backup:s3** | The destination bucket |
-| `BACKUP_S3_PREFIX` | Optional | Key prefix inside the bucket; defaults to `backups` |
+| `BACKUP_ENABLED` | **Required** | `true` — off by default everywhere |
+| `SUPABASE_DB_URL` | **Required** | Session-pooler connection string, port **5432** (6543 is rejected). Supabase → Settings → Database |
+| `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` | **Required** | IAM user with the least-privilege policy in docs/database-backup.md (no `s3:DeleteObject`) |
+| `AWS_REGION` | **Required** | `ap-southeast-1` (where `mountainbakes-bucket` lives) |
+| `BACKUP_S3_BUCKET` | **Required** | `mountainbakes-bucket` — with `NODE_ENV=production` nothing else is accepted |
+| `BACKUP_S3_PREFIX` | Optional | `database-backups` (default) |
+| `PG_BIN_DIR` | Recommended | `/app/.apt/usr/lib/postgresql/17/bin` |
+| `BACKUP_ALERT_MESSAGING` | Optional | `true` to also SMS/WhatsApp admin recipients on failure |
+
+Then apply migration 117 (`backup_jobs`, `backup_restore_tests`,
+`claim_backup_job`, `backup_database_info`) — see the migrations note below —
+and confirm from a one-off dyno before scheduling anything:
 
 ```bash
-heroku config:set -a <api-app> \
-  AWS_ACCESS_KEY_ID=<access-key-id> \
-  AWS_SECRET_ACCESS_KEY=<secret-access-key> \
-  AWS_REGION=<region> \
-  BACKUP_S3_BUCKET=<bucket-name>
+heroku run "pnpm backup:manual" -a mountainproject     # a real backup under manual/
+heroku run "pnpm backup:verify" -a mountainproject     # reads it back from S3
+heroku run "pnpm backup:status" -a mountainproject
 ```
 
-Checking results: `heroku addons:open scheduler -a <api-app>` shows each run's
-stdout/stderr and exit code. A non-zero exit, or a `partial_failure` status,
-means one or more tables failed — check `_manifest.json` at
-`s3://<bucket>/<prefix>/<date>/_manifest.json` for which ones and why; the
-tables that did succeed are still there and are not re-run.
+### 3. Heroku Scheduler
+
+```bash
+heroku addons:create scheduler:standard -a mountainproject
+heroku addons:open scheduler -a mountainproject
+```
+
+Scheduler times are **UTC**; the business runs 08:00–02:00 Asia/Karachi
+(UTC+5, no DST) and the 02:00/02:30 PKT closing jobs are done by 22:00 UTC, so
+all three land in the dead window (03:00–08:00 PKT). Scheduler only offers
+"daily", so the weekly and monthly commands run every day and exit 0 "not due"
+except on their Karachi day:
+
+| Job (Daily, Standard-1X) | UTC | Asia/Karachi | Runs when |
+| --- | --- | --- | --- |
+| `pnpm backup:daily` | 22:00 | 03:00 | every day |
+| `pnpm backup:weekly` | 22:45 | 03:45 Sunday | Karachi date is a Sunday |
+| `pnpm backup:monthly` | 23:30 | 04:30 on the 1st | Karachi date is the 1st |
+
+They never overlap: each holds a per-type lock (`backup_jobs`) and the three
+start 45 minutes apart. A run that fails exits 1 (visible in the Scheduler
+log), records a FAILED row, opens a Support Center ticket and notifies every
+super admin; Admin → Database Backup shows daily/weekly/monthly health.
+
+Retention is **S3 Lifecycle**, configured once with elevated credentials —
+`pnpm backup:aws:configure -- --confirm` — and checked any time with
+`pnpm backup:aws:audit`. The dyno's IAM user needs no delete permission.
 
 ## Verify
 
@@ -148,6 +201,11 @@ because `src/app.ts` deliberately omits the headers rather than throwing.
   restoring it after, which then needs `--include-all` to apply out of order. Often
   the cheaper answer is to drop the statement that needed the new value, which is
   what happened to the partial index that was going to accompany migration 86.
+- **Migration 117 (`backup_jobs`) must be applied before the backup commands run**
+  or before this code is deployed with the Database Backup screen: every backup
+  run claims its lock through `claim_backup_job()` and every status read hits
+  `backup_jobs`. It is additive (two new tables, two functions) and safe to apply
+  ahead of the deploy.
 - **Migration 84 (`idempotency_keys`) must be applied before this code is
   deployed.** Every guarded write claims a key through it, so the five
   offline-capable endpoints would 503 on any request carrying an
@@ -156,8 +214,8 @@ because `src/app.ts` deliberately omits the headers rather than throwing.
 - **Scheduled jobs** (2 AM Karachi closing + price activation) run in this dyno via
   `node-cron`. They only fire while the dyno is awake — avoid a sleeping tier if you
   rely on the exact 2 AM run. This dyno sees less traffic than the web app, so it is
-  likelier to idle. The daily S3 backup (above) deliberately avoids this problem by
-  running on Heroku Scheduler's own one-off dyno instead of in-process `node-cron`.
+  likelier to idle. The database backups (above) deliberately avoid this problem by
+  running on Heroku Scheduler's own one-off dynos instead of in-process `node-cron`.
 - **Keep it at one dyno** (`heroku ps:scale web=1`). The jobs are idempotent, but
   their locks assume a single instance — running them on multiple dynos concurrently
   is untested.
