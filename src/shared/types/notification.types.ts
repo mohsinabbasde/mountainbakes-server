@@ -4,7 +4,7 @@
  * missing there fails the insert with a raw 22P02. The enum is declared in
  * migration 01 and extended by 14 (`password_reset`), 25 (the two `support_*`),
  * 42 (the six `event_*`), 72 (`production_demand_cancelled`) and 92 (the two
- * `branch_discount*`).
+ * `branch_discount*`) and 119 (the two `cash_transfer*`).
  *
  * Note `notify()` takes `type: string`, not this union (services/push.service.ts) —
  * nothing mechanically enforces the match, so add values in BOTH places.
@@ -30,6 +30,9 @@ export type NotificationType =
   // back to the branch.
   | 'branch_discount' // a branch raised a discount claim → Production
   | 'branch_discount_reviewed' // Production approved/rejected/sent it back → branch
+  // Cash transfers (migration 119) — money a branch handed to the company.
+  | 'cash_transfer' // a branch recorded a handover → Finance
+  | 'cash_transfer_reviewed' // Finance approved/rejected it → branch
   // Help Desk → Support Center queries (migration 25)
   | 'support_query' // a branch/production user raised a query → Admin
   | 'support_resolved' // Admin resolved/rejected or corrected the figures → raiser

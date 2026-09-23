@@ -1,5 +1,6 @@
 import { supabaseAdmin } from '../config/supabase';
-import { resolveShareSplit } from '../shared';
+import { resolveShareSplit, type PaymentReceivedItem } from '../shared';
+import { paymentsReceivedInWindow } from './cash-transfers.service';
 
 /**
  * What a branch owes for the delivery immediately preceding a given production
@@ -37,6 +38,20 @@ export interface PreviousOrderBalance {
   discountsValue: number;
   discountItems: { demandNumber: string; amount: number }[];
   amountToCollect: number;
+  /**
+   * Approved cash transfers (migration 118) the branch made in the same window
+   * the returns and discounts above are drawn from. DISPLAYED, NOT DEDUCTED:
+   * `amountToCollect` is unchanged by this figure. The transfer is its own
+   * transaction, already booked as an RV- receipt when Finance approved it;
+   * netting it off here as well would count the same money twice, once as
+   * a receipt and once as a reduction of what is owed. The slip prints it as
+   * "Payment Received" beside the existing figures, and `remainingBalance`
+   * is the one derived line — what is still owed after that payment.
+   */
+  paymentsReceivedValue: number;
+  paymentItems: PaymentReceivedItem[];
+  /** `amountToCollect − paymentsReceivedValue`, never below zero. Display only. */
+  remainingBalance: number;
 }
 
 // GET /api/production-orders/:id/previous-balance — what the branch owes for its
@@ -105,6 +120,7 @@ export async function getPreviousOrderBalance(orderId: string): Promise<Previous
       previous: null, orderedValue: 0, deliveredValue: 0, companySharePct,
       companyShareValue: 0, returnsValue: 0, returnItems: [],
       discountsValue: 0, discountItems: [], amountToCollect: 0,
+      paymentsReceivedValue: 0, paymentItems: [], remainingBalance: 0,
     };
   }
 
@@ -220,7 +236,17 @@ export async function getPreviousOrderBalance(orderId: string): Promise<Previous
   );
   const discountsValue = discountItems.reduce((a, d) => a + d.amount, 0);
 
+  // Approved cash transfers in the SAME window as the returns and discounts,
+  // for the same reason: bounded by the two orders' timestamps, each handover
+  // lands on exactly one slip. Read-only — see the note on the interface.
+  const { paymentItems, paymentsReceivedValue } = await paymentsReceivedInWindow(
+    order.branch_id,
+    prev.submitted_at,
+    order.submitted_at,
+  );
+
   const companyShareValue = (deliveredValue * companySharePct) / 100;
+  const amountToCollect = companyShareValue - returnsValue - discountsValue;
 
   return {
     previous: { demandNumber: prev.demand_number, date: prev.business_date },
@@ -235,6 +261,9 @@ export async function getPreviousOrderBalance(orderId: string): Promise<Previous
     // Both deductions come off the company's share. A discount reduces what the
     // rider collects exactly as a return does — the only difference is that one
     // is goods coming back and the other is money agreed off.
-    amountToCollect: companyShareValue - returnsValue - discountsValue,
+    amountToCollect,
+    paymentsReceivedValue,
+    paymentItems,
+    remainingBalance: Math.max(0, amountToCollect - paymentsReceivedValue),
   };
 }

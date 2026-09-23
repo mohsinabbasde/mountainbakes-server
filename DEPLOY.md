@@ -123,7 +123,10 @@ heroku config:set -a mountainproject \
 | `BACKUP_ALERT_MESSAGING` | Optional | `true` to also SMS/WhatsApp admin recipients on failure |
 
 Then apply migration 117 (`backup_jobs`, `backup_restore_tests`,
-`claim_backup_job`, `backup_database_info`) — see the migrations note below —
+`claim_backup_job`, `backup_database_info`) and migrations 118–119
+(`cash_transfers`, `approve_cash_transfer`, `reject_cash_transfer`, the two
+`cash_transfer*` notification types — docs/cash-transfers.md) — see the
+migrations note below —
 and confirm from a one-off dyno before scheduling anything:
 
 ```bash

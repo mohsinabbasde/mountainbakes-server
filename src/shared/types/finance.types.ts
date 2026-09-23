@@ -241,7 +241,13 @@ export type LedgerSourceType =
   | 'partner_expense'
   | 'adjustment'
   | 'branch_share_payout'
-  | 'branch_share_bonus';
+  | 'branch_share_bonus'
+  // Migration 115 — a vendor payment posted from procurement.
+  | 'vendor_payment'
+  // Migration 118 — a branch's cash / Easypaisa / bank handover, approved by
+  // Finance. One debit under INC-BRANCH-CASH; `sourceId` is the cash_transfers
+  // row, which carries the photo the Daily Ledger shows.
+  | 'cash_transfer';
 
 /**
  * `posted` is the normal state. `locked` is applied when the finance day closes.
@@ -889,7 +895,9 @@ export type FinanceAuditEntity =
   | 'settings'
   | 'branch_share_payment'
   | 'finance_partner'
-  | 'finance_ticket';
+  | 'finance_ticket'
+  // Migration 118 — approve / reject of a branch cash transfer.
+  | 'cash_transfer';
 
 export interface FinanceAuditLog {
   id: string;

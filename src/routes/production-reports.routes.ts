@@ -390,7 +390,7 @@ async function buildReport(
       const balances = await mapWithConcurrency(wanted, 8, (b) => getPreviousOrderBalance(b.successorId));
 
       const rows: (string | number)[][] = [];
-      const totals = { delivered: 0, share: 0, retQty: 0, returns: 0, discount: 0, collect: 0 };
+      const totals = { delivered: 0, share: 0, retQty: 0, returns: 0, discount: 0, collect: 0, received: 0, remaining: 0 };
       for (let i = 0; i < wanted.length; i++) {
         const bal = balances[i];
         // `previous` is the authoritative identity of the billed delivery — it is
@@ -404,6 +404,8 @@ async function buildReport(
         totals.returns += bal.returnsValue;
         totals.discount += bal.discountsValue;
         totals.collect += bal.amountToCollect;
+        totals.received += bal.paymentsReceivedValue;
+        totals.remaining += bal.remainingBalance;
         rows.push([
           wanted[i]!.billed.branch_name ?? '',
           bal.previous.demandNumber,
@@ -414,20 +416,22 @@ async function buildReport(
           Math.round(bal.returnsValue),
           Math.round(bal.discountsValue),
           Math.round(bal.amountToCollect),
+          Math.round(bal.paymentsReceivedValue),
+          Math.round(bal.remainingBalance),
         ]);
       }
 
       let specialRowCount = 0;
       if (rows.length > 0) {
-        rows.push(['TOTAL', '', '', Math.round(totals.delivered), Math.round(totals.share), totals.retQty, Math.round(totals.returns), Math.round(totals.discount), Math.round(totals.collect)]);
+        rows.push(['TOTAL', '', '', Math.round(totals.delivered), Math.round(totals.share), totals.retQty, Math.round(totals.returns), Math.round(totals.discount), Math.round(totals.collect), Math.round(totals.received), Math.round(totals.remaining)]);
         specialRowCount++;
       }
       if (unbilled > 0) {
-        rows.push([`${unbilled} delivery(s) in this window have no later delivery yet, so nothing has been billed for them.`, '', '', '', '', '', '', '', '']);
+        rows.push([`${unbilled} delivery(s) in this window have no later delivery yet, so nothing has been billed for them.`, '', '', '', '', '', '', '', '', '', '']);
         specialRowCount++;
       }
       if (truncated) {
-        rows.push([`Showing the first ${COLLECTIONS_ORDER_CAP} of ${billable.length} deliveries — narrow the date range or pick one branch.`, '', '', '', '', '', '', '', '']);
+        rows.push([`Showing the first ${COLLECTIONS_ORDER_CAP} of ${billable.length} deliveries — narrow the date range or pick one branch.`, '', '', '', '', '', '', '', '', '', '']);
         specialRowCount++;
       }
 
@@ -436,7 +440,9 @@ async function buildReport(
         // Money is written as plain numbers, not "Rs. 37,600" — a spreadsheet
         // that cannot sum its own money column is a picture of a report. Zero
         // prints as 0 rather than the slip's em dash for the same reason.
-        headers: ['Branch', 'Previous Order', 'Date', 'Delivered Value', 'Company Share', 'Less Returns Qty', 'Less Returns', 'Less Discount', 'Amount to Collect'],
+        // Payment Received (approved cash transfers in the slip's window) and
+        // Remaining are appended AFTER Amount to Collect, which is unchanged.
+        headers: ['Branch', 'Previous Order', 'Date', 'Delivered Value', 'Company Share', 'Less Returns Qty', 'Less Returns', 'Less Discount', 'Amount to Collect', 'Payment Received', 'Remaining'],
         rows,
         specialRowCount,
       };
