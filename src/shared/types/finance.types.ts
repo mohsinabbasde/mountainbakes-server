@@ -1043,6 +1043,10 @@ export const FINANCE_TICKET_REFERENCES = {
   // the lines and reconciles stock; a second path to the same rewrite is the
   // duplicate support architecture the brief rules out.
   order:                { prefix: 'MB',  table: 'orders',                   refColumn: 'order_number', label: 'Sale' },
+  // Migration 120: a branch handover (118). Amendable — amount, method and
+  // note — and deletable; an approved one's RV- receipt is reversed and
+  // re-posted by the SQL rather than edited.
+  cash_transfer:        { prefix: 'CT',  table: 'cash_transfers',           refColumn: 'transfer_no',  label: 'Cash Transfer' },
 } as const;
 
 export type FinanceTicketReferenceType = keyof typeof FINANCE_TICKET_REFERENCES;
@@ -1065,6 +1069,7 @@ export const FINANCE_TICKET_REFERENCE_LABELS: Record<FinanceTicketReferenceType,
   partner_expense: 'Partner Expense',
   branch_share_payment: 'Branch Share',
   order: 'Sale',
+  cash_transfer: 'Cash Transfer',
 };
 
 /**
@@ -1780,9 +1785,11 @@ export interface FinanceAmendment {
 export interface FinanceAmendableField {
   key: string;
   label: string;
-  kind: 'money' | 'text';
+  /** 'select' offers `options` rather than a free input (migration 120). */
+  kind: 'money' | 'text' | 'select';
   /** True when changing it re-posts the linked voucher (reversal + correction). */
   movesLedger: boolean;
+  options?: readonly { value: string; label: string }[];
 }
 
 export const FINANCE_AMENDABLE_FIELDS: Record<FinanceTicketReferenceType, FinanceAmendableField[]> = {
@@ -1826,6 +1833,24 @@ export const FINANCE_AMENDABLE_FIELDS: Record<FinanceTicketReferenceType, Financ
    * route into that is a second thing to keep correct.
    */
   order: [],
+  /**
+   * A branch handover (migration 120). Amount and method re-post the RV-
+   * receipt when the transfer is approved; a pending one is corrected in
+   * place and Finance approves the corrected figure. The photo is not a
+   * field: it is evidence of the handover and is never rewritten.
+   */
+  cash_transfer: [
+    { key: 'amount', label: 'Amount', kind: 'money', movesLedger: true },
+    {
+      key: 'paymentMethod', label: 'Payment Method', kind: 'select', movesLedger: true,
+      options: [
+        { value: 'cash', label: 'Cash' },
+        { value: 'easypaisa', label: 'Easypaisa' },
+        { value: 'bank_account', label: 'Bank' },
+      ],
+    },
+    { key: 'note', label: 'Note', kind: 'text', movesLedger: false },
+  ],
 };
 
 /**

@@ -209,6 +209,9 @@ const AUDIT_FIELD_LABELS: Record<string, string> = {
   restoreReason: 'Restore reason',
   recreatedFromQueryNo: 'Recreated from',
   recreatedAsQueryNo: 'Recreated as',
+  // Migration 120 — cash transfer corrections.
+  paymentMethod: 'Payment method',
+  note: 'Note',
 };
 
 /**

@@ -65,6 +65,15 @@ export interface CashTransfer {
   ledgerEntryId: string | null;
   voucherNo: string | null;
   updatedAt: string;
+  /**
+   * Soft delete through the Finance Help Desk (migration 120). Every ordinary
+   * read excludes stamped rows; the desk's own reference lookup resolves them
+   * on purpose so "where did CT-000012 go?" stays answerable.
+   */
+  deletedAt: string | null;
+  deletedByName: string | null;
+  deleteReason: string | null;
+  deletedQueryNo: string | null;
   /** The handover photo(s). Signed URLs — see Attachment. */
   attachments: Attachment[];
 }

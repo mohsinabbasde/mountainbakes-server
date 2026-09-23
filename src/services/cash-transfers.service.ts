@@ -14,6 +14,7 @@ import {
   type UserRole,
 } from '../shared';
 import { rowToApi } from '../utils/case';
+import { withoutDeleted } from '../utils/softDelete';
 import { resolveClientBusinessDate } from '../utils/clientBusinessDate';
 import { bindAttachments, listAttachments, listAttachmentsFor } from './attachments.service';
 import { getLedgerEntry } from './finance-ledger.service';
@@ -124,9 +125,12 @@ export async function listCashTransfers(
   const sortCol = q.sortBy ? SORTABLE_COLUMNS[q.sortBy] : 'created_at';
   const ascending = q.sortDir === 'asc';
 
-  let query = supabaseAdmin
-    .from('cash_transfers')
-    .select('*', { count: 'exact' })
+  // Soft-deleted through the Help Desk (migration 120) → gone from every list.
+  let query = withoutDeleted(
+    supabaseAdmin
+      .from('cash_transfers')
+      .select('*', { count: 'exact' }),
+  )
     .order(sortCol, { ascending })
     // A stable tiebreak so paging never repeats or skips a row that shares the
     // sort value with its neighbour (every row of one day, sorted by date).
@@ -165,7 +169,7 @@ export async function listCashTransfers(
  * so the response does not confirm the id exists.
  */
 export async function getCashTransfer(id: string, branchId?: string | null): Promise<CashTransfer | null> {
-  let query = supabaseAdmin.from('cash_transfers').select('*').eq('id', id);
+  let query = withoutDeleted(supabaseAdmin.from('cash_transfers').select('*').eq('id', id));
   if (branchId) query = query.eq('branch_id', branchId);
   const { data, error } = await query.maybeSingle();
   if (error) throw error;
@@ -353,9 +357,13 @@ export async function paymentsReceivedInWindow(
   afterTs: string,
   untilTs: string,
 ): Promise<{ paymentItems: PaymentReceivedItem[]; paymentsReceivedValue: number }> {
-  const { data, error } = await supabaseAdmin
-    .from('cash_transfers')
-    .select('id, transfer_no, voucher_no, business_date, payment_method, amount')
+  // A transfer deleted through the Help Desk had its receipt reversed and
+  // must drop out of the slip's figure too.
+  const { data, error } = await withoutDeleted(
+    supabaseAdmin
+      .from('cash_transfers')
+      .select('id, transfer_no, voucher_no, business_date, payment_method, amount'),
+  )
     .eq('branch_id', branchId)
     .eq('status', 'approved')
     .gt('created_at', afterTs)

@@ -1,8 +1,9 @@
 # Cash Transfers — branch handovers to the company
 
-Migration `20260924000118_cash_transfers.sql` (table, two RPCs) and
+Migration `20260924000118_cash_transfers.sql` (table, two RPCs),
 `20260924000119_cash_transfer_notifications.sql` (two `notification_type`
-values). Both must be applied (`npx supabase db push --linked`) before this code
+values) and `20260924000120_cash_transfer_help_desk.sql` (Finance Help Desk
+reference type, soft delete, amend / delete branches). All must be applied (`npx supabase db push --linked`) before this code
 is deployed; until then every cash-transfer endpoint answers 503 naming the
 migration.
 
@@ -116,6 +117,33 @@ columns after "Amount to Collect".
 
 The RLS policy on `cash_transfers` is a floor under a direct client read; the
 API reaches the table on the service-role key and enforces the above in code.
+
+## Finance Help Desk (migration 120)
+
+A Finance user may type a transfer's number (`CT-000001`) in the query
+reference box. The query goes to the Admin like every other finance reference
+and the Admin's **Correct record** and **Delete record** work on it.
+
+| Field | Kind | Effect on an approved transfer |
+|---|---|---|
+| `amount` | money | The RV- receipt is reversed and a fresh receipt posted at the new figure, source `cash_transfer`, so the branch's photo still shows on the new voucher. |
+| `paymentMethod` | cash / easypaisa / bank_account | Reversed and re-posted on the right account (cash → Cash in Hand, the other two → Bank). |
+| `note` | text | Record only. |
+
+A pending transfer is corrected in place (nothing is booked yet) and Finance
+approves the corrected figure. A rejected transfer is final and cannot be
+amended — the branch records a new one.
+
+**Delete** stamps `deleted_at / deleted_by / deleted_by_name / delete_reason /
+deleted_query_id / deleted_query_no` on the transfer, keeps the row and its
+photo, and — unlike the other document types — if the transfer was approved,
+reverses its receipt with a reversing voucher that cites the query. A deleted
+transfer drops out of the branch list, Finance board, pending panel and the
+production slip's Payment Received, and can no longer be approved or rejected.
+The Help Desk's own reference lookup still resolves it, on purpose.
+
+There is no per-record restore, as for every other finance document; the desk's
+Restore and Recreate act on the query.
 
 ## Rollback
 
