@@ -57,6 +57,7 @@ describe('backup configuration', () => {
     expectErrors({ ...GOOD, BACKUP_TIMEZONE: 'UTC' }, 'BACKUP_TIMEZONE');
     expectErrors({ ...GOOD, BACKUP_RETENTION_AUTHORITY: 'nobody' }, 'BACKUP_RETENTION_AUTHORITY');
     expectErrors({ ...GOOD, SUPABASE_DB_URL: 'postgresql://u:p@host:6543/postgres' }, '6543');
+    expectErrors({ ...GOOD, SUPABASE_DB_URL: 'postgresql://postgres:p@db.abcdefgh.supabase.co:5432/postgres' }, 'IPv6-only');
   });
 
   it('does not require the database URL or the enabled flag when told not to', () => {

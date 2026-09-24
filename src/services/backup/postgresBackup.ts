@@ -87,7 +87,7 @@ export function buildPgDumpArgs(spec: Pick<DumpSpec, 'outFile' | 'schemas' | 'ta
 }
 
 function connectionFailure(stderr: string): boolean {
-  return /could not connect|connection refused|could not translate host name|password authentication failed|timeout expired|server closed the connection unexpectedly|SSL SYSCALL error|Connection timed out|no pg_hba\.conf entry/i.test(stderr);
+  return /could not connect|connection refused|could not translate host name|password authentication failed|timeout expired|server closed the connection unexpectedly|SSL SYSCALL error|Connection timed out|no pg_hba\.conf entry|Network is unreachable|No route to host/i.test(stderr);
 }
 
 interface RunOptions {

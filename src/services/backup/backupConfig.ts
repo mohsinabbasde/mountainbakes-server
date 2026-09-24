@@ -181,6 +181,9 @@ export function getBackupSystemConfig(opts: ConfigOptions = {}): BackupSystemCon
       const u = new URL(dbUrl);
       if (!/^postgres(ql)?:$/.test(u.protocol)) errors.push('SUPABASE_DB_URL must start with postgresql://');
       if (u.port === '6543') errors.push('SUPABASE_DB_URL uses port 6543 (transaction pooler) — pg_dump needs the session pooler on 5432');
+      if (/^db\.[a-z0-9]+\.supabase\.co$/i.test(u.hostname)) {
+        errors.push('SUPABASE_DB_URL uses the direct host db.<ref>.supabase.co, which is IPv6-only — use the session pooler (aws-0-<region>.pooler.supabase.com:5432)');
+      }
     } catch {
       errors.push('SUPABASE_DB_URL is not a valid URL');
     }

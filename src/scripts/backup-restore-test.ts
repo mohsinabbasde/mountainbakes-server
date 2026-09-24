@@ -1,7 +1,7 @@
 import 'dotenv/config';
 import os from 'node:os';
 import path from 'node:path';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import type { BackupJob, BackupVerifyCheck } from '../shared';
 import {
   createBackupDeps,
@@ -24,7 +24,7 @@ import {
  *   pnpm backup:restore:test -- --backup-id backup-daily-2026-09-21
  *   pnpm backup:restore:test -- --keep       leave the downloaded archives in the temp dir
  *
- * THIS IS DESTRUCTIVE FOR THE TARGET DATABASE (pg_restore --clean). It refuses to run when the target
+ * THIS IS DESTRUCTIVE FOR THE TARGET DATABASE (drops public/app/auth/supabase_migrations, then pg_restore). It refuses to run when the target
  *   - is the production database (same host + database as SUPABASE_DB_URL),
  *   - mentions the production project ref anywhere,
  *   - or PRODUCTION=true / BACKUP_RESTORE_TEST_ALLOW_PRODUCTION is set (never honoured, always refused).
@@ -33,7 +33,7 @@ import {
  *   1. pick the latest verified backup (or --backup-id), read its manifest
  *   2. download both archives, verify SHA-256 against the manifest
  *   3. prepare the target: roles anon/authenticated/service_role, schemas auth/extensions, common extensions
- *   4. pg_restore --clean --if-exists --no-owner --no-privileges  (main archive: public, app, supabase_migrations)
+ *   4. pg_restore --no-owner --no-privileges: auth archive first, then main (public, app, supabase_migrations)
  *   5. pg_restore the auth archive (auth.users, auth.identities)
  *   6. verify: table count vs manifest, row counts of the business tables, key functions, triggers, indexes, constraints
  *   7. record the drill in backup_restore_tests (status, checks, row counts) — never the target URL
@@ -49,8 +49,8 @@ const opt = (name: string): string | undefined => {
 const keep = argv.includes('--keep');
 
 const BUSINESS_TABLES = [
-  'users', 'branches', 'products', 'product_prices', 'customers', 'orders', 'order_items', 'expenses',
-  'stock_movements', 'production_orders', 'production_order_items', 'daily_closing_reports', 'settings',
+  'users', 'branches', 'products', 'product_price_history', 'customers', 'orders', 'order_items', 'expenses',
+  'stock', 'stock_history', 'production_orders', 'production_order_items', 'daily_closing_reports', 'settings',
   'ledger_entries', 'finance_transactions', 'business_day_closures', 'backup_jobs',
 ];
 
@@ -170,10 +170,22 @@ async function main(): Promise<number> {
          if not exists (select 1 from pg_roles where rolname = 'service_role') then create role service_role nologin bypassrls; end if;
          if not exists (select 1 from pg_roles where rolname = 'supabase_auth_admin') then create role supabase_auth_admin nologin; end if;
        end $$;
+       -- Start from an empty target so reruns are repeatable: pg_restore --clean cannot drop public or
+       -- auth.users once a previous restore left cross-schema FKs behind. Only reached after safetyCheck().
+       drop schema if exists public, app, auth, supabase_migrations cascade;
+       create schema public;
        create schema if not exists auth; create schema if not exists extensions; create schema if not exists app;
        create extension if not exists pgcrypto with schema extensions;
        create extension if not exists "uuid-ossp" with schema extensions;
-       create extension if not exists pg_trgm with schema extensions;
+       -- Production has pg_trgm in public (migration 109 created it unqualified) and the dumped
+       -- trigram indexes reference public.gin_trgm_ops, so it must live there, not in extensions.
+       create extension if not exists pg_trgm with schema public;
+       do $$ begin
+         if exists (select 1 from pg_extension e join pg_namespace n on n.oid = e.extnamespace
+                     where e.extname = 'pg_trgm' and n.nspname <> 'public') then
+           alter extension pg_trgm set schema public;
+         end if;
+       end $$;
        create extension if not exists citext with schema extensions;
        create extension if not exists pg_stat_statements with schema extensions;`,
       target, pgBinDir, secrets,
@@ -188,33 +200,13 @@ async function main(): Promise<number> {
       target, pgBinDir, secrets,
     ).catch(() => undefined);
 
-    // 4. main restore
-    console.log('Restoring main archive (public, app, supabase_migrations) …');
-    const pgRestore = resolvePgBinary('pg_restore', pgBinDir);
-    const mainRes = await runPgProcess(
-      pgRestore,
-      {
-        argv: ['--clean', '--if-exists', '--no-owner', '--no-privileges', '--no-comments', '--dbname', pgConnectionEnv(target).PGDATABASE, local.main],
-        env: pgConnectionEnv(target),
-        timeoutMs: cfg.pgDumpTimeoutMs,
-        label: 'pg_restore main',
-      },
-      { pgBinDir, secrets },
-    ).catch((err) => {
-      // pg_restore exits 1 on ignorable errors (e.g. DROP of a missing object under --clean, an
-      // extension-owned function); we treat that as a warning and let the verification decide.
-      const msg = redactSecrets(String((err as Error).message), secrets);
-      console.warn(`  pg_restore main reported errors (verification below decides):\n  ${msg.split('\n').slice(0, 12).join('\n  ')}`);
-      return null;
-    });
-    checks.push({ name: 'pg_restore main exited cleanly', ok: !!mainRes, detail: mainRes ? `${(mainRes.durationMs / 1000).toFixed(1)}s` : 'errors reported (see log)' });
-
-    // 5. auth restore
+    // 4. auth restore — self-contained (auth.users + auth.identities only), so it goes first
     console.log('Restoring auth archive (auth.users, auth.identities) …');
+    const pgRestore = resolvePgBinary('pg_restore', pgBinDir);
     const authRes = await runPgProcess(
       pgRestore,
       {
-        argv: ['--clean', '--if-exists', '--no-owner', '--no-privileges', '--no-comments', '--dbname', pgConnectionEnv(target).PGDATABASE, local.auth],
+        argv: ['--no-owner', '--no-privileges', '--no-comments', '--dbname', pgConnectionEnv(target).PGDATABASE, local.auth],
         env: pgConnectionEnv(target),
         timeoutMs: cfg.pgDumpTimeoutMs,
         label: 'pg_restore auth',
@@ -225,6 +217,32 @@ async function main(): Promise<number> {
       return null;
     });
     checks.push({ name: 'pg_restore auth exited cleanly', ok: !!authRes });
+
+    // 5. main restore — after auth, so public.users_id_fkey → auth.users resolves
+    console.log('Restoring main archive (public, app, supabase_migrations) …');
+    // Skip the archive's CREATE SCHEMA public/app: step 3 already made them (pg_trgm must be in public first).
+    // --list goes to a file: runPgProcess caps captured stdout, which would silently truncate the TOC.
+    const tocFile = path.join(tmp, 'main.toc');
+    await runPgProcess(pgRestore, { argv: ['--list', '--file', tocFile, local.main], env: {}, timeoutMs: 60_000, label: 'pg_restore --list' }, { pgBinDir, secrets });
+    const tocLines = (await readFile(tocFile, 'utf8')).split('\n');
+    await writeFile(tocFile, tocLines.filter((l) => !/^\d+; \d+ \d+ SCHEMA - (public|app) /.test(l)).join('\n'));
+    const mainRes = await runPgProcess(
+      pgRestore,
+      {
+        argv: ['--no-owner', '--no-privileges', '--no-comments', '--use-list', tocFile, '--dbname', pgConnectionEnv(target).PGDATABASE, local.main],
+        env: pgConnectionEnv(target),
+        timeoutMs: cfg.pgDumpTimeoutMs,
+        label: 'pg_restore main',
+      },
+      { pgBinDir, secrets },
+    ).catch((err) => {
+      // pg_restore exits 1 on ignorable errors (e.g. an extension-owned function); we treat that
+      // as a warning and let the verification decide.
+      const msg = redactSecrets(String((err as Error).message), secrets);
+      console.warn(`  pg_restore main reported errors (verification below decides):\n  ${msg.split('\n').slice(0, 12).join('\n  ')}`);
+      return null;
+    });
+    checks.push({ name: 'pg_restore main exited cleanly', ok: !!mainRes, detail: mainRes ? `${(mainRes.durationMs / 1000).toFixed(1)}s` : 'errors reported (see log)' });
 
     // 6. verify
     console.log('Verifying …');
@@ -249,6 +267,8 @@ async function main(): Promise<number> {
     rowCounts['auth.users'] = authUsers;
     checks.push({ name: 'auth.users restored', ok: authUsers >= 0, detail: `${authUsers} rows` });
     checks.push({ name: 'auth.users count matches public.users', ok: authUsers === rowCounts.users, detail: `${authUsers} vs ${rowCounts.users}` });
+    const userFk = (await q(`select exists (select 1 from pg_constraint where conname = 'users_id_fkey' and conrelid = 'public.users'::regclass and confrelid = 'auth.users'::regclass)`).catch(() => 'f')) === 't';
+    checks.push({ name: 'FK public.users → auth.users restored', ok: userFk });
 
     for (const fn of KEY_FUNCTIONS) {
       const exists = (await q(`select to_regprocedure('${fn}') is not null`).catch(() => 'f')) === 't';

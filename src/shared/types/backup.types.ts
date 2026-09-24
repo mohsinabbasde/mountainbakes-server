@@ -34,6 +34,7 @@ export type BackupErrorCategory =
   | 'DUMP_EMPTY'
   | 'DISK_ERROR'
   | 'CHECKSUM_FAILED'
+  | 'S3_AUTH_FAILED'
   | 'S3_UPLOAD_FAILED'
   | 'S3_VERIFY_FAILED'
   | 'MANIFEST_FAILED'

@@ -116,7 +116,7 @@ initial runs:
 
 | Date | Database size (`backup_database_info`) | Main archive size | `dump_ms` | `upload_ms` | Notes |
 | --- | --- | --- | --- | --- | --- |
-| _pending_ | | | | | first run blocked on credentials + pg_dump install (see database-backup.md checklist) |
+| 2026-09-25 | 49.1 MB | 3.0 MB (+ 18.2 KB auth) | 75.1 s main + 14.5 s auth (via session pooler from Pakistan; plus ~13 s connectivity probe) | 1.6 s | first real daily/weekly/monthly runs, run from a dev machine, not Heroku; total 1m 40s–1m 50s per run |
 
 If `dump_ms` approaches 20 minutes, raise `BACKUP_PG_DUMP_TIMEOUT_MS`, move the
 weekly/monthly windows apart further, and evaluate Supabase PITR as the primary

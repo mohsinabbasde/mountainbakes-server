@@ -76,7 +76,7 @@ end $$;
 create schema if not exists auth; create schema if not exists extensions; create schema if not exists app;
 create extension if not exists pgcrypto with schema extensions;
 create extension if not exists "uuid-ossp" with schema extensions;
-create extension if not exists pg_trgm with schema extensions;
+create extension if not exists pg_trgm with schema public;   -- production keeps pg_trgm in public; the trigram indexes reference public.gin_trgm_ops
 create extension if not exists citext with schema extensions;
 -- stand-ins for Supabase's auth helpers referenced by RLS policies/defaults
 create or replace function auth.uid() returns uuid language sql stable as $$ select nullif(current_setting('request.jwt.claim.sub', true), '')::uuid $$;
@@ -90,34 +90,49 @@ project you mean.
 
 ## 5. Restore
 
-Main archive — schema + data for `public`, `app`, `supabase_migrations`:
+**Order matters: auth archive first, then main.** The main archive ends by
+adding `public.users_id_fkey → auth.users`; if `auth.users` is missing or empty
+at that point the constraint fails, and the rest of the restore carries on
+without it. The auth archive is self-contained (`auth.users` +
+`auth.identities`, no references into `public`), so it can always go first.
+
+Auth archive — `auth.users` + `auth.identities`:
 
 ```bash
-# ⚠ DESTRUCTIVE: --clean drops every object in the archive before recreating it
-export PGSSLMODE=require
-pg_restore --clean --if-exists --no-owner --no-privileges --no-comments \
+# Plain PostgreSQL target (tables do not exist yet): full restore
+pg_restore --no-owner --no-privileges --dbname "<target>" mountainbakes-daily-2026-09-21-auth.dump
+
+# ⚠ DESTRUCTIVE on a Supabase target (tables exist, owned by supabase_auth_admin): data only
+psql "<target>" -c "set session_replication_role = replica; truncate auth.identities, auth.users cascade;"
+pg_restore --data-only --no-owner --no-privileges --dbname "<target>" mountainbakes-daily-2026-09-21-auth.dump
+```
+
+Main archive — schema + data for `public`, `app`, `supabase_migrations`, into
+an **empty** target (a fresh database or a new Supabase project):
+
+```bash
+export PGSSLMODE=require          # Supabase targets; omit for a local socket
+# Skip CREATE SCHEMA public/app — they already exist (public holds pg_trgm, see step 4)
+pg_restore --list --file main.toc mountainbakes-daily-2026-09-21.dump
+grep -vE '^[0-9]+; [0-9]+ [0-9]+ SCHEMA - (public|app) ' main.toc > main.filtered.toc
+pg_restore --no-owner --no-privileges --no-comments --use-list main.filtered.toc \
   --dbname "postgresql://<user>:<password>@<host>:5432/<database>" \
   mountainbakes-daily-2026-09-21.dump
 ```
+
+Restoring over a database that already has these objects? Don't use
+`--clean`: it cannot drop `public` (pg_trgm depends on it) or `auth.users`
+(the cross-schema FK), so it fails halfway. Use a fresh target instead, or
+**⚠ DESTRUCTIVE**: `drop schema if exists public, app, auth, supabase_migrations cascade; create schema public;`
+first, then redo step 4.
 
 `--no-owner --no-privileges` because the archive records Supabase's owners and
 grants, which a plain server does not have; on a Supabase target the
 schema-level grants to `anon`/`authenticated`/`service_role` are re-applied by
 the migration files' `grant` statements if needed, and `supabase db push`
 sees `supabase_migrations.schema_migrations` restored and reports nothing
-pending. `pg_restore` exits 1 for ignorable errors (a `DROP` of something that
-did not exist, an extension-owned function); read the messages, then verify.
-
-Auth archive — `auth.users` + `auth.identities`:
-
-```bash
-# Plain PostgreSQL target (tables do not exist yet): full restore
-pg_restore --clean --if-exists --no-owner --no-privileges --dbname "<target>" mountainbakes-daily-2026-09-21-auth.dump
-
-# ⚠ DESTRUCTIVE on a Supabase target (tables exist, owned by supabase_auth_admin): data only
-psql "<target>" -c "set session_replication_role = replica; truncate auth.identities, auth.users cascade;"
-pg_restore --data-only --no-owner --no-privileges --dbname "<target>" mountainbakes-daily-2026-09-21-auth.dump
-```
+pending. A clean restore in this order exits 0 (proven 2026-09-25); any error
+message means something is missing, so read it before verifying.
 
 `session_replication_role = replica` is Supabase's own guidance for loading
 auth data: it silences the auth triggers during the load. Restored users keep
@@ -141,9 +156,9 @@ select count(*) from pg_policies where schemaname='public';
 
 ```sql
 select 'users', count(*) from users union all select 'branches', count(*) from branches
-union all select 'products', count(*) from products union all select 'product_prices', count(*) from product_prices
+union all select 'products', count(*) from products union all select 'product_price_history', count(*) from product_price_history
 union all select 'orders', count(*) from orders union all select 'order_items', count(*) from order_items
-union all select 'expenses', count(*) from expenses union all select 'stock_movements', count(*) from stock_movements
+union all select 'expenses', count(*) from expenses union all select 'stock', count(*) from stock
 union all select 'production_orders', count(*) from production_orders union all select 'daily_closing_reports', count(*) from daily_closing_reports
 union all select 'ledger_entries', count(*) from ledger_entries union all select 'auth.users', count(*) from auth.users;
 select max(created_at) from orders;          -- the recovery point: nothing after this exists
@@ -181,8 +196,15 @@ Only after 1–9 have passed on a test target:
    [database-disaster-recovery.md](database-disaster-recovery.md)).
 3. Take a manual backup of whatever is there now, if anything: `pnpm backup:manual`.
 4. Type the production connection string into a shell variable and **read it
-   back aloud**; run step 5 with `--clean` (⚠ DESTRUCTIVE); then the auth
-   data-only load.
+   back aloud**. Then, in step 5's order:
+   - auth: the Supabase data-only load (⚠ DESTRUCTIVE truncate of `auth.users`/`auth.identities`).
+     Never drop the `auth` schema on Supabase — it belongs to Supabase Auth.
+   - main, same project only (⚠ DESTRUCTIVE): `drop schema if exists public, app, supabase_migrations cascade;`
+     then `create schema public; grant usage on schema public to anon, authenticated, service_role;`
+     and `create extension if not exists pg_trgm with schema public;`, then the filtered-TOC
+     `pg_restore` from step 5. A new project skips the drop.
+   - This production path has **not** been rehearsed yet (the 2026-09-25 drill was a local
+     target); rehearse it on a throwaway Supabase project before relying on it.
 5. Re-run steps 6–8 against production. Reset sequences are already in the
    archive; no manual `setval` is needed.
 6. If a new project: update `SUPABASE_URL`/keys on Heroku and the frontend
@@ -200,4 +222,4 @@ admin screen.
 
 | Date | Backup used | Target | Result | Duration | Issues |
 | --- | --- | --- | --- | --- | --- |
-| _pending_ | _first verified backup_ | local PostgreSQL 18 (`mountainbakes_restore_test`) | — | — | Blocked on: `postgresql-client-18` + `postgresql-18` install, `SUPABASE_DB_URL`, a working AWS key (the one in `.env` fails with SignatureDoesNotMatch) |
+| 2026-09-25 | `backup-daily-2026-09-25` (3.0 MB + 18.2 KB auth) | local PostgreSQL 18.6 (`mountainbakes_restore_test`) | **PASSED** — 0 pg_restore errors; identical to production: 73 tables, 45 triggers, 349 indexes, 50 policies, 94 functions, orders 2534 / order_items 3867 / stock_history 7401 / ledger_entries 650, auth.users 15 = public.users 15 | 5.9 s restore (+ ~15 s download) | First attempts found three script bugs, all fixed: pg_trgm made in `extensions` (production has it in `public`); main restored before auth, silently losing `users_id_fkey`; `--clean` failing on rerun. Checks also pointed at `product_prices`/`stock_movements`, which don't exist (now `product_price_history`, `stock`, `stock_history`) |

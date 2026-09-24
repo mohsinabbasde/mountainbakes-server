@@ -34,8 +34,16 @@ async function main(): Promise<number> {
 
   if (command === 'audit' || !command) {
     const bad = audit.findings.filter((f) => f.ok === false);
-    console.log(bad.length === 0 ? '\nAudit clean.' : `\n${bad.length} finding(s) need attention — run \`pnpm backup:aws:configure -- --confirm\` with elevated credentials.`);
-    return bad.length === 0 ? 0 : 1;
+    const unknown = audit.findings.filter((f) => f.ok !== true && f.ok !== false);
+    if (bad.length > 0) {
+      console.log(`\n${bad.length} finding(s) need attention — run \`pnpm backup:aws:configure -- --confirm\` with elevated credentials.`);
+    } else if (unknown.length > 0) {
+      // The backup key is object-scoped by design; bucket settings need an admin identity to read.
+      console.log(`\nAudit incomplete: ${unknown.length} check(s) could not be read with these credentials — re-run with admin credentials or check them in the AWS console.`);
+    } else {
+      console.log('\nAudit clean.');
+    }
+    return bad.length === 0 && unknown.length === 0 ? 0 : 1;
   }
 
   if (command !== 'configure') {

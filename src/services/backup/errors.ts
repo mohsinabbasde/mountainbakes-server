@@ -27,6 +27,10 @@ export function isBackupError(err: unknown): err is BackupError {
 /** Best-effort classification of an arbitrary thrown value. */
 export function categorize(err: unknown): BackupErrorCategory {
   if (isBackupError(err)) return err.category;
+  const name = (err as { name?: string } | null)?.name ?? '';
+  if (/^(SignatureDoesNotMatch|InvalidAccessKeyId|AccessDenied|ExpiredToken|InvalidToken|TokenRefreshRequired)$/.test(name)) {
+    return 'S3_AUTH_FAILED';
+  }
   const msg = err instanceof Error ? err.message : String(err);
   if (/ENOSPC|EACCES|EROFS|ENOENT|EMFILE/.test(msg)) return 'DISK_ERROR';
   if (/could not connect|connection refused|timeout expired|password authentication|ECONNRESET|ETIMEDOUT|ENOTFOUND/i.test(msg)) {

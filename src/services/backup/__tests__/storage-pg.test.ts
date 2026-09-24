@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { BackupStorage, isTransientS3Error, withRetry } from '../s3BackupStorage';
 import { buildPgDumpArgs, getPgDumpVersion, pgConnectionEnv, probeConnection, runPgDump } from '../postgresBackup';
-import { BackupError } from '../errors';
+import { BackupError, categorize } from '../errors';
 import { FakeS3, fakeSpawn, fakeUploadFactory } from './fakes';
 
 describe('S3 storage', () => {
@@ -40,6 +40,16 @@ describe('S3 storage', () => {
     );
     assert.equal(calls, 1);
     assert.equal(isTransientS3Error(Object.assign(new Error('x'), { $metadata: { httpStatusCode: 429 } })), true);
+  });
+
+  it('categorizes S3 credential errors as S3_AUTH_FAILED, not UNKNOWN', () => {
+    const sig = Object.assign(new Error('The request signature we calculated does not match'), {
+      name: 'SignatureDoesNotMatch',
+      $metadata: { httpStatusCode: 403 },
+    });
+    assert.equal(categorize(sig), 'S3_AUTH_FAILED');
+    assert.equal(categorize(Object.assign(new Error('x'), { name: 'InvalidAccessKeyId' })), 'S3_AUTH_FAILED');
+    assert.equal(categorize(new Error('something else')), 'UNKNOWN');
   });
 
   it('uploads with SSE-S3 and checksum metadata, then HeadObject reports them', async () => {
@@ -110,6 +120,13 @@ describe('pg_dump driver', () => {
       await assert.rejects(
         () => runPgDump({ dbUrl: 'postgresql://u:secretpw@h:5432/db', outFile: path.join(dir, 'y.dump'), schemas: ['public'], timeoutMs: 5000 }, { spawn: conn, pgBinDir: null, secrets: ['secretpw'] }),
         (err: unknown) => err instanceof BackupError && err.category === 'DB_CONNECTION_FAILED' && err.retryable && !err.message.includes('secretpw') && err.message.includes('***'),
+      );
+
+      // IPv6-only direct host (db.<ref>.supabase.co) from an IPv4-only network.
+      const unreachable = fakeSpawn({ exitCode: 1, stderr: 'pg_dump: error: connection to server at "h" (2406:da14::1), port 5432 failed: Network is unreachable\n' });
+      await assert.rejects(
+        () => runPgDump({ dbUrl: 'postgresql://u:pw@h:5432/db', outFile: path.join(dir, 'u.dump'), schemas: ['public'], timeoutMs: 5000 }, { spawn: unreachable, pgBinDir: null }),
+        (err: unknown) => err instanceof BackupError && err.category === 'DB_CONNECTION_FAILED',
       );
 
       const generic = fakeSpawn({ exitCode: 1, stderr: 'pg_dump: error: query failed\n' });
