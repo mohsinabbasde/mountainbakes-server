@@ -167,7 +167,7 @@ export const VerifyIncomeSchema = z.object({
 
 export const CreateEmployeeSchema = z.object({
   name: z.string().min(2, 'Name is required').max(120),
-  department: z.string().min(1, 'Department is required').max(80),
+  department: z.string().trim().min(1, 'Department is required').max(80),
   designation: z.string().min(1, 'Designation is required').max(80),
   branchId: z.string().uuid().nullish(),
   baseSalary: z.number().nonnegative('Base salary cannot be negative').max(9_999_999_999.99).default(0),
@@ -422,6 +422,11 @@ export const FinanceReportQuerySchema = z.object({
   // the exported file is the document of record and must hold every row.
   page: z.coerce.number().int().min(1).optional(),
   pageSize: z.coerce.number().int().min(1).max(500).optional(),
+  // Validated against the JUST-BUILT report's own `columns` in
+  // `buildFinanceReport` — the sortable key set differs per report type, so it
+  // can't be a fixed enum here the way `type` above is.
+  sortBy: z.string().optional(),
+  sortDir: z.enum(['asc', 'desc']).optional(),
 });
 
 // ---------------------------------------------------------------------------

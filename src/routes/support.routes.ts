@@ -604,6 +604,18 @@ router.get('/lookup', async (req: AuthRequest, res, next) => {
   }
 });
 
+// The columns `SupportCenterPage.tsx`'s table lets someone click to sort. An
+// unrecognized `sortBy` silently falls back to `created_at desc`, matching this
+// route's existing style of ignoring rather than 400ing a bad optional param.
+const TICKET_SORT_COLUMNS: Record<string, string> = {
+  ticketNumber: 'ticket_number',
+  referenceId: 'reference_id',
+  branchName: 'branch_name',
+  message: 'message',
+  status: 'status',
+  createdAt: 'created_at',
+};
+
 // GET /api/support — admin sees the whole queue; a raiser sees only their own tickets.
 //
 // Archived tickets are hidden by default so the Archive button still clears the
@@ -625,10 +637,14 @@ router.get('/', async (req: AuthRequest, res, next) => {
     const rawPageSize = Number(req.query['pageSize']);
     const pageSize = Number.isFinite(rawPageSize) && rawPageSize > 0 ? Math.min(200, Math.floor(rawPageSize)) : 20;
 
+    const sortByRaw = String(req.query['sortBy'] ?? '');
+    const sortCol = TICKET_SORT_COLUMNS[sortByRaw] ?? 'created_at';
+    const ascending = req.query['sortDir'] === 'asc';
+
     let query = supabaseAdmin
       .from('support_tickets')
       .select('*', { count: 'exact' })
-      .order('created_at', { ascending: false });
+      .order(sortCol, { ascending });
     if (!includeArchived) query = query.is('archived_at', null);
     // Branch scoping (unconditional for a non-admin raiser) and the status
     // filter are independent — status only narrows an already-correctly-scoped

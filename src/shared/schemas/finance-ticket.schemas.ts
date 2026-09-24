@@ -407,5 +407,7 @@ export const FinanceTicketQuerySchema = z.object({
   /** Server-side pagination (§19). One-based; capped so a page is never the table. */
   page: z.coerce.number().int().min(1).optional().default(1),
   pageSize: z.coerce.number().int().min(1).max(100).optional().default(25),
+  sortBy: z.enum(['queryNo', 'raisedByName', 'subject', 'amount', 'priority', 'status', 'createdAt']).optional(),
+  sortDir: z.enum(['asc', 'desc']).optional(),
 });
 export type FinanceTicketQueryInput = z.infer<typeof FinanceTicketQuerySchema>;

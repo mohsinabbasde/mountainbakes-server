@@ -71,7 +71,27 @@ export interface LedgerQuery {
   search?: string;
   limit?: number;
   offset?: number;
+  sortBy?: string;
+  sortDir?: 'asc' | 'desc';
 }
+
+/**
+ * Allowlist for `?sortBy=` — never let a client-supplied column reach
+ * `.order()`. `branchName` is deliberately absent: it is resolved via a
+ * separate lookup after this query runs (see `branchNamesFor` below), not a
+ * stored column on `production_stock_history`, so there is nothing to sort by
+ * in Postgres.
+ */
+const STOCK_LEDGER_SORTABLE_COLUMNS: Record<string, string> = {
+  businessDate: 'business_date',
+  createdAt: 'created_at',
+  productName: 'product_name',
+  type: 'type',
+  delta: 'delta',
+  balanceAfter: 'balance_after',
+  transactionNo: 'transaction_no',
+  createdByName: 'created_by_name',
+};
 
 export interface LedgerPage {
   rows: ProductionStockLedgerRow[];
@@ -169,10 +189,12 @@ export async function getStockLedger(q: LedgerQuery): Promise<LedgerPage> {
     query = query.or(clauses.join(','));
   }
 
-  const { data, error, count } = await query
-    .order('business_date', { ascending: false })
-    .order('created_at', { ascending: false })
-    .range(offset, offset + limit - 1);
+  const sortCol = (q.sortBy && STOCK_LEDGER_SORTABLE_COLUMNS[q.sortBy]) || 'business_date';
+  const ascending = q.sortDir === 'asc';
+  query = query.order(sortCol, { ascending });
+  if (sortCol !== 'created_at') query = query.order('created_at', { ascending });
+
+  const { data, error, count } = await query.range(offset, offset + limit - 1);
   if (error) throw error;
 
   const raw = (data ?? []) as {

@@ -711,10 +711,35 @@ function applyStateFilter<Q extends {
  * admin is allowed to pass it (see the route). Everyone else is pinned to their
  * own id, which is what makes this table safe to put on every dashboard.
  */
+/** The column a `sortBy` key resolves to. Not part of the shared, mirrored
+ * `LoginHistoryFilters` type — sort is parsed ad hoc by the route (see there).
+ *
+ * `duration` and session `state` are deliberately absent: both are computed in
+ * `derive()` from `login_at`/`last_seen_at`/`ended_at` (`state` also folds in
+ * "now", for the idle/expired boundary), not a single stored column a plain
+ * `.order()` can express — sorting by either would need a SQL expression this
+ * query builder doesn't offer, so they stay unsortable rather than silently
+ * ordering by the wrong thing. */
+export const SESSION_SORT_COLUMNS = {
+  loginAt: 'login_at',
+  userName: 'user_name',
+  browserEmail: 'browser_email',
+  city: 'city',
+  country: 'country',
+  browser: 'browser',
+  browserVersion: 'browser_version',
+  os: 'os',
+  deviceType: 'device_type',
+  ipAddress: 'ip_address',
+} as const;
+export type SessionSortKey = keyof typeof SESSION_SORT_COLUMNS;
+
 export async function listSessions(opts: {
   filters: LoginHistoryFilters;
   page: number;
   pageSize: number;
+  sortBy?: SessionSortKey;
+  sortDir?: 'asc' | 'desc';
   /**
    * Whether this caller may SEARCH by the activated address. Only a super admin
    * may: leaving it in for everyone else would turn the search box into an
@@ -739,7 +764,7 @@ export async function listSessions(opts: {
     // that an exact count is cheap, and an estimate that disagrees with the rows
     // on screen reads as a bug to the person looking at both.
     .select(COLUMNS, { count: 'exact' })
-    .order('login_at', { ascending: false });
+    .order(opts.sortBy ? SESSION_SORT_COLUMNS[opts.sortBy] : 'login_at', { ascending: opts.sortDir === 'asc' });
 
   if (filters.userId) q = q.eq('user_id', filters.userId);
   if (filters.from) q = q.gte('business_date', filters.from);

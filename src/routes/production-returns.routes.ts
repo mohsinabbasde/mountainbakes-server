@@ -20,6 +20,18 @@ router.use(authenticate, requireRole('super_admin', 'production_user'));
 
 const PRODUCTION_RETURN_STATUSES = ['pending', 'accepted', 'rejected', 'returned'] as const;
 
+/** Allowlist for `?sortBy=` — `date` is this API's own rename of `business_date` (see below). */
+const PRODUCTION_RETURN_SORTABLE_COLUMNS: Record<string, string> = {
+  date: 'business_date',
+  createdAt: 'created_at',
+  branchName: 'branch_name',
+  productName: 'product_name',
+  qty: 'qty',
+  source: 'source',
+  reason: 'reason',
+  status: 'status',
+};
+
 // GET /api/production-returns?from=&to=&branchId=&productId=&status=&search=&limit=&offset=
 // — 30 days by default, most recent first, filtered and paginated in Postgres.
 router.get('/', async (req: AuthRequest, res, next) => {
@@ -32,11 +44,15 @@ router.get('/', async (req: AuthRequest, res, next) => {
     const productId = req.query['productId'] as string | undefined;
     const status = req.query['status'] as string | undefined;
 
+    const sortByKey = req.query['sortBy'] as string | undefined;
+    const sortCol = (sortByKey && PRODUCTION_RETURN_SORTABLE_COLUMNS[sortByKey]) || 'created_at';
+    const ascending = req.query['sortDir'] === 'asc';
+
     let query = supabaseAdmin
       .from('production_returns')
       .select('*', { count: 'exact' })
       .gte('business_date', from)
-      .order('created_at', { ascending: false })
+      .order(sortCol, { ascending })
       .range(offset, offset + limit - 1);
 
     if (to) query = query.lte('business_date', to);

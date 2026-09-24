@@ -24,6 +24,10 @@ export const ATTACHMENT_ENTITIES = [
   // flattening both onto the query would lose which reply it arrived with.
   'finance_ticket',
   'finance_ticket_message',
+  // Cash transfers (migration 118): the photo of the slip or handover a branch
+  // attaches when it records money sent to the company. Read by Finance from
+  // the transfer and again from the RV- voucher it becomes.
+  'cash_transfer',
 ] as const;
 
 export type AttachmentEntity = (typeof ATTACHMENT_ENTITIES)[number];
@@ -41,6 +45,7 @@ export const ATTACHMENT_ENTITY_LABELS: Record<AttachmentEntity, string> = {
   production_order_special_item: 'Special order item',
   finance_ticket: 'Finance Help Desk query',
   finance_ticket_message: 'Help Desk reply',
+  cash_transfer: 'Branch cash transfer',
 };
 
 /**

@@ -397,6 +397,8 @@ router.get('/returns', requireRole('super_admin', ...BRANCH_ROLES), async (req: 
       productId: req.query['productId'] as string | undefined,
       status: req.query['status'] as string | undefined,
       search: req.query['search'] as string | undefined,
+      sortBy: req.query['sortBy'] as string | undefined,
+      sortDir: req.query['sortDir'] === 'asc' ? 'asc' : req.query['sortDir'] === 'desc' ? 'desc' : undefined,
     });
     res.json({ returns, total });
   } catch (err) {

@@ -6,6 +6,7 @@ import { exportToPDF, exportToExcel, exportToCSV } from '../services/export.serv
 import { businessRange, type CategoryBreakdown, type PaymentMethodBreakdown } from '../shared';
 import { startOfMonth, endOfMonth, format } from 'date-fns';
 import { rowToApi } from '../utils/case';
+import { sortRows } from '../utils/sortRows';
 
 export const router = Router();
 
@@ -281,6 +282,23 @@ router.get('/summary', async (req: AuthRequest, res, next) => {
  */
 const PACKING_USAGE_ROW_CAP = 20_000;
 
+type PackingUsageRow = {
+  date: string; branchId: string; branchName: string;
+  packingMaterialId: string | null; materialName: string;
+  requestedQty: number; approvedQty: number; deliveredQty: number;
+};
+
+type PackingUsageSortKey = 'date' | 'branchName' | 'materialName' | 'requestedQty' | 'approvedQty' | 'deliveredQty';
+
+const PACKING_USAGE_SORT_ACCESSORS: Record<PackingUsageSortKey, (row: PackingUsageRow) => string | number> = {
+  date: (r) => r.date,
+  branchName: (r) => r.branchName,
+  materialName: (r) => r.materialName,
+  requestedQty: (r) => r.requestedQty,
+  approvedQty: (r) => r.approvedQty,
+  deliveredQty: (r) => r.deliveredQty,
+};
+
 /**
  * GET /api/reports/packing-usage — Daily Packing Material Usage.
  *
@@ -345,11 +363,7 @@ router.get('/packing-usage', async (req: AuthRequest, res, next) => {
       }[] | null;
     };
 
-    const rows = new Map<string, {
-      date: string; branchId: string; branchName: string;
-      packingMaterialId: string | null; materialName: string;
-      requestedQty: number; approvedQty: number; deliveredQty: number;
-    }>();
+    const rows = new Map<string, PackingUsageRow>();
 
     for (const o of (data ?? []) as unknown as OrderRow[]) {
       for (const it of o.packingItems ?? []) {
@@ -385,9 +399,22 @@ router.get('/packing-usage', async (req: AuthRequest, res, next) => {
       }
     }
 
-    const usage = [...rows.values()].sort(
-      (a, b) => b.date.localeCompare(a.date) || a.materialName.localeCompare(b.materialName),
-    );
+    // A `sortBy` sorts by that one column (single-key, matching every other
+    // sortable table in the app); with none given, the original compound
+    // default — date desc, then material name asc — is preserved exactly,
+    // since `sortRows` only takes one accessor and this default was never a
+    // single-key sort to begin with.
+    const sortByParam = req.query['sortBy'];
+    const sortBy = (typeof sortByParam === 'string' && sortByParam in PACKING_USAGE_SORT_ACCESSORS
+      ? (sortByParam as PackingUsageSortKey)
+      : null);
+    const sortDir = req.query['sortDir'] === 'asc' ? 'asc' : 'desc';
+
+    const usage = sortBy
+      ? sortRows([...rows.values()], PACKING_USAGE_SORT_ACCESSORS[sortBy], sortDir)
+      : [...rows.values()].sort(
+          (a, b) => b.date.localeCompare(a.date) || a.materialName.localeCompare(b.materialName),
+        );
 
     // Summed over every filtered row BEFORE the page slice below — the range
     // cards on screen must reflect the whole selection, not just page 1.

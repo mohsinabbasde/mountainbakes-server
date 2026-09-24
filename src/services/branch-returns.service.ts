@@ -103,6 +103,16 @@ export class ReturnNotFoundError extends Error {
  */
 const OPEN_OR_CLOSED_STATUSES = ['pending', 'accepted', 'rejected', 'returned'];
 
+/** Allowlist for `?sortBy=` — `date` is this API's own rename of `business_date` (see below). */
+const BRANCH_RETURN_SORTABLE_COLUMNS: Record<string, string> = {
+  date: 'business_date',
+  createdAt: 'created_at',
+  reviewedAt: 'reviewed_at',
+  productName: 'product_name',
+  qty: 'qty',
+  status: 'status',
+};
+
 export async function listBranchReturns(
   branchId: string,
   opts: {
@@ -113,16 +123,20 @@ export async function listBranchReturns(
     productId?: string;
     status?: string;
     search?: string;
+    sortBy?: string;
+    sortDir?: 'asc' | 'desc';
   } = {},
 ): Promise<{ returns: ProductionReturn[]; total: number }> {
   const limit = Math.min(Math.max(Number(opts.limit ?? 50), 1), 200);
   const offset = Math.max(Number(opts.offset ?? 0), 0);
+  const sortCol = (opts.sortBy && BRANCH_RETURN_SORTABLE_COLUMNS[opts.sortBy]) || 'created_at';
+  const ascending = opts.sortDir === 'asc';
 
   let q = supabaseAdmin
     .from('production_returns')
     .select('*', { count: 'exact' })
     .eq('branch_id', branchId)
-    .order('created_at', { ascending: false })
+    .order(sortCol, { ascending })
     .range(offset, offset + limit - 1);
 
   if (opts.from) q = q.gte('business_date', opts.from);

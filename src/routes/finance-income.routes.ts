@@ -19,6 +19,7 @@ import {
   listIncomeApprovals,
   rejectIncome,
   verifyIncome,
+  type IncomeApprovalSortKey,
 } from '../services/finance-income.service';
 import {
   approveTransaction,
@@ -28,6 +29,7 @@ import {
   rejectTransaction,
   submitTransaction,
   updateTransaction,
+  type TransactionQuery,
 } from '../services/finance-documents.service';
 import { auditSnapshot, logFinanceAudit } from '../services/finance-audit.service';
 
@@ -65,6 +67,8 @@ router.get('/', requireFinance('view'), async (req: AuthRequest, res, next) => {
       search: q['search'],
       limit: q['limit'] ? Number(q['limit']) : undefined,
       offset: q['offset'] ? Number(q['offset']) : undefined,
+      sortBy: q['sortBy'] as IncomeApprovalSortKey | undefined,
+      sortDir: q['sortDir'] as 'asc' | 'desc' | undefined,
     });
     res.json({ approvals, total });
   } catch (err) {
@@ -214,11 +218,16 @@ entriesRouter.get('/', requireFinance('view'), async (req: AuthRequest, res, nex
       type: (q['type'] as 'income' | 'expense') || undefined,
       branchId: q['branchId'],
       ledgerHeadId: q['ledgerHeadId'],
+      paymentMethod: q['paymentMethod'],
       from: q['from'],
       to: q['to'],
       search: q['search'],
+      minAmount: q['minAmount'] ? Number(q['minAmount']) : undefined,
+      maxAmount: q['maxAmount'] ? Number(q['maxAmount']) : undefined,
       limit: q['limit'] ? Number(q['limit']) : undefined,
       offset: q['offset'] ? Number(q['offset']) : undefined,
+      sortBy: q['sortBy'] as TransactionQuery['sortBy'],
+      sortDir: q['sortDir'] as TransactionQuery['sortDir'],
     });
     res.json({ entries, total });
   } catch (err) {

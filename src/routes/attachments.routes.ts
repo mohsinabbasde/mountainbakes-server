@@ -58,6 +58,10 @@ const ENTITY_ROLES: Record<AttachmentEntity, (role: UserRole) => boolean> = {
   // creating the query, so a Finance user cannot attach to somebody else's.
   finance_ticket: (r) => canAccessFinanceHelpDesk(r),
   finance_ticket_message: (r) => canAccessFinanceHelpDesk(r),
+  // Cash transfers (migration 118): the branch photographs the handover.
+  // Finance only ever READS this photo — from the transfer and from the RV-
+  // voucher it becomes — so it does not upload against this entity.
+  cash_transfer: (r) => isBranchRole(r) || r === 'super_admin',
 };
 
 router.use(authenticate);

@@ -68,16 +68,44 @@ function assertEditable(doc: { status: FinanceDocStatus }, ref: string): void {
 // Manual income / expense (finance_transactions)
 // ---------------------------------------------------------------------------
 
+export type TransactionSortKey =
+  | 'txnNo'
+  | 'businessDate'
+  | 'ledgerHeadName'
+  | 'description'
+  | 'branchName'
+  | 'notes'
+  | 'amount'
+  | 'paymentMethod'
+  | 'status';
+
+const TRANSACTION_SORTABLE_COLUMNS: Record<TransactionSortKey, string> = {
+  txnNo: 'txn_no',
+  businessDate: 'business_date',
+  ledgerHeadName: 'ledger_head_name',
+  description: 'description',
+  branchName: 'branch_name',
+  notes: 'notes',
+  amount: 'amount',
+  paymentMethod: 'payment_method',
+  status: 'status',
+};
+
 export interface TransactionQuery {
   status?: FinanceDocStatus | 'pending';
   type?: 'income' | 'expense';
   branchId?: string;
   ledgerHeadId?: string;
+  paymentMethod?: string;
   from?: string;
   to?: string;
   search?: string;
+  minAmount?: number;
+  maxAmount?: number;
   limit?: number;
   offset?: number;
+  sortBy?: TransactionSortKey;
+  sortDir?: 'asc' | 'desc';
 }
 
 export async function listTransactions(
@@ -86,22 +114,28 @@ export async function listTransactions(
   const limit = Math.min(Math.max(Number(q.limit ?? 200), 1), 500);
   const offset = Math.max(Number(q.offset ?? 0), 0);
 
+  const sortCol = q.sortBy ? TRANSACTION_SORTABLE_COLUMNS[q.sortBy] : 'business_date';
+  const ascending = q.sortDir === 'asc';
+
   let query = withoutDeleted(
     supabaseAdmin
       .from('finance_transactions')
       .select('*', { count: 'exact' })
-      .order('business_date', { ascending: false })
-      .order('created_at', { ascending: false })
+      .order(sortCol, { ascending })
       .range(offset, offset + limit - 1),
   );
+  if (sortCol !== 'created_at') query = query.order('created_at', { ascending });
 
   if (q.status === 'pending') query = query.in('status', ['draft', 'pending_approval']);
   else if (q.status) query = query.eq('status', q.status);
   if (q.type) query = query.eq('txn_type', q.type);
   if (q.branchId) query = query.eq('branch_id', q.branchId);
   if (q.ledgerHeadId) query = query.eq('ledger_head_id', q.ledgerHeadId);
+  if (q.paymentMethod) query = query.eq('payment_method', q.paymentMethod);
   if (q.from) query = query.gte('business_date', q.from);
   if (q.to) query = query.lte('business_date', q.to);
+  if (q.minAmount !== undefined) query = query.gte('amount', q.minAmount);
+  if (q.maxAmount !== undefined) query = query.lte('amount', q.maxAmount);
   if (q.search) {
     const term = q.search.replace(/[,()*]/g, ' ').trim();
     if (term) {
@@ -390,6 +424,17 @@ export async function updateFinancePartner(id: string, input: UpdateFinancePartn
 // Partner advances / draws (partner_expenses)
 // ---------------------------------------------------------------------------
 
+export type PartnerExpenseSortKey = 'expenseNo' | 'partnerName' | 'businessDate' | 'amount' | 'paymentMethod' | 'status';
+
+const PARTNER_EXPENSE_SORTABLE_COLUMNS: Record<PartnerExpenseSortKey, string> = {
+  expenseNo: 'expense_no',
+  partnerName: 'partner_name',
+  businessDate: 'business_date',
+  amount: 'amount',
+  paymentMethod: 'payment_method',
+  status: 'status',
+};
+
 export interface PartnerExpenseQuery {
   status?: FinanceDocStatus | 'pending';
   partnerId?: string;
@@ -400,6 +445,8 @@ export interface PartnerExpenseQuery {
   search?: string;
   limit?: number;
   offset?: number;
+  sortBy?: PartnerExpenseSortKey;
+  sortDir?: 'asc' | 'desc';
 }
 
 export async function listPartnerExpenses(
@@ -408,14 +455,17 @@ export async function listPartnerExpenses(
   const limit = Math.min(Math.max(Number(q.limit ?? 200), 1), 500);
   const offset = Math.max(Number(q.offset ?? 0), 0);
 
+  const sortCol = q.sortBy ? PARTNER_EXPENSE_SORTABLE_COLUMNS[q.sortBy] : 'business_date';
+  const ascending = q.sortDir === 'asc';
+
   let query = withoutDeleted(
     supabaseAdmin
       .from('partner_expenses')
       .select('*', { count: 'exact' })
-      .order('business_date', { ascending: false })
-      .order('created_at', { ascending: false })
+      .order(sortCol, { ascending })
       .range(offset, offset + limit - 1),
   );
+  if (sortCol !== 'created_at') query = query.order('created_at', { ascending });
 
   if (q.status === 'pending') query = query.in('status', ['draft', 'pending_approval']);
   else if (q.status) query = query.eq('status', q.status);

@@ -21,6 +21,7 @@ import {
   submitPartnerExpense,
   updateFinancePartner,
   updatePartnerExpense,
+  type PartnerExpenseQuery,
 } from '../services/finance-documents.service';
 import { auditSnapshot, logFinanceAudit } from '../services/finance-audit.service';
 
@@ -105,6 +106,8 @@ router.get('/', requireFinance('view'), async (req: AuthRequest, res, next) => {
       search: q['search'],
       limit: q['limit'] ? Number(q['limit']) : undefined,
       offset: q['offset'] ? Number(q['offset']) : undefined,
+      sortBy: q['sortBy'] as PartnerExpenseQuery['sortBy'],
+      sortDir: q['sortDir'] as PartnerExpenseQuery['sortDir'],
     });
     res.json({ expenses, total });
   } catch (err) {

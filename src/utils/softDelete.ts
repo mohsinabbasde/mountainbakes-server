@@ -33,6 +33,8 @@ export const SOFT_DELETABLE_FINANCE_TABLES = [
   'partner_expenses',
   'branch_share_payments',
   'finance_income_approvals',
+  // Migration 120.
+  'cash_transfers',
 ] as const;
 
 export type SoftDeletableFinanceTable = (typeof SOFT_DELETABLE_FINANCE_TABLES)[number];

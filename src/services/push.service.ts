@@ -49,6 +49,11 @@ export const TYPE_URL: Record<string, string> = {
   // these two happen to be unambiguous where the event ones are not.
   branch_discount: '/production-discounts',
   branch_discount_reviewed: '/branch-new-orders',
+  // Cash transfers (migration 119). Same role-blindness as the discount pair
+  // and equally unambiguous: 'cash_transfer' is only ever seen by Finance,
+  // 'cash_transfer_reviewed' only by the branch.
+  cash_transfer: '/finance-cash-transfers',
+  cash_transfer_reviewed: '/branch-cash-transfers',
   // Special Events. NOTE this map is role-blind — the admin, branch and
   // production event screens live at three different paths, so these entries can
   // only ever be right for one role. Whoever reimplements push has to key the

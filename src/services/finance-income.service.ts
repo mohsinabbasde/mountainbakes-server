@@ -174,6 +174,18 @@ export async function importBranchIncome(opts: {
 // Reading
 // ---------------------------------------------------------------------------
 
+export type IncomeApprovalSortKey = 'referenceNo' | 'branchName' | 'businessDate' | 'totalAmount' | 'branchExpenses' | 'netAmount' | 'status';
+
+const INCOME_APPROVAL_SORTABLE_COLUMNS: Record<IncomeApprovalSortKey, string> = {
+  referenceNo: 'reference_no',
+  branchName: 'branch_name',
+  businessDate: 'business_date',
+  totalAmount: 'total_amount',
+  branchExpenses: 'branch_expenses',
+  netAmount: 'net_amount',
+  status: 'status',
+};
+
 export async function listIncomeApprovals(q: {
   status?: IncomeApprovalStatus | 'pending';
   branchId?: string;
@@ -182,18 +194,26 @@ export async function listIncomeApprovals(q: {
   search?: string;
   limit?: number;
   offset?: number;
+  sortBy?: IncomeApprovalSortKey;
+  sortDir?: 'asc' | 'desc';
 }): Promise<{ approvals: FinanceIncomeApproval[]; total: number }> {
   const limit = Math.min(Math.max(Number(q.limit ?? 200), 1), 500);
   const offset = Math.max(Number(q.offset ?? 0), 0);
+
+  const sortCol = q.sortBy ? INCOME_APPROVAL_SORTABLE_COLUMNS[q.sortBy] : 'business_date';
+  const ascending = q.sortDir === 'asc';
 
   let query = withoutDeleted(
     supabaseAdmin
       .from(TABLE)
       .select('*', { count: 'exact' })
-      .order('business_date', { ascending: false })
-      .order('branch_name', { ascending: true })
+      .order(sortCol, { ascending })
       .range(offset, offset + limit - 1),
   );
+  // Tiebreak: the no-`sortBy` default was always `branch_name asc` regardless
+  // of the primary column's direction — preserved exactly for that case, and
+  // matched to the primary direction for any other explicit sort.
+  if (sortCol !== 'branch_name') query = query.order('branch_name', { ascending: sortCol === 'business_date' ? true : ascending });
 
   // 'pending' is the screen's default view and spans both waiting states — a
   // finance user thinks in terms of "not dealt with yet", not which of the two

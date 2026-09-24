@@ -16,6 +16,7 @@ import { router as productionStockRouter } from './production-stock.routes';
 import { router as productionReturnsRouter } from './production-returns.routes';
 import { router as productionDiscountsRouter } from './production-discounts.routes';
 import { router as branchDiscountsRouter } from './branch-discounts.routes';
+import { router as cashTransfersRouter } from './cash-transfers.routes';
 import { router as productionReportsRouter } from './production-reports.routes';
 import { router as expensesRouter } from './expenses.routes';
 import { router as branchClosingRouter } from './branch-closing.routes';
@@ -38,8 +39,10 @@ import { router as financePartnersRouter } from './finance-partners.routes';
 import { router as financeBranchShareRouter } from './finance-branch-share.routes';
 import { router as financeReportsRouter } from './finance-reports.routes';
 import { router as financeTicketsRouter } from './finance-tickets.routes';
+import { router as financeCashTransfersRouter } from './finance-cash-transfers.routes';
 import { router as attachmentsRouter } from './attachments.routes';
 import { router as dataRouter } from './data.routes';
+import { router as backupsRouter } from './backups.routes';
 
 export function setupRoutes(app: Express) {
   app.use('/api/auth', authRouter);
@@ -68,6 +71,9 @@ export function setupRoutes(app: Express) {
   // carries its own requireRole at the mount instead of re-checking per handler.
   app.use('/api/production-discounts', productionDiscountsRouter);
   app.use('/api/branch-discounts', branchDiscountsRouter);
+  // Branch → cash handed to the company (migration 118). Finance's review side
+  // is /api/finance/cash-transfers below.
+  app.use('/api/cash-transfers', cashTransfersRouter);
   app.use('/api/production-reports', productionReportsRouter);
   app.use('/api/expenses', expensesRouter);
   app.use('/api/branch-closing', branchClosingRouter);
@@ -117,5 +123,10 @@ export function setupRoutes(app: Express) {
   app.use('/api/finance/branch-share', financeBranchShareRouter);
   app.use('/api/finance/reports', financeReportsRouter);
   app.use('/api/finance/tickets', financeTicketsRouter);
+  app.use('/api/finance/cash-transfers', financeCashTransfersRouter);
   app.use('/api/finance', financeRouter);
+  // Database backups — super_admin only. Lives under /api/admin/ because it is
+  // operations tooling, not a business resource: it reports on pg_dump → S3
+  // runs, verifies them and can start one. See docs/database-backup.md.
+  app.use('/api/admin/backups', backupsRouter);
 }

@@ -60,6 +60,9 @@ const SOURCE_ATTACHMENT_ENTITY: Partial<Record<LedgerSourceType, AttachmentEntit
   branch_income: 'finance_income_approval',
   company_share: 'finance_income_approval',
   branch_share: 'finance_income_approval',
+  // Migration 118: the photo of the handover is on the cash_transfers row the
+  // voucher's sourceId names — the Daily Ledger shows the branch's own picture.
+  cash_transfer: 'cash_transfer',
 };
 
 /**

@@ -9,7 +9,16 @@ import {
   type LoginAttemptFilters,
 } from '../shared';
 import { clientIp } from '../services/geofence.service';
-import { listAttempts, recordAttempt } from '../services/login-attempts.service';
+import { ATTEMPT_SORT_COLUMNS, listAttempts, recordAttempt, type AttemptSortKey } from '../services/login-attempts.service';
+
+/** Not on `LoginAttemptsQuerySchema` (the shared, mirrored schema) on purpose —
+ * see the comment on `ATTEMPT_SORT_COLUMNS`. An unrecognized value silently
+ * falls back to the default column/direction rather than 400ing. */
+function parseSort(query: Record<string, unknown>): { sortBy?: AttemptSortKey; sortDir?: 'asc' | 'desc' } {
+  const sortBy = typeof query.sortBy === 'string' && query.sortBy in ATTEMPT_SORT_COLUMNS ? (query.sortBy as AttemptSortKey) : undefined;
+  const sortDir = query.sortDir === 'asc' || query.sortDir === 'desc' ? query.sortDir : undefined;
+  return { sortBy, sortDir };
+}
 
 export const router = Router();
 
@@ -172,7 +181,7 @@ router.get(
         to: q.to ?? null,
       };
 
-      res.json(await listAttempts({ filters, page: q.page, pageSize: q.pageSize }));
+      res.json(await listAttempts({ filters, page: q.page, pageSize: q.pageSize, ...parseSort(req.query) }));
     } catch (err) {
       next(err);
     }

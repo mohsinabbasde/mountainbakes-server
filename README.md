@@ -17,8 +17,10 @@ server/
 │   ├── services/         # business logic (stock, pricing, exports, push…)
 │   ├── middleware/       # auth, requireRole, validate, business-day guard
 │   ├── scheduler/        # node-cron: 2 AM closing, price activation
-│   ├── scripts/          # purge-price-history
+│   ├── scripts/          # purge-*, verify-*, backup* (pg_dump → S3, see docs/database-backup.md)
+│   ├── services/backup/  # pg_dump → S3 backup system (docs/database-backup.md)
 │   └── shared/           # schemas/types (mirrored in frontend/src/shared)
+├── docs/                 # database-backup*.md, database-restore.md, database-disaster-recovery.md
 ├── supabase/             # SQL migrations + local CLI state
 └── Procfile              # web: pnpm start
 ```

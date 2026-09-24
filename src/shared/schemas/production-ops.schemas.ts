@@ -74,6 +74,9 @@ export const ProductionMovementQuerySchema = z.object({
   search: z.string().trim().max(120).optional(),
   limit: z.coerce.number().int().min(1).max(200).optional(),
   offset: z.coerce.number().int().min(0).optional(),
+  /** An unrecognized key falls back to the service's default column — see its own allowlist. */
+  sortBy: z.string().optional(),
+  sortDir: z.enum(['asc', 'desc']).optional(),
 });
 
 // ── Product Returns (recorded by Production) ─────────────────────────────────

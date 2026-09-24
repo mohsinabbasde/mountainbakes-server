@@ -241,7 +241,13 @@ export type LedgerSourceType =
   | 'partner_expense'
   | 'adjustment'
   | 'branch_share_payout'
-  | 'branch_share_bonus';
+  | 'branch_share_bonus'
+  // Migration 115 — a vendor payment posted from procurement.
+  | 'vendor_payment'
+  // Migration 118 — a branch's cash / Easypaisa / bank handover, approved by
+  // Finance. One debit under INC-BRANCH-CASH; `sourceId` is the cash_transfers
+  // row, which carries the photo the Daily Ledger shows.
+  | 'cash_transfer';
 
 /**
  * `posted` is the normal state. `locked` is applied when the finance day closes.
@@ -889,7 +895,9 @@ export type FinanceAuditEntity =
   | 'settings'
   | 'branch_share_payment'
   | 'finance_partner'
-  | 'finance_ticket';
+  | 'finance_ticket'
+  // Migration 118 — approve / reject of a branch cash transfer.
+  | 'cash_transfer';
 
 export interface FinanceAuditLog {
   id: string;
@@ -1035,6 +1043,10 @@ export const FINANCE_TICKET_REFERENCES = {
   // the lines and reconciles stock; a second path to the same rewrite is the
   // duplicate support architecture the brief rules out.
   order:                { prefix: 'MB',  table: 'orders',                   refColumn: 'order_number', label: 'Sale' },
+  // Migration 120: a branch handover (118). Amendable — amount, method and
+  // note — and deletable; an approved one's RV- receipt is reversed and
+  // re-posted by the SQL rather than edited.
+  cash_transfer:        { prefix: 'CT',  table: 'cash_transfers',           refColumn: 'transfer_no',  label: 'Cash Transfer' },
 } as const;
 
 export type FinanceTicketReferenceType = keyof typeof FINANCE_TICKET_REFERENCES;
@@ -1057,6 +1069,7 @@ export const FINANCE_TICKET_REFERENCE_LABELS: Record<FinanceTicketReferenceType,
   partner_expense: 'Partner Expense',
   branch_share_payment: 'Branch Share',
   order: 'Sale',
+  cash_transfer: 'Cash Transfer',
 };
 
 /**
@@ -1772,9 +1785,11 @@ export interface FinanceAmendment {
 export interface FinanceAmendableField {
   key: string;
   label: string;
-  kind: 'money' | 'text';
+  /** 'select' offers `options` rather than a free input (migration 120). */
+  kind: 'money' | 'text' | 'select';
   /** True when changing it re-posts the linked voucher (reversal + correction). */
   movesLedger: boolean;
+  options?: readonly { value: string; label: string }[];
 }
 
 export const FINANCE_AMENDABLE_FIELDS: Record<FinanceTicketReferenceType, FinanceAmendableField[]> = {
@@ -1818,6 +1833,24 @@ export const FINANCE_AMENDABLE_FIELDS: Record<FinanceTicketReferenceType, Financ
    * route into that is a second thing to keep correct.
    */
   order: [],
+  /**
+   * A branch handover (migration 120). Amount and method re-post the RV-
+   * receipt when the transfer is approved; a pending one is corrected in
+   * place and Finance approves the corrected figure. The photo is not a
+   * field: it is evidence of the handover and is never rewritten.
+   */
+  cash_transfer: [
+    { key: 'amount', label: 'Amount', kind: 'money', movesLedger: true },
+    {
+      key: 'paymentMethod', label: 'Payment Method', kind: 'select', movesLedger: true,
+      options: [
+        { value: 'cash', label: 'Cash' },
+        { value: 'easypaisa', label: 'Easypaisa' },
+        { value: 'bank_account', label: 'Bank' },
+      ],
+    },
+    { key: 'note', label: 'Note', kind: 'text', movesLedger: false },
+  ],
 };
 
 /**

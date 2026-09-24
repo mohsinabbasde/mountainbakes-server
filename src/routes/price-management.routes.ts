@@ -55,7 +55,9 @@ router.get('/history', async (req: AuthRequest, res, next) => {
     const limit = Math.max(1, Math.min(1000, parseInt(String(req.query['limit'] ?? '300'), 10) || 300));
     const offset = Math.max(0, parseInt(String(req.query['offset'] ?? '0'), 10) || 0);
     const search = req.query['search'] ? String(req.query['search']) : undefined;
-    const { history, total } = await listPriceHistory(productId, limit, offset, search);
+    const sortBy = req.query['sortBy'] ? String(req.query['sortBy']) : undefined;
+    const sortDir = req.query['sortDir'] === 'asc' ? 'asc' : req.query['sortDir'] === 'desc' ? 'desc' : undefined;
+    const { history, total } = await listPriceHistory(productId, limit, offset, search, sortBy, sortDir);
     res.json({ history, total });
   } catch (err) {
     next(err);

@@ -7,6 +7,7 @@ import { getProductionStockRows } from '../services/production-stock.service';
 import { genericPDF, genericExcel, genericCSV } from '../services/production-export.service';
 import { getPreviousOrderBalance } from '../services/previous-balance.service';
 import { format } from 'date-fns';
+import { sortRows } from '../utils/sortRows';
 
 export const router = Router();
 
@@ -101,7 +102,19 @@ async function buildReport(
   range?: { fromStr: string; toStr: string },
   /** Scope to one branch. Empty/absent means every branch — the default. */
   branchId?: string,
-): Promise<{ title: string; headers: string[]; rows: (string | number)[][] }> {
+): Promise<{
+  title: string;
+  headers: string[];
+  rows: (string | number)[][];
+  /**
+   * Trailing rows that are not data — a TOTAL line, a footnote about rows
+   * held back — and so must stay pinned at the end of the table rather than
+   * being sorted in among the real rows. Only `prepared-detail` and
+   * `collections` ever append these; every other report type is 0 (the
+   * default at every call site that reads this field).
+   */
+  specialRowCount?: number;
+}> {
   // `prepared-detail` and `collections` are driven by an explicit from/to window
   // rather than the period dropdown; every other report still anchors to the
   // named period. See usesDateRange.
@@ -177,6 +190,7 @@ async function buildReport(
           : `Prepared Items — ${fromStr} to ${toStr}`,
         headers: ['Item Code', 'Product', 'Category', 'Qty Prepared'],
         rows: body,
+        specialRowCount: detail.length > 0 ? 1 : 0,
       };
     }
     case 'production-stock': {
@@ -376,7 +390,7 @@ async function buildReport(
       const balances = await mapWithConcurrency(wanted, 8, (b) => getPreviousOrderBalance(b.successorId));
 
       const rows: (string | number)[][] = [];
-      const totals = { delivered: 0, share: 0, retQty: 0, returns: 0, discount: 0, collect: 0 };
+      const totals = { delivered: 0, share: 0, retQty: 0, returns: 0, discount: 0, collect: 0, received: 0, remaining: 0 };
       for (let i = 0; i < wanted.length; i++) {
         const bal = balances[i];
         // `previous` is the authoritative identity of the billed delivery — it is
@@ -390,6 +404,8 @@ async function buildReport(
         totals.returns += bal.returnsValue;
         totals.discount += bal.discountsValue;
         totals.collect += bal.amountToCollect;
+        totals.received += bal.paymentsReceivedValue;
+        totals.remaining += bal.remainingBalance;
         rows.push([
           wanted[i]!.billed.branch_name ?? '',
           bal.previous.demandNumber,
@@ -400,17 +416,23 @@ async function buildReport(
           Math.round(bal.returnsValue),
           Math.round(bal.discountsValue),
           Math.round(bal.amountToCollect),
+          Math.round(bal.paymentsReceivedValue),
+          Math.round(bal.remainingBalance),
         ]);
       }
 
+      let specialRowCount = 0;
       if (rows.length > 0) {
-        rows.push(['TOTAL', '', '', Math.round(totals.delivered), Math.round(totals.share), totals.retQty, Math.round(totals.returns), Math.round(totals.discount), Math.round(totals.collect)]);
+        rows.push(['TOTAL', '', '', Math.round(totals.delivered), Math.round(totals.share), totals.retQty, Math.round(totals.returns), Math.round(totals.discount), Math.round(totals.collect), Math.round(totals.received), Math.round(totals.remaining)]);
+        specialRowCount++;
       }
       if (unbilled > 0) {
-        rows.push([`${unbilled} delivery(s) in this window have no later delivery yet, so nothing has been billed for them.`, '', '', '', '', '', '', '', '']);
+        rows.push([`${unbilled} delivery(s) in this window have no later delivery yet, so nothing has been billed for them.`, '', '', '', '', '', '', '', '', '', '']);
+        specialRowCount++;
       }
       if (truncated) {
-        rows.push([`Showing the first ${COLLECTIONS_ORDER_CAP} of ${billable.length} deliveries — narrow the date range or pick one branch.`, '', '', '', '', '', '', '', '']);
+        rows.push([`Showing the first ${COLLECTIONS_ORDER_CAP} of ${billable.length} deliveries — narrow the date range or pick one branch.`, '', '', '', '', '', '', '', '', '', '']);
+        specialRowCount++;
       }
 
       return {
@@ -418,8 +440,11 @@ async function buildReport(
         // Money is written as plain numbers, not "Rs. 37,600" — a spreadsheet
         // that cannot sum its own money column is a picture of a report. Zero
         // prints as 0 rather than the slip's em dash for the same reason.
-        headers: ['Branch', 'Previous Order', 'Date', 'Delivered Value', 'Company Share', 'Less Returns Qty', 'Less Returns', 'Less Discount', 'Amount to Collect'],
+        // Payment Received (approved cash transfers in the slip's window) and
+        // Remaining are appended AFTER Amount to Collect, which is unchanged.
+        headers: ['Branch', 'Previous Order', 'Date', 'Delivered Value', 'Company Share', 'Less Returns Qty', 'Less Returns', 'Less Discount', 'Amount to Collect', 'Payment Received', 'Remaining'],
         rows,
+        specialRowCount,
       };
     }
     case 'production':
@@ -465,6 +490,22 @@ router.get('/summary', async (req: AuthRequest, res, next) => {
     const range = usesDateRange(report) ? explicitDateRange(req.query['from'], req.query['to']) : undefined;
     const branchId = typeof req.query['branchId'] === 'string' ? req.query['branchId'] : '';
     const data = await buildReport(report, period, range, branchId);
+
+    // Column-INDEX sort, not a key — these rows are positional arrays with no
+    // per-cell name (unlike the keyed Finance Reports). A trailing TOTAL/
+    // footnote row (see `specialRowCount`) is held back so it can't be sorted
+    // in among the data, then reattached at the end.
+    const sortCol = Math.trunc(Number(req.query['sortCol']));
+    const sortDir = req.query['sortDir'] === 'asc' ? 'asc' : 'desc';
+    if (Number.isInteger(sortCol) && sortCol >= 0 && sortCol < data.headers.length) {
+      const specialCount = Math.min(data.specialRowCount ?? 0, data.rows.length);
+      const cutoff = data.rows.length - specialCount;
+      const dataRows = data.rows.slice(0, cutoff);
+      const specialRows = data.rows.slice(cutoff);
+      const sample = dataRows.find((r) => r[sortCol] != null)?.[sortCol];
+      const accessor = (row: (string | number)[]) => (typeof sample === 'number' ? Number(row[sortCol]) : row[sortCol]);
+      data.rows = [...sortRows(dataRows, accessor, sortDir), ...specialRows];
+    }
 
     if (!PAGINATED_PRODUCTION_REPORT_TYPES.has(report)) {
       res.json(data);
