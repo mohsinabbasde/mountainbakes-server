@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { CASH_TRANSFER_METHODS } from '../types/cash-transfer.types';
-import { requiredAttachmentIds } from './attachment.schemas';
+import { FINANCE_QUERY_PRIORITIES } from '../types/finance.types';
+import { optionalAttachmentIds, requiredAttachmentIds } from './attachment.schemas';
 import { optionalBusinessDate } from './business-date.schemas';
 
 // ── Cash transfers ───────────────────────────────────────────────────────────
@@ -38,6 +39,22 @@ export const RejectCashTransferSchema = z.object({
   reason: z.string().trim().min(3, 'Say why this transfer is refused').max(500),
 });
 
+/**
+ * A branch raising a query on one of ITS OWN transfers (Finance Help Desk,
+ * branch side). The transfer is named by id and re-read server-side under the
+ * caller's branch, so a branch cannot open a query on another shop's CT-. The
+ * reference, amount, date and branch on the query all come from that row —
+ * none of them is the branch's to type.
+ */
+export const RaiseCashTransferQuerySchema = z.object({
+  transferId: z.string().uuid('Pick the transfer this query is about'),
+  subject: z.string().trim().min(3, 'Give the query a short subject').max(200),
+  description: z.string().trim().min(3, 'Please describe the problem').max(4000),
+  priority: z.enum(FINANCE_QUERY_PRIORITIES).default('normal'),
+  attachmentIds: optionalAttachmentIds,
+});
+
+export type RaiseCashTransferQueryInput = z.infer<typeof RaiseCashTransferQuerySchema>;
 export type CreateCashTransferInput = z.infer<typeof CreateCashTransferSchema>;
 export type ApproveCashTransferInput = z.infer<typeof ApproveCashTransferSchema>;
 export type RejectCashTransferInput = z.infer<typeof RejectCashTransferSchema>;
