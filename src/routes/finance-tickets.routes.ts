@@ -1,4 +1,4 @@
-import { Router, type Response } from 'express';
+import { Router } from 'express';
 import { supabaseAdmin } from '../config/supabase';
 import { authenticate, type AuthRequest } from '../middleware/auth';
 import {
@@ -6,11 +6,9 @@ import {
   requireFinanceHelpDeskAdmin,
   requireFinanceHelpDeskParticipant,
 } from '../middleware/requireFinance';
-import { requireRole } from '../middleware/requireRole';
 import { validate } from '../middleware/validate';
 import {
   AmendFinanceRecordSchema,
-  BRANCH_ROLES,
   AmendFinanceTicketSchema,
   AssignFinanceTicketSchema,
   CreateFinanceTicketSchema,
@@ -25,8 +23,6 @@ import {
   FINANCE_TICKET_PREFIXES,
   FINANCE_TICKET_REFERENCES,
   FINANCE_TICKET_REOPENABLE_STATUSES,
-  FINANCE_TICKET_STATUSES,
-  FINANCE_TICKET_TERMINAL_STATUSES,
   FINANCE_TICKET_STATUS_LABELS,
   FINANCE_TICKET_TRANSITIONS,
   FINANCE_RESOLUTION_TYPE_LABELS,
@@ -35,13 +31,11 @@ import {
   FinanceTicketQuerySchema,
   FinanceTicketResponseSchema,
   FinanceTicketStatusSchema,
-  RaiseCashTransferQuerySchema,
   RecreateFinanceTicketSchema,
   ReopenFinanceTicketSchema,
   RestoreFinanceTicketSchema,
   financeHelpDeskCan,
   isFinanceRecordAmendable,
-  isBranchRole,
   isFinanceTicketTerminal,
   type FinanceAmendmentAction,
   type FinanceAuditEntity,
@@ -49,7 +43,6 @@ import {
   type FinanceQueryType,
   type FinanceResolutionType,
   type CreateFinanceTicketInput,
-  type RaiseCashTransferQueryInput,
   type FinanceTicketFeedInput,
   type FinanceTicketReferenceLookup,
   type FinanceTicketReferenceType,
@@ -65,7 +58,6 @@ import {
   requestFingerprint,
 } from '../services/finance-audit.service';
 import { bindAttachments, listAttachments, listAttachmentsFor } from '../services/attachments.service';
-import { getCashTransfer } from '../services/cash-transfers.service';
 import { rowToApi } from '../utils/case';
 import { withoutDeleted } from '../utils/softDelete';
 
@@ -567,259 +559,6 @@ router.get('/lookup', requireFinance('view'), async (req: AuthRequest, res, next
 });
 
 // ---------------------------------------------------------------------------
-// Branch raisers — a branch disputes one of its OWN cash transfers
-// ---------------------------------------------------------------------------
-//
-//     Branch  →  query on CT-000123  →  ADMIN (correct / delete the transfer)
-//
-// A branch is not a Finance role, so none of the `requireFinance` routes above
-// or below admit it. These four routes are its whole surface: raise a query on
-// a transfer it made, list and open the queries raised from its branch, and
-// reply. Everything the Admin does with the query afterwards — respond, Amend
-// the amount / method / note, Delete the record (which reverses its receipt,
-// migration 120) — is the desk's existing admin half, unchanged.
-//
-// Registered BEFORE `/:id` so `/branch` is not read as a query id.
-
-/**
- * May this branch caller read this query? Raised from a branch account, about
- * the caller's own branch, and not deleted. Anything else is a 404 rather than
- * a 403, so an id from another branch is not confirmed to exist.
- */
-function isOwnBranchQuery(req: AuthRequest, ticket: Record<string, unknown>): boolean {
-  return (
-    !!req.user!.branchId &&
-    ticket['branch_id'] === req.user!.branchId &&
-    isBranchRole(ticket['raised_by_role'] as string | null) &&
-    !ticket['deleted_at']
-  );
-}
-
-// GET /api/finance/tickets/branch?referenceNo=&status=&page=&pageSize=
-router.get('/branch', requireRole(...BRANCH_ROLES), async (req: AuthRequest, res, next) => {
-  try {
-    const branchId = req.user!.branchId;
-    if (!branchId) {
-      res.status(400).json({ error: 'Branch context required' });
-      return;
-    }
-    const page = Math.max(1, Math.floor(Number(req.query['page'] ?? 1)) || 1);
-    const pageSize = Math.min(100, Math.max(1, Math.floor(Number(req.query['pageSize'] ?? 25)) || 25));
-
-    let query = withoutDeleted(
-      supabaseAdmin.from('finance_tickets').select('*', { count: 'exact' }),
-    )
-      .eq('branch_id', branchId)
-      .in('raised_by_role', [...BRANCH_ROLES])
-      .order('created_at', { ascending: false })
-      .range((page - 1) * pageSize, page * pageSize - 1);
-
-    const referenceNo = String(req.query['referenceNo'] ?? '').trim().toUpperCase();
-    if (referenceNo) query = query.eq('reference_no', referenceNo);
-    const status = String(req.query['status'] ?? '');
-    if ((FINANCE_TICKET_STATUSES as readonly string[]).includes(status)) query = query.eq('status', status);
-
-    const { data, error, count } = await query;
-    if (error) throw error;
-    res.json({
-      tickets: (data ?? []).map((row) => ticketForCaller(row, false)),
-      total: count ?? 0,
-      page,
-      pageSize,
-    });
-  } catch (err) {
-    next(err);
-  }
-});
-
-// GET /api/finance/tickets/branch/:id — the query, its thread and what the Admin changed.
-router.get('/branch/:id', requireRole(...BRANCH_ROLES), async (req: AuthRequest, res, next) => {
-  try {
-    const ticket = await getTicket(req.params.id as string);
-    if (!ticket || !isOwnBranchQuery(req, ticket)) {
-      res.status(404).json({ error: 'Query not found' });
-      return;
-    }
-
-    const [{ data: messages, error: msgErr }, { data: amendments, error: amdErr }, ticketPhotos] =
-      await Promise.all([
-        supabaseAdmin
-          .from('finance_ticket_messages')
-          .select('*')
-          .eq('ticket_id', ticket.id)
-          .order('created_at', { ascending: true }),
-        supabaseAdmin
-          .from('finance_amendments')
-          .select('*')
-          .eq('ticket_id', ticket.id)
-          .order('created_at', { ascending: false }),
-        listAttachments('finance_ticket', ticket.id),
-      ]);
-    if (msgErr) throw msgErr;
-    if (amdErr) throw amdErr;
-
-    const photosByMessage = await listAttachmentsFor(
-      'finance_ticket_message',
-      (messages ?? []).map((m) => m.id as string),
-    );
-
-    res.json({
-      ticket: {
-        ...ticketForCaller(ticket, false),
-        attachments: ticketPhotos,
-        messages: (messages ?? []).map((m) => ({
-          ...rowToApi(m),
-          attachments: photosByMessage.get(m.id as string) ?? [],
-        })),
-        amendments: rowToApi(amendments ?? []),
-      },
-    });
-  } catch (err) {
-    next(err);
-  }
-});
-
-/**
- * Raise. The branch names a transfer by id; the transfer is re-read under the
- * caller's branch, and the reference, amount, date and branch on the query all
- * come from that row. One live query per transfer from the branch side — a
- * second one while the first is still open would split the conversation.
- */
-router.post(
-  '/branch',
-  requireRole(...BRANCH_ROLES),
-  validate(RaiseCashTransferQuerySchema),
-  async (req: AuthRequest, res, next) => {
-    try {
-      const branchId = req.user!.branchId;
-      if (!branchId) {
-        res.status(400).json({ error: 'Branch context required' });
-        return;
-      }
-      const body = req.body as RaiseCashTransferQueryInput;
-
-      const transfer = await getCashTransfer(body.transferId, branchId);
-      if (!transfer) {
-        res.status(404).json({ error: 'Cash transfer not found' });
-        return;
-      }
-
-      const { data: live, error: liveErr } = await withoutDeleted(
-        supabaseAdmin.from('finance_tickets').select('query_no'),
-      )
-        .eq('reference_type', 'cash_transfer')
-        .eq('reference_id', transfer.id)
-        .in('raised_by_role', [...BRANCH_ROLES])
-        .not('status', 'in', `(${FINANCE_TICKET_TERMINAL_STATUSES.join(',')})`)
-        .limit(1);
-      if (liveErr) throw liveErr;
-      if (live?.length) {
-        res.status(409).json({
-          error: `${transfer.transferNo} already has an open query (${live[0]!.query_no}). Reply there instead.`,
-        });
-        return;
-      }
-
-      const reference = await resolveReference(transfer.transferNo);
-      const now = new Date().toISOString();
-      const { data, error } = await supabaseAdmin
-        .from('finance_tickets')
-        .insert({
-          query_type: 'payment',
-          priority: body.priority,
-          subject: body.subject,
-          message: body.description,
-          amount: transfer.amount,
-          business_date: transfer.date,
-          branch_id: transfer.branchId,
-          branch_name: transfer.branchName,
-          reference_type: reference.referenceType,
-          reference_id: reference.referenceId,
-          reference_no: reference.referenceNo,
-          reference_snapshot: reference.snapshot,
-          status: 'open',
-          submitted_at: now,
-          raised_by: req.user!.uid,
-          raised_by_name: req.user!.email,
-          raised_by_role: req.user!.role,
-        })
-        .select('*')
-        .single();
-      if (error) throw error;
-
-      if (body.attachmentIds?.length) {
-        await bindAttachments({
-          entity: 'finance_ticket',
-          entityId: data.id,
-          attachmentIds: body.attachmentIds,
-          actor: { uid: req.user!.uid },
-        });
-      }
-
-      await recordFirstVersion(req, data, 'created', null);
-
-      await logFinanceAudit(req, {
-        entity: 'finance_ticket',
-        entityId: data.id,
-        entityRef: data.query_no,
-        action: 'created',
-        newValues: {
-          queryType: data.query_type,
-          priority: data.priority,
-          referenceNo: data.reference_no,
-          subject: data.subject,
-          amount: data.amount,
-          branchName: data.branch_name,
-          businessDate: data.business_date,
-          status: data.status,
-        },
-      });
-
-      try {
-        await notify({
-          type: 'finance_query',
-          title: `New Branch Query ${data.query_no}`,
-          message: queryNotice(
-            data,
-            req.user!.email,
-            `${transfer.branchName} · ${transfer.transferNo} · Priority: ${String(data.priority).toUpperCase()}`,
-          ),
-          targetRole: 'super_admin',
-          relatedId: data.id,
-        });
-      } catch { /* notification failure must not fail query creation */ }
-
-      res.status(201).json({ ticket: ticketForCaller(data, false) });
-    } catch (err) {
-      if (err instanceof LookupError) {
-        res.status(err.status).json({ error: err.message });
-        return;
-      }
-      next(err);
-    }
-  },
-);
-
-// POST /api/finance/tickets/branch/:id/messages — the branch's reply.
-router.post(
-  '/branch/:id/messages',
-  requireRole(...BRANCH_ROLES),
-  validate(FinanceTicketMessageSchema),
-  async (req: AuthRequest, res, next) => {
-    try {
-      const ticket = await getTicket(req.params.id as string);
-      if (!ticket || !isOwnBranchQuery(req, ticket)) {
-        res.status(404).json({ error: 'Query not found' });
-        return;
-      }
-      await postMessage(req, res, ticket);
-    } catch (err) {
-      next(err);
-    }
-  },
-);
-
-// ---------------------------------------------------------------------------
 // The queue (§4, §18, §19)
 // ---------------------------------------------------------------------------
 
@@ -1295,106 +1034,95 @@ router.post(
         res.status(403).json({ error: 'Forbidden: that query was raised by someone else.' });
         return;
       }
-      await postMessage(req, res, ticket);
+      if (ticket['deleted_at']) {
+        res.status(409).json({ error: `Query ${ticket['query_no']} has been deleted.` });
+        return;
+      }
+      if (ticket['status'] === 'draft') {
+        res.status(409).json({ error: `Query ${ticket['query_no']} is a draft. Submit it first.` });
+        return;
+      }
+      if (ticket['status'] === 'closed') {
+        res.status(409).json({
+          error: `Query ${ticket['query_no']} is closed. Raise a new query for anything further.`,
+        });
+        return;
+      }
+
+      const side = sideOf(req.user!.role);
+
+      const { data, error } = await supabaseAdmin
+        .from('finance_ticket_messages')
+        .insert({
+          ticket_id: ticket.id,
+          author_id: req.user!.uid,
+          author_name: req.user!.email,
+          author_role: req.user!.role,
+          author_side: side,
+          body: req.body.body,
+        })
+        .select('*')
+        .single();
+      if (error) throw error;
+
+      if (req.body.attachmentIds?.length) {
+        await bindAttachments({
+          entity: 'finance_ticket_message',
+          entityId: data.id,
+          attachmentIds: req.body.attachmentIds,
+          actor: { uid: req.user!.uid },
+        });
+      }
+
+      // §7's "Mark information as received": the raiser answering a
+      // WAITING_FOR_FINANCE query is the act itself, not a separate button to
+      // remember to press. The status goes back to the admin's court.
+      if (side === 'finance' && ticket['status'] === 'waiting_for_finance') {
+        const { data: moved, error: moveErr } = await supabaseAdmin
+          .from('finance_tickets')
+          .update({ status: 'under_review', information_received_at: new Date().toISOString() })
+          .eq('id', ticket.id)
+          .eq('status', 'waiting_for_finance')
+          .select('*')
+          .maybeSingle();
+        if (moveErr) throw moveErr;
+        // The status moved, so it is a version — but a version that cannot be
+        // written must not lose the message that was already posted.
+        if (moved) {
+          try {
+            await recordVersion(req, ticket, moved, 'status_changed', 'Information received from Finance');
+          } catch (err) {
+            console.error('[finance-tickets] could not version the information-received move', err);
+          }
+        }
+      }
+
+      try {
+        if (side === 'finance') {
+          await notify({
+            type: 'finance_query_message',
+            title: `Reply on ${ticket['query_no']}`,
+            message: `${req.user!.email}: ${String(req.body.body).slice(0, 140)}`,
+            targetRole: 'super_admin',
+            relatedId: ticket.id as string,
+          });
+        } else if (ticket['raised_by']) {
+          await notify({
+            type: 'finance_query_message',
+            title: `Admin replied on ${ticket['query_no']}`,
+            message: String(req.body.body).slice(0, 140),
+            targetUserId: ticket['raised_by'] as string,
+            relatedId: ticket.id as string,
+          });
+        }
+      } catch { /* best-effort */ }
+
+      res.status(201).json({ message: rowToApi(data) });
     } catch (err) {
       next(err);
     }
   },
 );
-
-/**
- * Post one message on a query the caller may already see. Shared by the desk's
- * own route above and the branch's reply route, so a branch answering the
- * Admin moves the status and notifies exactly as a Finance raiser would.
- */
-async function postMessage(req: AuthRequest, res: Response, ticket: Record<string, unknown>): Promise<void> {
-  if (ticket['deleted_at']) {
-    res.status(409).json({ error: `Query ${ticket['query_no']} has been deleted.` });
-    return;
-  }
-  if (ticket['status'] === 'draft') {
-    res.status(409).json({ error: `Query ${ticket['query_no']} is a draft. Submit it first.` });
-    return;
-  }
-  if (ticket['status'] === 'closed') {
-    res.status(409).json({
-      error: `Query ${ticket['query_no']} is closed. Raise a new query for anything further.`,
-    });
-    return;
-  }
-
-  // A branch speaks from the raiser's side of the thread — the side the
-  // messages CHECK (migration 94) calls 'finance'.
-  const side = sideOf(req.user!.role);
-
-  const { data, error } = await supabaseAdmin
-    .from('finance_ticket_messages')
-    .insert({
-      ticket_id: ticket.id,
-      author_id: req.user!.uid,
-      author_name: req.user!.email,
-      author_role: req.user!.role,
-      author_side: side,
-      body: req.body.body,
-    })
-    .select('*')
-    .single();
-  if (error) throw error;
-
-  if (req.body.attachmentIds?.length) {
-    await bindAttachments({
-      entity: 'finance_ticket_message',
-      entityId: data.id,
-      attachmentIds: req.body.attachmentIds,
-      actor: { uid: req.user!.uid },
-    });
-  }
-
-  // §7's "Mark information as received": the raiser answering a
-  // WAITING_FOR_FINANCE query is the act itself, not a separate button to
-  // remember to press. The status goes back to the admin's court.
-  if (side === 'finance' && ticket['status'] === 'waiting_for_finance') {
-    const { data: moved, error: moveErr } = await supabaseAdmin
-      .from('finance_tickets')
-      .update({ status: 'under_review', information_received_at: new Date().toISOString() })
-      .eq('id', ticket.id)
-      .eq('status', 'waiting_for_finance')
-      .select('*')
-      .maybeSingle();
-    if (moveErr) throw moveErr;
-    // The status moved, so it is a version — but a version that cannot be
-    // written must not lose the message that was already posted.
-    if (moved) {
-      try {
-        await recordVersion(req, ticket, moved, 'status_changed', 'Information received from Finance');
-      } catch (err) {
-        console.error('[finance-tickets] could not version the information-received move', err);
-      }
-    }
-  }
-
-  try {
-    if (side === 'finance') {
-      await notify({
-        type: 'finance_query_message',
-        title: `Reply on ${ticket['query_no']}`,
-        message: `${req.user!.email}: ${String(req.body.body).slice(0, 140)}`,
-        targetRole: 'super_admin',
-        relatedId: ticket.id as string,
-      });
-    } else if (ticket['raised_by']) {
-      await notify({
-        type: 'finance_query_message',
-        title: `Admin replied on ${ticket['query_no']}`,
-        message: String(req.body.body).slice(0, 140),
-        targetUserId: ticket['raised_by'] as string,
-        relatedId: ticket.id as string,
-      });
-    }
-  } catch { /* best-effort */ }
-
-  res.status(201).json({ message: rowToApi(data) });
-}
 
 // ---------------------------------------------------------------------------
 // Administer — ADMIN ONLY, from here down (§6, §14, §21)
