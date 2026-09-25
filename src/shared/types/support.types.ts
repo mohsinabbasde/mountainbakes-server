@@ -1,7 +1,7 @@
 // Support tickets — the Help Desk (branches / production) → Support Center (admin)
 // query queue. A ticket is always raised against ONE reference ID (a sale
-// MB-######, a demand DMD-######, an expense EXP-######, or a product's stock
-// STK-######); the reference's figures are snapshotted onto the ticket at submit
+// MB-######, a demand DMD-######, an expense EXP-######, a product's stock
+// STK-######, or a branch's cash deposit CT-######); the reference's figures are snapshotted onto the ticket at submit
 // time so the admin sees exactly what the raiser saw.
 
 import type { PaymentMethod } from './order.types';
@@ -20,7 +20,11 @@ import type { ProductionStockFigures } from './production-ops.types';
 // automatically when an unattended job fails (e.g. the 2 AM closing summary could
 // not be generated or delivered). Such a ticket has no editable reference, so its
 // referenceSnapshot is null and the failure detail lives in `message`.
-export type SupportReferenceType = 'sale' | 'demand' | 'expense' | 'stock' | 'system';
+//
+// 'cash_transfer' is a branch's cash deposit (cash_transfers.transfer_no, CT-).
+// Always `readOnly` here: the transfer is corrected or deleted on the Finance
+// Help Desk (migration 120), which owns its RV- receipt in the ledger.
+export type SupportReferenceType = 'sale' | 'demand' | 'expense' | 'stock' | 'cash_transfer' | 'system';
 export type SupportTicketStatus = 'open' | 'resolved' | 'rejected';
 
 /** One key/value line of the auto-shown reference detail. */
@@ -116,6 +120,8 @@ export interface SupportReference {
    *                          edit_sale_items reconciles branch `stock`. Applying
    *                          one would invent branch inventory (the sentinel
    *                          branch has no stock rows) and leave the pool wrong.
+   *   · cash deposits      — CT- transfers are corrected on the Finance Help
+   *                          Desk, which reverses or amends their ledger receipt.
    *   · rejected/cancelled — a demand that was refused committed to nothing and
    *     demands             moved nothing; editing its lines would produce a
    *                          document claiming otherwise. correct_production_order
