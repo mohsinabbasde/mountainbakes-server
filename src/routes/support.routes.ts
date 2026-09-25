@@ -5,6 +5,8 @@ import { requireRole } from '../middleware/requireRole';
 import { validate } from '../middleware/validate';
 import {
   BRANCH_ROLES,
+  CASH_TRANSFER_METHOD_LABELS,
+  CASH_TRANSFER_STATUS_LABELS,
   CreateSupportTicketSchema,
   EditSupportTicketSchema,
   ResolveSupportTicketSchema,
@@ -41,6 +43,7 @@ import {
 } from '../services/production-stock.service';
 import { getProductionBranchId } from '../utils/productionBranch';
 import { rowToApi } from '../utils/case';
+import { withoutDeleted } from '../utils/softDelete';
 
 export const router = Router();
 
@@ -59,7 +62,7 @@ const LIVE_EDITABLE_TABLES = new Set(['expenses']);
 router.use(authenticate);
 
 // ---------------------------------------------------------------------------
-// Reference lookup — resolve a typed ID (MB-/DMD-/EXP-/STK-) to its detail, scoped
+// Reference lookup — resolve a typed ID (MB-/DMD-/EXP-/STK-/CT-) to its detail, scoped
 // to the caller's role/branch. Throws { status } errors that map to HTTP codes.
 // ---------------------------------------------------------------------------
 class LookupError extends Error {
@@ -151,8 +154,9 @@ function refType(refId: string): SupportReferenceType {
   if (id.startsWith('DMD-')) return 'demand';
   if (id.startsWith('EXP-')) return 'expense';
   if (id.startsWith('STK-')) return 'stock';
+  if (id.startsWith('CT-')) return 'cash_transfer';
   throw new LookupError(
-    'Unknown ID. Use a sale (MB-…), demand (DMD-…), expense (EXP-…), or stock (STK-…) ID.',
+    'Unknown ID. Use a sale (MB-…), demand (DMD-…), expense (EXP-…), stock (STK-…), or cash deposit (CT-…) ID.',
     400,
   );
 }
@@ -443,6 +447,65 @@ async function resolveReference(
       }
     }
     throw new LookupError(`No expense found for ${referenceId}.`, 404);
+  }
+
+  // --- CASH DEPOSIT (cash_transfers.transfer_no) ---------------------------
+  // Informational here. A transfer's amount, method and note are corrected (or
+  // the record deleted, reversing its receipt) on the Finance Help Desk, which
+  // owns the ledger side — migration 120. The Support Center shows the admin
+  // what the branch is asking about and answers it; it writes nothing back.
+  if (type === 'cash_transfer') {
+    // Branch money only — the production counter never hands over a deposit.
+    if (role !== 'production_user') {
+      let q = withoutDeleted(
+        supabaseAdmin
+          .from('cash_transfers')
+          .select(`
+            id, transfer_no, branch_id, branch_name, amount, payment_method, note,
+            business_date, status, created_by_name, created_at, approved_by_name,
+            rejection_reason, voucher_no
+          `)
+          .eq('transfer_no', referenceId),
+      ).limit(1);
+      if (role === 'branch_manager') {
+        if (!branchId) throw new LookupError('No branch is assigned to this account.', 403);
+        q = q.eq('branch_id', branchId);
+      }
+      const { data, error } = await q.maybeSingle();
+      if (error) throw error;
+      if (data) {
+        const method =
+          CASH_TRANSFER_METHOD_LABELS[data.payment_method as keyof typeof CASH_TRANSFER_METHOD_LABELS]
+          ?? String(data.payment_method);
+        const status =
+          CASH_TRANSFER_STATUS_LABELS[data.status as keyof typeof CASH_TRANSFER_STATUS_LABELS]
+          ?? String(data.status);
+        return {
+          type,
+          referenceId,
+          entityId: data.id,
+          title: `Cash Deposit ${referenceId} — ${data.branch_name} · ${money(data.amount)}`,
+          fields: [
+            { label: 'Branch', value: data.branch_name },
+            { label: 'Date', value: String(data.business_date) },
+            { label: 'Time', value: data.created_at ? karachiTimeStr(new Date(data.created_at)) : '—' },
+            { label: 'Amount', value: money(data.amount) },
+            { label: 'Method', value: method },
+            { label: 'Status', value: status },
+            ...(data.voucher_no ? [{ label: 'Voucher', value: data.voucher_no }] : []),
+            { label: 'Submitted By', value: data.created_by_name ?? '—' },
+            ...(data.approved_by_name ? [{ label: 'Reviewed By', value: data.approved_by_name }] : []),
+            ...(data.rejection_reason ? [{ label: 'Rejection Reason', value: data.rejection_reason }] : []),
+            ...(data.note?.trim() ? [{ label: 'Note', value: data.note.trim() }] : []),
+          ],
+          editableFields: [],
+          branchId: data.branch_id,
+          businessDate: String(data.business_date),
+          readOnly: true,
+        };
+      }
+    }
+    throw new LookupError(`No cash deposit found for ${referenceId}.`, 404);
   }
 
   // --- STOCK (products.stock_code) ----------------------------------------
