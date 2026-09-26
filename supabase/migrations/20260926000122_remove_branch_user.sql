@@ -126,7 +126,9 @@ alter table users drop column if exists shift;
 
 -- 4. The rest of the request queue (66); its table was dropped in step 0.
 drop function if exists next_branch_user_request_number();
-delete from counters where id = 'branch_user_request';
+-- The 'branch_user_request' counters row stays: counters refuses every delete
+-- (migration 46, counters_no_delete) and one unused row costs nothing — the
+-- second db push of this file failed on exactly that.
 drop type if exists branch_user_request_status;
 drop type if exists branch_shift;
 
