@@ -29,11 +29,88 @@
 --    refuses for an approved request — the first db push failed on exactly that.
 drop table if exists branch_user_requests;
 
+-- 0b. Let the delete through the append-only finance tables.
+--    ON DELETE SET NULL is an UPDATE on the referencing row, and six append-only
+--    tables refuse every UPDATE — the first db push of this file failed on an
+--    attachment a shift account had uploaded. Each of those triggers is split
+--    into a DELETE trigger (unchanged — still refused) and an UPDATE trigger
+--    that stands aside while `app.allow_user_purge` is on. The flag is set only
+--    around the deletes below, and by delete_user_account() (migration 124).
+drop trigger if exists salary_revisions_no_change on salary_revisions;
+create trigger salary_revisions_no_delete
+  before delete on salary_revisions
+  for each row execute function app.salary_revisions_immutable();
+create trigger salary_revisions_no_update
+  before update on salary_revisions
+  for each row
+  when (coalesce(current_setting('app.allow_user_purge', true), 'off') <> 'on')
+  execute function app.salary_revisions_immutable();
+
+drop trigger if exists finance_audit_no_change on finance_audit_logs;
+create trigger finance_audit_no_delete
+  before delete on finance_audit_logs
+  for each row execute function app.finance_audit_immutable();
+create trigger finance_audit_no_update
+  before update on finance_audit_logs
+  for each row
+  when (coalesce(current_setting('app.allow_user_purge', true), 'off') <> 'on')
+  execute function app.finance_audit_immutable();
+
+drop trigger if exists attachments_immutable on attachments;
+create trigger attachments_no_delete
+  before delete on attachments
+  for each row execute function app.attachments_immutable();
+create trigger attachments_immutable
+  before update on attachments
+  for each row
+  when (coalesce(current_setting('app.allow_user_purge', true), 'off') <> 'on')
+  execute function app.attachments_immutable();
+
+drop trigger if exists finance_amendments_immutable on finance_amendments;
+create trigger finance_amendments_no_delete
+  before delete on finance_amendments
+  for each row execute function app.finance_amendments_append_only();
+create trigger finance_amendments_immutable
+  before update on finance_amendments
+  for each row
+  when (coalesce(current_setting('app.allow_user_purge', true), 'off') <> 'on')
+  execute function app.finance_amendments_append_only();
+
+-- These two already stand aside for a ticket cascade (94/106); that stays.
+drop trigger if exists finance_ticket_messages_immutable on finance_ticket_messages;
+create trigger finance_ticket_messages_no_delete
+  before delete on finance_ticket_messages
+  for each row
+  when (coalesce(current_setting('app.allow_ticket_cascade', true), 'off') <> 'on')
+  execute function app.finance_ticket_messages_append_only();
+create trigger finance_ticket_messages_immutable
+  before update on finance_ticket_messages
+  for each row
+  when (coalesce(current_setting('app.allow_ticket_cascade', true), 'off') <> 'on'
+        and coalesce(current_setting('app.allow_user_purge', true), 'off') <> 'on')
+  execute function app.finance_ticket_messages_append_only();
+
+drop trigger if exists finance_ticket_versions_immutable on finance_ticket_versions;
+create trigger finance_ticket_versions_no_delete
+  before delete on finance_ticket_versions
+  for each row
+  when (coalesce(current_setting('app.allow_ticket_cascade', true), 'off') <> 'on')
+  execute function app.finance_ticket_versions_append_only();
+create trigger finance_ticket_versions_immutable
+  before update on finance_ticket_versions
+  for each row
+  when (coalesce(current_setting('app.allow_ticket_cascade', true), 'off') <> 'on'
+        and coalesce(current_setting('app.allow_user_purge', true), 'off') <> 'on')
+  execute function app.finance_ticket_versions_append_only();
+
+select set_config('app.allow_user_purge', 'on', false);
+
 -- 1. The accounts. auth.users → public.users cascades (02).
 delete from auth.users
  where id in (select id from public.users where role = 'branch_user');
 -- A profile row without an auth user cannot sign in, but must not linger either.
 delete from public.users where role = 'branch_user';
+select set_config('app.allow_user_purge', 'off', false);
 
 -- Broadcasts addressed to the role, and the two notification kinds the queue sent.
 delete from notifications where target_role = 'branch_user';
