@@ -78,8 +78,8 @@ router.get('/:id', requireFinance('view'), async (req: AuthRequest, res, next) =
 });
 
 /**
- * The moment a handover enters the book: RV- receipts under INC-BRANCH-CASH
- * (one per cash/bank account used) and, for fuel charges, under INC-FUEL.
+ * The moment a handover enters the book: one RV- receipt under INC-BRANCH-CASH
+ * for the Total (migration 123) and, for fuel charges, one under INC-FUEL.
  */
 router.put(
   '/:id/approve',

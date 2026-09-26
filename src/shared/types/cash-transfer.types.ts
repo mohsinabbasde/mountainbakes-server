@@ -106,7 +106,7 @@ export interface CashTransfer extends CashTransferChannels {
   updatedByName: string | null;
   /** The first RV- receipt this became; null until approved. */
   ledgerEntryId: string | null;
-  /** Every RV- the approval posted (cash, bank, fuel), comma separated. */
+  /** Every RV- the approval posted (the Total, and Fuel when entered), comma separated. */
   voucherNo: string | null;
   updatedAt: string;
   /**
