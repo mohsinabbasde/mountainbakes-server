@@ -1834,21 +1834,17 @@ export const FINANCE_AMENDABLE_FIELDS: Record<FinanceTicketReferenceType, Financ
    */
   order: [],
   /**
-   * A branch handover (migration 120). Amount and method re-post the RV-
-   * receipt when the transfer is approved; a pending one is corrected in
-   * place and Finance approves the corrected figure. The photo is not a
-   * field: it is evidence of the handover and is never rewritten.
+   * A branch deposit (migrations 120, 121). The four figures re-post the
+   * receipt of the slice they change when the deposit is approved; a pending
+   * one is corrected in place and Finance approves the corrected figures. The
+   * Total is absent: it is Cash + Easypaisa + Bank, recomputed in SQL. The
+   * photo is not a field: it is evidence of the handover and is never rewritten.
    */
   cash_transfer: [
-    { key: 'amount', label: 'Amount', kind: 'money', movesLedger: true },
-    {
-      key: 'paymentMethod', label: 'Payment Method', kind: 'select', movesLedger: true,
-      options: [
-        { value: 'cash', label: 'Cash' },
-        { value: 'easypaisa', label: 'Easypaisa' },
-        { value: 'bank_account', label: 'Bank' },
-      ],
-    },
+    { key: 'cashAmount', label: 'Cash', kind: 'money', movesLedger: true },
+    { key: 'easypaisaAmount', label: 'Easypaisa', kind: 'money', movesLedger: true },
+    { key: 'bankAmount', label: 'Bank', kind: 'money', movesLedger: true },
+    { key: 'fuelCharges', label: 'Fuel Charges', kind: 'money', movesLedger: true },
     { key: 'note', label: 'Note', kind: 'text', movesLedger: false },
   ],
 };

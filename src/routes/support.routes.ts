@@ -5,7 +5,7 @@ import { requireRole } from '../middleware/requireRole';
 import { validate } from '../middleware/validate';
 import {
   BRANCH_ROLES,
-  CASH_TRANSFER_METHOD_LABELS,
+  cashTransferChannelsLabel,
   CASH_TRANSFER_STATUS_LABELS,
   CreateSupportTicketSchema,
   EditSupportTicketSchema,
@@ -23,6 +23,8 @@ import {
   type SupportReferenceType,
 } from '../shared';
 import { notify } from '../services/push.service';
+import { logFinanceAudit } from '../services/finance-audit.service';
+import { listAttachments } from '../services/attachments.service';
 import {
   applyStockCorrection,
   applyStockMovement,
@@ -450,10 +452,11 @@ async function resolveReference(
   }
 
   // --- CASH DEPOSIT (cash_transfers.transfer_no) ---------------------------
-  // Informational here. A transfer's amount, method and note are corrected (or
-  // the record deleted, reversing its receipt) on the Finance Help Desk, which
-  // owns the ledger side — migration 120. The Support Center shows the admin
-  // what the branch is asking about and answers it; it writes nothing back.
+  // Amount, method and note are correctable from the Support Center through
+  // PATCH /:id/figures, which calls amend_finance_record — the same function the
+  // Finance Help Desk uses, so an approved deposit's RV- receipt is reversed and
+  // re-posted rather than left disagreeing with the row (migration 120). A
+  // rejected deposit is final and never booked; it stays read-only.
   if (type === 'cash_transfer') {
     // Branch money only — the production counter never hands over a deposit.
     if (role !== 'production_user') {
@@ -462,6 +465,7 @@ async function resolveReference(
           .from('cash_transfers')
           .select(`
             id, transfer_no, branch_id, branch_name, amount, payment_method, note,
+            cash_amount, easypaisa_amount, bank_amount, fuel_charges,
             business_date, status, created_by_name, created_at, approved_by_name,
             rejection_reason, voucher_no
           `)
@@ -474,9 +478,12 @@ async function resolveReference(
       const { data, error } = await q.maybeSingle();
       if (error) throw error;
       if (data) {
-        const method =
-          CASH_TRANSFER_METHOD_LABELS[data.payment_method as keyof typeof CASH_TRANSFER_METHOD_LABELS]
-          ?? String(data.payment_method);
+        const channels = {
+          cashAmount: Number(data.cash_amount ?? 0),
+          easypaisaAmount: Number(data.easypaisa_amount ?? 0),
+          bankAmount: Number(data.bank_amount ?? 0),
+          fuelCharges: Number(data.fuel_charges ?? 0),
+        };
         const status =
           CASH_TRANSFER_STATUS_LABELS[data.status as keyof typeof CASH_TRANSFER_STATUS_LABELS]
           ?? String(data.status);
@@ -489,8 +496,12 @@ async function resolveReference(
             { label: 'Branch', value: data.branch_name },
             { label: 'Date', value: String(data.business_date) },
             { label: 'Time', value: data.created_at ? karachiTimeStr(new Date(data.created_at)) : '—' },
-            { label: 'Amount', value: money(data.amount) },
-            { label: 'Method', value: method },
+            { label: 'Cash', value: money(channels.cashAmount) },
+            { label: 'Easypaisa', value: money(channels.easypaisaAmount) },
+            { label: 'Bank', value: money(channels.bankAmount) },
+            { label: 'Total Amount', value: money(data.amount) },
+            { label: 'Fuel Charges', value: money(channels.fuelCharges) },
+            { label: 'Channels', value: cashTransferChannelsLabel(channels) },
             { label: 'Status', value: status },
             ...(data.voucher_no ? [{ label: 'Voucher', value: data.voucher_no }] : []),
             { label: 'Submitted By', value: data.created_by_name ?? '—' },
@@ -498,10 +509,18 @@ async function resolveReference(
             ...(data.rejection_reason ? [{ label: 'Rejection Reason', value: data.rejection_reason }] : []),
             ...(data.note?.trim() ? [{ label: 'Note', value: data.note.trim() }] : []),
           ],
-          editableFields: [],
+          editableFields: data.status === 'rejected' ? [] : [
+            // The Total is not editable: it is Cash + Easypaisa + Bank (migration 121).
+            { key: 'cashAmount', label: 'Cash', kind: 'number', value: channels.cashAmount },
+            { key: 'easypaisaAmount', label: 'Easypaisa', kind: 'number', value: channels.easypaisaAmount },
+            { key: 'bankAmount', label: 'Bank', kind: 'number', value: channels.bankAmount },
+            { key: 'fuelCharges', label: 'Fuel Charges', kind: 'number', value: channels.fuelCharges },
+            { key: 'note', label: 'Note', kind: 'text', value: data.note ?? '' },
+          ],
           branchId: data.branch_id,
           businessDate: String(data.business_date),
-          readOnly: true,
+          cashTransferApproved: data.status === 'approved',
+          ...(data.status === 'rejected' ? { readOnly: true } : {}),
         };
       }
     }
@@ -908,6 +927,185 @@ router.patch('/:id/resolve', requireRole('super_admin'), validate(ResolveSupport
   }
 });
 
+/** What amend_finance_record reports for one corrected field of a cash deposit. */
+interface CashDepositAmendment {
+  field: DepositField;
+  originalValue: string | null;
+  newValue: string | null;
+  ledger?: { ledgerAmended?: boolean; reversalVoucherNo?: string | null; correctedVoucherNo?: string | null };
+}
+
+/** The correctable figures of a deposit (migration 121). The Total follows from the first three. */
+const DEPOSIT_MONEY_FIELDS = ['cashAmount', 'easypaisaAmount', 'bankAmount', 'fuelCharges'] as const;
+type DepositField = (typeof DEPOSIT_MONEY_FIELDS)[number] | 'note';
+
+const DEPOSIT_FIELD_LABELS: Record<DepositField, string> = {
+  cashAmount: 'Cash',
+  easypaisaAmount: 'Easypaisa',
+  bankAmount: 'Bank',
+  fuelCharges: 'Fuel Charges',
+  note: 'Note',
+};
+
+const DEPOSIT_COLUMNS = {
+  cashAmount: 'cash_amount',
+  easypaisaAmount: 'easypaisa_amount',
+  bankAmount: 'bank_amount',
+  fuelCharges: 'fuel_charges',
+} as const;
+
+function depositValueLabel(field: DepositField, value: string | null): string {
+  if (value == null || value === '') return '—';
+  return field === 'note' ? value : money(value);
+}
+
+/** "Cash Rs.1,000 → Rs.1,200 (PV-000041 reversed, posted RV-000231)". */
+function describeDepositChange(changes: CashDepositAmendment[]): string {
+  return changes
+    .map((c) => {
+      const line =
+        `${DEPOSIT_FIELD_LABELS[c.field]} ${depositValueLabel(c.field, c.originalValue)}` +
+        ` → ${depositValueLabel(c.field, c.newValue)}`;
+      if (!c.ledger?.ledgerAmended) return line;
+      const moved = [
+        c.ledger.reversalVoucherNo ? `${c.ledger.reversalVoucherNo} reversed` : '',
+        c.ledger.correctedVoucherNo ? `posted ${c.ledger.correctedVoucherNo}` : '',
+      ].filter(Boolean);
+      return moved.length ? `${line} (${moved.join(', ')})` : line;
+    })
+    .join(', ');
+}
+
+/**
+ * Apply an admin's cash deposit correction, one field at a time, through
+ * amend_finance_record — the Finance Help Desk's own function, so both desks
+ * mean the same thing by "corrected". The figures are Cash, Easypaisa, Bank and
+ * Fuel Charges; the Total is recomputed in SQL from the first three. An
+ * approved deposit whose figure changes has every RV- it produced reversed and
+ * fresh ones posted, dated today (the original day is usually closed).
+ *
+ * Compared against the LIVE row, not the snapshot: a field that already holds
+ * the requested value is skipped, so a repeat submit posts nothing. Every value
+ * is validated before the first write, because each field is its own
+ * transaction and a refusal half-way would leave the deposit half-corrected —
+ * which is also why increases are applied before decreases: moving 10,000 from
+ * Cash to Bank never passes through an all-zero deposit the database refuses.
+ */
+async function amendCashDeposit(
+  req: AuthRequest,
+  ticket: Record<string, any>,
+  snapshot: SupportReference,
+  edits: Record<string, string | number>,
+  note: string,
+): Promise<{ changes: CashDepositAmendment[] } | { status: number; error: string }> {
+  const { data: live, error: liveErr } = await withoutDeleted(
+    supabaseAdmin
+      .from('cash_transfers')
+      .select('id, transfer_no, status, amount, note, cash_amount, easypaisa_amount, bank_amount, fuel_charges')
+      .eq('id', snapshot.entityId),
+  ).maybeSingle();
+  if (liveErr) throw liveErr;
+  if (!live) {
+    return { status: 409, error: `${ticket.reference_id} has been deleted, so there is nothing left to correct.` };
+  }
+  if (live.status === 'rejected') {
+    return {
+      status: 409,
+      error: `${live.transfer_no} was rejected and is final — nothing was booked for it. The branch records a new deposit instead.`,
+    };
+  }
+  if ('amount' in edits || 'paymentMethod' in edits) {
+    return {
+      status: 400,
+      error: 'Correct a cash deposit by its Cash, Easypaisa, Bank and Fuel Charges figures — the Total follows from them.',
+    };
+  }
+
+  const cents = (v: unknown) => Math.round(Number(v ?? 0) * 100);
+  const after: Record<(typeof DEPOSIT_MONEY_FIELDS)[number], number> = {
+    cashAmount: cents(live.cash_amount),
+    easypaisaAmount: cents(live.easypaisa_amount),
+    bankAmount: cents(live.bank_amount),
+    fuelCharges: cents(live.fuel_charges),
+  };
+
+  const pending: { field: DepositField; value: string; delta: number }[] = [];
+  for (const field of DEPOSIT_MONEY_FIELDS) {
+    if (!(field in edits)) continue;
+    const value = String(edits[field] ?? '').trim();
+    const n = Number(value);
+    if (!value || !Number.isFinite(n) || n < 0) {
+      return { status: 400, error: `${DEPOSIT_FIELD_LABELS[field]} must be a number, 0 or more.` };
+    }
+    const was = cents(live[DEPOSIT_COLUMNS[field]]);
+    if (cents(n) === was) continue;
+    after[field] = cents(n);
+    pending.push({ field, value, delta: cents(n) - was });
+  }
+  if ('note' in edits) {
+    const value = String(edits['note'] ?? '').trim();
+    if (value !== (live.note ?? '').trim()) pending.push({ field: 'note', value, delta: 0 });
+  }
+
+  const totalAfter = after.cashAmount + after.easypaisaAmount + after.bankAmount;
+  if (totalAfter + after.fuelCharges <= 0) {
+    return { status: 400, error: 'Every amount would be 0. Delete the deposit instead of zeroing it.' };
+  }
+  // The photo rule the branch popup follows: money beyond fuel needs evidence.
+  if (totalAfter > 0 && cents(live.amount) === 0) {
+    const photos = await listAttachments('cash_transfer', live.id);
+    if (photos.length === 0) {
+      return {
+        status: 409,
+        error: `${live.transfer_no} has no payment photo, so it can only carry Fuel Charges. The branch records a new deposit with the photo.`,
+      };
+    }
+  }
+  pending.sort((a, b) => b.delta - a.delta);
+
+  const reason = [`Support query ${ticket.ticket_number}`, note?.trim()].filter(Boolean).join(' — ');
+  const changes: CashDepositAmendment[] = [];
+  for (const { field, value } of pending) {
+    const { data, error } = await supabaseAdmin.rpc('amend_finance_record', {
+      p_reference_type: 'cash_transfer',
+      p_reference_id: live.id,
+      p_field: field,
+      p_new_value: value,
+      p_reason: reason,
+      p_actor_id: req.user!.uid,
+      p_actor_name: req.user!.email,
+      p_entry_date: businessDateStr(),
+    });
+    if (error) {
+      // A plpgsql RAISE (P0001) is a sentence written for a person — pass it on.
+      if (error.code === 'P0001') {
+        const done = changes.length ? ` Already applied: ${describeDepositChange(changes)}.` : '';
+        return { status: 409, error: `${error.message}${done}` };
+      }
+      throw error;
+    }
+    const result = data as CashDepositAmendment;
+    changes.push({ ...result, field });
+
+    await logFinanceAudit(req, {
+      entity: 'cash_transfer',
+      entityId: live.id,
+      entityRef: live.transfer_no,
+      action: 'updated',
+      previousValues: { [field]: result.originalValue },
+      newValues: {
+        [field]: result.newValue,
+        supportTicketNo: ticket.ticket_number,
+        reason,
+        ...(result.ledger?.ledgerAmended
+          ? { reversalVoucherNo: result.ledger.reversalVoucherNo, correctedVoucherNo: result.ledger.correctedVoucherNo }
+          : {}),
+      },
+    });
+  }
+  return { changes };
+}
+
 // PATCH /api/support/:id/figures — admin "Change" button. Applies a live edit to an
 // expense's amount/description, or a correction to a branch's stock figures (New /
 // Sold / Returned / Balance, as absolute targets). Anything with no correctable
@@ -944,7 +1142,13 @@ router.patch('/:id/figures', requireRole('super_admin'), validate(ChangeFiguresS
     // counter sales. A legacy pool ticket is exempt: its snapshot says read-only
     // only because the pool had no correction function when it was raised, and it
     // is re-read live before anything is written.
-    if (snapshot?.readOnly && !isPoolStock) {
+    //
+    // A cash deposit is exempt too: tickets raised before deposits became
+    // correctable froze `readOnly: true` for every CT-, and whether one can be
+    // corrected is a question about the LIVE row — amend_finance_record refuses
+    // a rejected or deleted deposit with its own message.
+    const isCashDeposit = snapshot?.type === 'cash_transfer';
+    if (snapshot?.readOnly && !isPoolStock && !isCashDeposit) {
       res.status(400).json({
         error: 'This reference is informational only and cannot be corrected here. Reply to the query and resolve it instead.',
       });
@@ -959,6 +1163,7 @@ router.patch('/:id/figures', requireRole('super_admin'), validate(ChangeFiguresS
     // before/after rather than echoing back what the admin typed.
     let stockResult: (StockCorrectionResult & { productName: string }) | null = null;
     let poolResult: (ProductionStockCorrectionResult & { productName: string }) | null = null;
+    let depositResult: CashDepositAmendment[] | null = null;
 
     // The pool first — a pool ticket is `type === 'stock'` too, and the branch path
     // below would otherwise claim it.
@@ -1094,6 +1299,11 @@ router.patch('/:id/figures', requireRole('super_admin'), validate(ChangeFiguresS
         }
         throw err;
       }
+    } else if (isCashDeposit && snapshot) {
+      const outcome = await amendCashDeposit(req, ticket, snapshot, edits, note);
+      if ('error' in outcome) { res.status(outcome.status).json({ error: outcome.error }); return; }
+      depositResult = outcome.changes;
+      applied = depositResult.length > 0;
     } else if (snapshot?.entityTable && LIVE_EDITABLE_TABLES.has(snapshot.entityTable) && allowed.size > 0) {
       // Live mutation — only expense columns are ever in `allowed` here.
       const patch: Record<string, unknown> = {};
@@ -1114,7 +1324,11 @@ router.patch('/:id/figures', requireRole('super_admin'), validate(ChangeFiguresS
     const changeLines = Object.entries(edits)
       .filter(([k]) => allowed.size === 0 || allowed.has(k))
       .map(([k, v]) => `${k} → ${v}`);
-    const summary = stockResult
+    const summary = depositResult
+      ? depositResult.length > 0
+        ? `Cash deposit ${ticket.reference_id} corrected: ${describeDepositChange(depositResult)}`
+        : `Cash deposit ${ticket.reference_id} already matched — nothing to correct`
+      : stockResult
       ? stockResult.applied
         ? `Branch stock corrected for ${stockResult.productName}: ${describeStockChange(stockResult)}`
         : `Branch stock for ${stockResult.productName} already matched — nothing to correct`
@@ -1154,7 +1368,7 @@ router.patch('/:id/figures', requireRole('super_admin'), validate(ChangeFiguresS
 
     // `stock` stays the BRANCH result so existing clients are untouched; a pool
     // correction reports under its own key with its own (different) figure shape.
-    res.json({ ticket: rowToApi(data), applied, stock: stockResult, productionStock: poolResult });
+    res.json({ ticket: rowToApi(data), applied, stock: stockResult, productionStock: poolResult, cashDeposit: depositResult });
   } catch (err) {
     next(err);
   }

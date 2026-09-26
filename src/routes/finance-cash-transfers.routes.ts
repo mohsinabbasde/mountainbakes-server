@@ -77,7 +77,10 @@ router.get('/:id', requireFinance('view'), async (req: AuthRequest, res, next) =
   }
 });
 
-/** The moment a handover enters the book: one RV- receipt under INC-BRANCH-CASH. */
+/**
+ * The moment a handover enters the book: RV- receipts under INC-BRANCH-CASH
+ * (one per cash/bank account used) and, for fuel charges, under INC-FUEL.
+ */
 router.put(
   '/:id/approve',
   requireFinance('approve'),
@@ -98,7 +101,10 @@ router.put(
         newValues: {
           status: transfer.status,
           amount: transfer.amount,
-          paymentMethod: transfer.paymentMethod,
+          cashAmount: transfer.cashAmount,
+          easypaisaAmount: transfer.easypaisaAmount,
+          bankAmount: transfer.bankAmount,
+          fuelCharges: transfer.fuelCharges,
           branchName: transfer.branchName,
           voucherNo: transfer.voucherNo,
           ledgerEntryId: transfer.ledgerEntryId,

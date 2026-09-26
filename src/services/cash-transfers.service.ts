@@ -1,9 +1,10 @@
 import { supabaseAdmin } from '../config/supabase';
 import {
   CASH_TRANSFER_METHODS,
-  CASH_TRANSFER_METHOD_LABELS,
   CASH_TRANSFER_STATUSES,
   businessDateStr,
+  cashTransferChannelsLabel,
+  cashTransferTotal,
   type CashTransfer,
   type CashTransferMethod,
   type CashTransferSortKey,
@@ -46,18 +47,37 @@ import { notify } from './push.service';
 
 /**
  * One DB row → the API's CashTransfer shape. Two fixes the discount router
- * also has to make: `business_date` → `date`, and `amount` through Number()
- * because PostgREST can hand a `numeric` back as a string.
+ * also has to make: `business_date` → `date`, and every money column through
+ * Number() because PostgREST can hand a `numeric` back as a string.
  */
 function toApi(row: Record<string, unknown>): CashTransfer {
-  const { businessDate, amount, ...rest } = rowToApi<Record<string, unknown>>(row);
+  const { businessDate, amount, cashAmount, easypaisaAmount, bankAmount, fuelCharges, ...rest } =
+    rowToApi<Record<string, unknown>>(row);
   return {
-    ...(rest as Omit<CashTransfer, 'amount' | 'date' | 'attachments'>),
-    amount: Number(amount),
+    ...(rest as Omit<
+      CashTransfer,
+      'amount' | 'cashAmount' | 'easypaisaAmount' | 'bankAmount' | 'fuelCharges' | 'date' | 'attachments'
+    >),
+    amount: Number(amount ?? 0),
+    cashAmount: Number(cashAmount ?? 0),
+    easypaisaAmount: Number(easypaisaAmount ?? 0),
+    bankAmount: Number(bankAmount ?? 0),
+    fuelCharges: Number(fuelCharges ?? 0),
     date: String(businessDate),
     attachments: [],
   };
 }
+
+/**
+ * The channel column a method filter reads (migration 121). "Paid by Easypaisa"
+ * now means "carried Easypaisa money" — a mixed deposit answers to each of its
+ * channels, and a pre-121 row answers to its one method through the backfill.
+ */
+const CHANNEL_COLUMNS: Record<CashTransferMethod, string> = {
+  cash: 'cash_amount',
+  easypaisa: 'easypaisa_amount',
+  bank_account: 'bank_amount',
+};
 
 const SORTABLE_COLUMNS: Record<CashTransferSortKey, string> = {
   date: 'business_date',
@@ -67,7 +87,7 @@ const SORTABLE_COLUMNS: Record<CashTransferSortKey, string> = {
   voucherNo: 'voucher_no',
   branchName: 'branch_name',
   amount: 'amount',
-  paymentMethod: 'payment_method',
+  fuelCharges: 'fuel_charges',
   status: 'status',
 };
 
@@ -141,7 +161,7 @@ export async function listCashTransfers(
   if (q.from) query = query.gte('business_date', q.from);
   if (q.to) query = query.lte('business_date', q.to);
   if (q.status) query = query.eq('status', q.status);
-  if (q.paymentMethod) query = query.eq('payment_method', q.paymentMethod);
+  if (q.paymentMethod) query = query.gt(CHANNEL_COLUMNS[q.paymentMethod], 0);
 
   // Free-text over the two numbers, the branch and the note — same convention
   // as the discount list: strip `or` filter syntax, then ilike.
@@ -201,13 +221,38 @@ export async function createCashTransfer(input: {
   // sale or an expense is.
   const businessDate = await resolveClientBusinessDate(input.body.businessDate, input.role);
 
+  // One live deposit per branch per business day. The Idempotency-Key already
+  // collapses a double click or a retry into one row; this refuses the SECOND
+  // deliberate submission for a day that already has one, which is the
+  // accidental duplicate the owner asked to stop. A rejected or deleted
+  // deposit does not count — the branch raises the day again.
+  const existing = await findLiveDeposit(branch.id, businessDate);
+  if (existing) {
+    throw Object.assign(
+      new Error(
+        `Cash deposit already exists for this date and branch (${existing.transfer_no}, ${existing.status}). ` +
+          'Ask Finance to correct it through the Help Desk instead of submitting again.',
+      ),
+      { status: 409 },
+    );
+  }
+
+  // The Total is computed HERE, from the channels, whatever the client showed —
+  // the schema has already refused a displayed total that disagreed. The
+  // table's CHECK (migration 121) is the last word.
+  const { cashAmount, easypaisaAmount, bankAmount, fuelCharges } = input.body;
+  const amount = cashTransferTotal({ cashAmount, easypaisaAmount, bankAmount });
+
   const { data: created, error: insErr } = await supabaseAdmin
     .from('cash_transfers')
     .insert({
       branch_id: branch.id,
       branch_name: branch.name,
-      amount: input.body.amount,
-      payment_method: input.body.paymentMethod,
+      amount,
+      cash_amount: cashAmount,
+      easypaisa_amount: easypaisaAmount,
+      bank_amount: bankAmount,
+      fuel_charges: fuelCharges,
       note: input.body.note?.trim() || null,
       business_date: businessDate,
       status: 'pending',
@@ -218,15 +263,18 @@ export async function createCashTransfer(input: {
     .single();
   if (insErr) throw insErr;
 
-  // Bind the staged photo(s). The schema already required at least one id, so
-  // a throw here means the photo vanished between upload and submit (a second
-  // tab, a retry after a partial failure); the 409 tells the branch to retake.
-  const attachments = await bindAttachments({
-    entity: 'cash_transfer',
-    entityId: created.id as string,
-    attachmentIds: input.body.attachmentIds,
-    actor: { uid: input.actor.uid },
-  });
+  // Bind the staged photo(s). The schema required one whenever the Total is
+  // above 0, so a throw here means the photo vanished between upload and
+  // submit (a second tab, a retry after a partial failure); the 409 tells the
+  // branch to retake. A fuel-only deposit may arrive with none.
+  const attachments = input.body.attachmentIds.length
+    ? await bindAttachments({
+        entity: 'cash_transfer',
+        entityId: created.id as string,
+        attachmentIds: input.body.attachmentIds,
+        actor: { uid: input.actor.uid },
+      })
+    : [];
 
   const transfer = { ...toApi(created as Record<string, unknown>), attachments };
 
@@ -235,14 +283,13 @@ export async function createCashTransfer(input: {
   // notifications RLS drops a broadcast whose branch does not match. Best
   // effort: the transfer is saved, and a failed notice must not turn a 201
   // into a 500 that the client would retry.
-  const amount = transfer.amount.toLocaleString('en-PK');
-  const method = CASH_TRANSFER_METHOD_LABELS[transfer.paymentMethod];
+  const summary = depositSummary(transfer);
   for (const targetRole of ['finance_admin', 'finance_manager'] as const) {
     try {
       await notify({
         type: 'cash_transfer',
         title: 'Cash Transfer Submitted',
-        message: `${branch.name} sent Rs. ${amount} by ${method} (${transfer.transferNo}) — awaiting approval`,
+        message: `${branch.name} sent ${summary} (${transfer.transferNo}) — awaiting approval`,
         targetRole,
         branchId: null,
         relatedId: transfer.id,
@@ -253,6 +300,33 @@ export async function createCashTransfer(input: {
   }
 
   return transfer;
+}
+
+/** The branch's live (pending or approved, not deleted) deposit for a day, if any. */
+async function findLiveDeposit(
+  branchId: string,
+  businessDate: string,
+): Promise<{ id: string; transfer_no: string; status: CashTransferStatus } | null> {
+  const { data, error } = await withoutDeleted(
+    supabaseAdmin.from('cash_transfers').select('id, transfer_no, status'),
+  )
+    .eq('branch_id', branchId)
+    .eq('business_date', businessDate)
+    .neq('status', 'rejected')
+    .order('created_at', { ascending: true })
+    .limit(1)
+    .maybeSingle();
+  if (error) throw error;
+  return (data as { id: string; transfer_no: string; status: CashTransferStatus } | null) ?? null;
+}
+
+/** "Rs. 80,000 (Cash + Easypaisa + Bank) + fuel Rs. 2,000" — for the notices. */
+function depositSummary(t: CashTransfer): string {
+  const rs = (n: number) => `Rs. ${n.toLocaleString('en-PK')}`;
+  const parts: string[] = [];
+  if (t.amount > 0) parts.push(`${rs(t.amount)} (${cashTransferChannelsLabel(t)})`);
+  if (t.fuelCharges > 0) parts.push(`fuel charges ${rs(t.fuelCharges)}`);
+  return parts.join(' + ');
 }
 
 // ---------------------------------------------------------------------------
@@ -319,11 +393,11 @@ export async function rejectCashTransfer(
 
 /** Tell the branch. Best effort: the decision is committed before this runs. */
 async function notifyBranch(transfer: CashTransfer, decision: 'approved' | 'rejected'): Promise<void> {
-  const amount = transfer.amount.toLocaleString('en-PK');
+  const amount = depositSummary(transfer);
   const message =
     decision === 'approved'
-      ? `${transfer.transferNo} for Rs. ${amount} was approved — receipt ${transfer.voucherNo ?? ''}`.trim()
-      : `${transfer.transferNo} for Rs. ${amount} was rejected: ${transfer.rejectionReason ?? ''}`.trim();
+      ? `${transfer.transferNo} for ${amount} was approved — receipt ${transfer.voucherNo ?? ''}`.trim()
+      : `${transfer.transferNo} for ${amount} was rejected: ${transfer.rejectionReason ?? ''}`.trim();
   try {
     await notify({
       type: 'cash_transfer_reviewed',
@@ -362,10 +436,12 @@ export async function paymentsReceivedInWindow(
   const { data, error } = await withoutDeleted(
     supabaseAdmin
       .from('cash_transfers')
-      .select('id, transfer_no, voucher_no, business_date, payment_method, amount'),
+      .select('id, transfer_no, voucher_no, business_date, amount, cash_amount, easypaisa_amount, bank_amount'),
   )
     .eq('branch_id', branchId)
     .eq('status', 'approved')
+    // A fuel-only deposit (Total 0) is income, not a payment against the slip.
+    .gt('amount', 0)
     .gt('created_at', afterTs)
     .lte('created_at', untilTs)
     .order('created_at', { ascending: true });
@@ -376,15 +452,19 @@ export async function paymentsReceivedInWindow(
     transfer_no: string;
     voucher_no: string | null;
     business_date: string;
-    payment_method: CashTransferMethod;
     amount: number | string;
+    cash_amount: number | string;
+    easypaisa_amount: number | string;
+    bank_amount: number | string;
   }[]).map((r) => ({
     transferId: r.id,
     transferNo: r.transfer_no,
     voucherNo: r.voucher_no,
     date: r.business_date,
-    paymentMethod: r.payment_method,
     amount: Number(r.amount ?? 0),
+    cashAmount: Number(r.cash_amount ?? 0),
+    easypaisaAmount: Number(r.easypaisa_amount ?? 0),
+    bankAmount: Number(r.bank_amount ?? 0),
   }));
 
   return {

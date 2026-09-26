@@ -12,9 +12,14 @@ import type { Attachment } from './attachment.types';
 // ---------------------------------------------------------------------------
 
 /**
- * The three ways a branch can hand money over. The same values the daily sale
- * record lets a branch key by hand (DAILY_SALE_MANUAL_METHODS), and the CHECK
- * on `cash_transfers.payment_method` mirrors this list — change both.
+ * The three channels a branch hands money over by. The same values the daily
+ * sale record lets a branch key by hand (DAILY_SALE_MANUAL_METHODS).
+ *
+ * Since migration 121 a deposit carries an amount PER channel (`cashAmount`,
+ * `easypaisaAmount`, `bankAmount`) rather than one method; these values now
+ * name the channels — for filters and labels — and the legacy
+ * `cash_transfers.payment_method` column that a pre-121 row was raised with.
+ * Foodpanda is deliberately absent: the branch keys it into Easypaisa by hand.
  */
 export const CASH_TRANSFER_METHODS = ['cash', 'easypaisa', 'bank_account'] as const;
 export type CashTransferMethod = (typeof CASH_TRANSFER_METHODS)[number];
@@ -24,6 +29,37 @@ export const CASH_TRANSFER_METHOD_LABELS: Record<CashTransferMethod, string> = {
   easypaisa: 'Easypaisa',
   bank_account: 'Bank',
 };
+
+/** The three channel figures of a deposit, as every reader of one holds them. */
+export interface CashTransferChannels {
+  cashAmount: number;
+  easypaisaAmount: number;
+  bankAmount: number;
+}
+
+/**
+ * Total Amount = Cash + Easypaisa + Bank — never Fuel Charges, never Foodpanda.
+ * Rounded to the paisa so three 2-dp figures cannot sum to a float tail.
+ * The database CHECK `cash_transfers_total_is_channels` holds the same rule.
+ */
+export function cashTransferTotal(c: CashTransferChannels): number {
+  return Math.round((c.cashAmount + c.easypaisaAmount + c.bankAmount) * 100) / 100;
+}
+
+/** "Cash + Easypaisa", "Bank", or "Fuel only" — the channels a deposit used. */
+export function cashTransferChannelsLabel(c: CashTransferChannels & { fuelCharges?: number }): string {
+  const used = (
+    [
+      ['cash', c.cashAmount],
+      ['easypaisa', c.easypaisaAmount],
+      ['bank_account', c.bankAmount],
+    ] as [CashTransferMethod, number][]
+  )
+    .filter(([, v]) => v > 0)
+    .map(([m]) => CASH_TRANSFER_METHOD_LABELS[m]);
+  if (used.length > 0) return used.join(' + ');
+  return (c.fuelCharges ?? 0) > 0 ? 'Fuel only' : '—';
+}
 
 /**
  * pending  — waiting on Finance. The branch cannot edit it; a wrong figure is
@@ -40,14 +76,18 @@ export const CASH_TRANSFER_STATUS_LABELS: Record<CashTransferStatus, string> = {
   rejected: 'Rejected',
 };
 
-export interface CashTransfer {
+export interface CashTransfer extends CashTransferChannels {
   id: string;
   /** CT-000001 … issued at insert, before Finance has seen it. */
   transferNo: string;
   branchId: string;
   branchName: string;
+  /** Total Amount = cashAmount + easypaisaAmount + bankAmount. Excludes fuel. */
   amount: number;
-  paymentMethod: CashTransferMethod;
+  /** Delivery charges handed over with the deposit; booked as income under Fuel. */
+  fuelCharges: number;
+  /** Legacy: the one method a pre-121 deposit named. Null on new deposits. */
+  paymentMethod: CashTransferMethod | null;
   note: string | null;
   /** Business date of the handover (`business_date`), as the API's `date`. */
   date: string;
@@ -61,8 +101,12 @@ export interface CashTransfer {
   approvedAt: string | null;
   approvalNote: string | null;
   rejectionReason: string | null;
-  /** The RV- receipt this became; null until approved. */
+  /** Last corrected by (Help Desk / Support Center) — migration 121. */
+  updatedBy: string | null;
+  updatedByName: string | null;
+  /** The first RV- receipt this became; null until approved. */
   ledgerEntryId: string | null;
+  /** Every RV- the approval posted (cash, bank, fuel), comma separated. */
   voucherNo: string | null;
   updatedAt: string;
   /**
@@ -86,7 +130,7 @@ export type CashTransferSortKey =
   | 'voucherNo'
   | 'branchName'
   | 'amount'
-  | 'paymentMethod'
+  | 'fuelCharges'
   | 'status';
 
 /**
@@ -94,11 +138,11 @@ export type CashTransferSortKey =
  * Received" — the lines the total was built from, itemised server-side so the
  * slip cannot drift from the figure (same reason `discountItems` exists).
  */
-export interface PaymentReceivedItem {
+export interface PaymentReceivedItem extends CashTransferChannels {
   transferId: string;
   transferNo: string;
   voucherNo: string | null;
   date: string;
-  paymentMethod: CashTransferMethod;
+  /** The deposit's Total — fuel charges are not a payment against the slip. */
   amount: number;
 }
