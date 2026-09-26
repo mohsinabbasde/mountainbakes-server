@@ -232,6 +232,43 @@ router.put('/:id', validate(UpdateUserSchema), async (req: AuthRequest, res, nex
   }
 });
 
+// DELETE /api/users/:id/permanent — remove the account for good (auth user +
+// profile row). Business records keep their *_name columns and lose only the
+// user link (ON DELETE SET NULL); see migration 124. DELETE /:id below stays a
+// deactivate because the mobile app calls it for that.
+router.delete('/:id/permanent', async (req: AuthRequest, res, next) => {
+  try {
+    const id = req.params['id']!;
+    if (id === req.user!.uid) {
+      res.status(400).json({ error: 'You cannot delete your own account' });
+      return;
+    }
+    const target = await getUserRow(id);
+    if (!target) { res.status(404).json({ error: 'User not found' }); return; }
+
+    const adminName = await resolveAdminName(req.user!.uid, req.user!.email);
+
+    const { data: deleted, error } = await supabaseAdmin.rpc('delete_user_account', { p_user_id: id });
+    if (error) throw error;
+    if (!deleted) { res.status(404).json({ error: 'User not found' }); return; }
+
+    // target_user_id stays null — the row it would point at no longer exists.
+    await logAudit({
+      action: 'user_deleted',
+      adminId: req.user!.uid,
+      adminName,
+      targetUserId: null,
+      targetUserName: target.displayName ?? null,
+      targetUserRole: target.role ?? null,
+      details: `Deleted ${target.email} (id ${id})`,
+    });
+
+    res.json({ success: true });
+  } catch (err) {
+    next(err);
+  }
+});
+
 // DELETE /api/users/:id — soft delete (deactivate)
 router.delete('/:id', async (req: AuthRequest, res, next) => {
   try {
