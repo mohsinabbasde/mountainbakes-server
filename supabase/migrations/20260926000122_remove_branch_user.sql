@@ -24,6 +24,11 @@
 -- committed long ago, so naming it here is not the 55P04 case.
 -- ---------------------------------------------------------------------------
 
+-- 0. The request queue table goes first. Deleting the accounts sets its
+--    created_user_id to null (on delete set null), which branch_user_requests_decided_ck
+--    refuses for an approved request — the first db push failed on exactly that.
+drop table if exists branch_user_requests;
+
 -- 1. The accounts. auth.users → public.users cascades (02).
 delete from auth.users
  where id in (select id from public.users where role = 'branch_user');
@@ -42,8 +47,7 @@ alter table users add constraint users_no_branch_user check (role <> 'branch_use
 alter table users drop constraint if exists users_shift_only_for_branch_user;
 alter table users drop column if exists shift;
 
--- 4. The request queue (66).
-drop table if exists branch_user_requests;
+-- 4. The rest of the request queue (66); its table was dropped in step 0.
 drop function if exists next_branch_user_request_number();
 delete from counters where id = 'branch_user_request';
 drop type if exists branch_user_request_status;
