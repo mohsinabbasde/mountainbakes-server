@@ -13,10 +13,8 @@ router.get('/', async (req: AuthRequest, res, next) => {
     const q = String(req.query['q'] || '').toLowerCase().trim();
     if (!q || q.length < 2) { res.json({ results: [] }); return; }
 
-    // Both shop-floor roles are branch-scoped. This test is what keeps a search
-    // inside the caller's own branch, so it must cover branch_user too — left as
-    // a manager-only check, a shift account's search would return every branch's
-    // orders and customers, which no other endpoint would have let it read.
+    // A shop-floor role is branch-scoped. This test is what keeps a search
+    // inside the caller's own branch.
     const isBranchScoped = isBranchRole(req.user!.role);
     const isProductionUser = req.user!.role === 'production_user';
     const branchId = req.user!.branchId;

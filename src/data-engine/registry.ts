@@ -745,7 +745,6 @@ const usersConfig: ResourceConfig = {
     f('role', 'enum'),
     ...branchFields,
     f('status', 'enum'),
-    f('shift', 'enum'),
     f('mustChangePassword', 'boolean'),
     f('lastLoginAt', 'timestamp'),
     f('createdAt', 'timestamp'),

@@ -451,13 +451,7 @@ router.post('/pos', requireRole('super_admin', ...BRANCH_ROLES), idempotent('sal
         // (which limits the alert to that one branch). production_user/super_admin
         // are central and carry no branch claim — a non-null branchId there would
         // be filtered out by the notifications RLS, so they get null.
-        //
-        // branch_user is on the list because it can act on the alert: creating the
-        // production demand it asks for is one of the six things a shift account
-        // may do. Leaving it off would send "please create a Production Order" to
-        // a manager who may be off shift while the person who can is standing at
-        // the till.
-        (['branch_manager', 'branch_user', 'production_user', 'super_admin'] as const).map((role) =>
+        (['branch_manager', 'production_user', 'super_admin'] as const).map((role) =>
           notify({
             type: 'low_stock',
             title: 'Low Stock',

@@ -81,7 +81,7 @@ const FINANCE_ROLE_PERMISSIONS: Record<FinanceRole, readonly FinancePermission[]
  * able to move money in them are separate grants, and separation of duties is
  * the entire point of a finance module living outside admin operations.
  *
- * Every other role — branch_manager, branch_user, production_user — gets nothing
+ * Every other role — branch_manager, production_user — gets nothing
  * at all, including `view`.
  */
 export function financeCan(

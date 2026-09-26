@@ -48,9 +48,6 @@ export type NotificationType =
   | 'finance_query_updated' // Admin moved it along (under review, needs info) → raiser
   | 'finance_query_message' // either side added to the conversation → the other side
   | 'finance_query_amended' // Admin changed or deleted the record behind it → raiser
-  // Branch shift accounts (migration 65) — branch_manager asks, Admin decides
-  | 'branch_user_requested' // a manager forwarded a request for a shift account → Admin
-  | 'branch_user_reviewed' // Admin approved or rejected it → the requesting manager
   // Special Events (migration 42)
   | 'event_created' // a new event was published → branches + Production
   | 'event_reminder' // a scheduled countdown reminder fired → branch or Production

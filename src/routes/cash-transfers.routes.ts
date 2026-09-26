@@ -41,9 +41,7 @@ router.use(authenticate, requireRole('super_admin', ...BRANCH_ROLES));
 
 /**
  * The branch this request acts on — pinned to the JWT for a branch role, the
- * `branchId` query parameter for an admin. Verbatim from branch-discounts:
- * `isBranchRole` rather than a single-role test, because a `branch_user`
- * carries its manager's branchId and has to be scoped identically.
+ * `branchId` query parameter for an admin. Verbatim from branch-discounts.
  */
 function scopeBranch(req: AuthRequest): string | null {
   return isBranchRole(req.user!.role)

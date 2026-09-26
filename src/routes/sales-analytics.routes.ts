@@ -19,10 +19,7 @@ import { businessDateStr, isBranchRole, SALES_TOP_PRODUCT_LIMITS } from '../shar
  * card that refetches on every filter change, so it must not inherit the report
  * endpoint's cost or its order-shaped payload.
  *
- * Same grant as the reports router — `super_admin` and `branch_manager`. A
- * `branch_user` is a shift account with no dashboard at all (`getRoleHome`), and
- * the shared BRANCH_ROLES note is explicit that reporting surfaces name
- * `branch_manager` literally so the narrower grant stays visible here.
+ * Same grant as the reports router — `super_admin` and `branch_manager`.
  */
 export const router = Router();
 
@@ -40,8 +37,7 @@ router.use(authenticate, requireRole('super_admin', 'branch_manager'));
  *
  * `isBranchRole` rather than `role === 'branch_manager'`: the test here means
  * "scope this to the caller's own branch", which is exactly the case the shared
- * helper exists for, and it stays correct if a shift account is ever granted a
- * dashboard.
+ * helper exists for.
  */
 async function resolveScope(req: AuthRequest): Promise<{ branchId: string | null; branchName: string | null }> {
   if (isBranchRole(req.user!.role)) {
