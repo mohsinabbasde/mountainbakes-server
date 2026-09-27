@@ -1930,3 +1930,130 @@ export interface FinanceTicketReferenceLookup {
   label: string;
   snapshot: Record<string, unknown>;
 }
+
+// ---------------------------------------------------------------------------
+// Monthly Finance Dashboard (migration 128) — GET /api/finance/dashboard/monthly
+// ---------------------------------------------------------------------------
+
+/**
+ * One (business date, branch) of production income and receipts. `branchId`
+ * null = not attributed to a branch (an unassigned receipt). Every amount is a
+ * server-side sum; see docs/finance-dashboard-audit.md for each source.
+ */
+export interface FinanceDashboardDay {
+  date: string;
+  branchId: string | null;
+  /** Σ approved_qty × product price over Production-reviewed orders. */
+  demand: number;
+  /** Demand × the branch's company share %, rounded per order. */
+  companyShare: number;
+  /** Live ledger income on Company Share / Fuel heads + Cash Deposit postings. */
+  received: number;
+  /** Accepted production returns, qty × product price. */
+  returns: number;
+  /** Approved production (branch) discounts. */
+  discount: number;
+  orders: number;
+  /** Delivered lines whose product has no price — valued at 0. */
+  unpricedLines: number;
+  receipts: number;
+  returnCount: number;
+  discountCount: number;
+}
+
+/** One (business date, branch, ledger head) of approved company expense. */
+export interface FinanceDashboardLedgerRow {
+  date: string;
+  branchId: string | null;
+  ledgerHeadId: string;
+  /** The head's current Admin-defined name. */
+  ledgerHeadName: string;
+  /** credit − debit, so a reversal nets out. */
+  amount: number;
+  entries: number;
+}
+
+export interface FinanceDashboardMonthTrend {
+  month: string;
+  demand: number;
+  companyShare: number;
+  received: number;
+  balance: number;
+  returns: number;
+  discount: number;
+}
+
+/** A branch's balance for the previous business month; null = no records that month. */
+export interface FinanceDashboardPreviousBalance {
+  branchId: string | null;
+  balance: number | null;
+}
+
+export interface FinanceMonthlyDashboardSummary {
+  demand: number;
+  companyShare: number;
+  received: number;
+  /** companyShare − received. */
+  balance: number;
+  /** The previous month's balance for the same scope; null when it had no records. */
+  lastMonthBalance: number | null;
+  ledgerExpense: number;
+  returns: number;
+  discount: number;
+  orders: number;
+  receipts: number;
+  ledgerEntries: number;
+  returnCount: number;
+  discountCount: number;
+  unpricedLines: number;
+  /** finance_ledger_totals over the same window — the ledger's own totals. */
+  ledgerIncome: number;
+  ledgerExpenseTotal: number;
+  ledgerNet: number;
+}
+
+export interface FinanceMonthlyDashboard {
+  month: string;
+  previousMonth: string;
+  from: string;
+  to: string;
+  branchId: string | null;
+  businessDate: string;
+  generatedAt: string;
+  /** Every branch (Admin names), including inactive ones that still carry history. */
+  branches: { id: string; name: string; isActive: boolean }[];
+  summary: FinanceMonthlyDashboardSummary;
+  days: FinanceDashboardDay[];
+  ledger: FinanceDashboardLedgerRow[];
+  previous: FinanceDashboardPreviousBalance[];
+  /** The six business months ending at `month`, whole months, oldest first. */
+  trend: FinanceDashboardMonthTrend[];
+}
+
+export const FINANCE_DASHBOARD_METRICS = ['demand', 'share', 'received', 'ledger', 'return', 'discount'] as const;
+export type FinanceDashboardMetric = (typeof FINANCE_DASHBOARD_METRICS)[number];
+
+/** One source record behind a dashboard figure. */
+export interface FinanceDashboardRecord {
+  id: string;
+  /** Demand number, voucher number — whatever the source calls itself. */
+  reference: string | null;
+  date: string;
+  branchId: string | null;
+  branchName: string | null;
+  source: string;
+  detail: string | null;
+  status: string;
+  amount: number;
+  createdBy: string | null;
+  approvedBy: string | null;
+}
+
+export interface FinanceDashboardRecordsPage {
+  total: number;
+  /** Sum over every matching record, not just this page. */
+  amount: number;
+  page: number;
+  pageSize: number;
+  rows: FinanceDashboardRecord[];
+}

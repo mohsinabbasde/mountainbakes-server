@@ -40,7 +40,7 @@ insert into counters values ('finance_receipt_voucher',0),('finance_payment_vouc
 create table finance_day_closings (business_date date primary key);
 create table ledger_heads (id uuid primary key default gen_random_uuid(), code text unique, name text, type ledger_head_type,
   description text, group_name text, is_system boolean, sort_order int, is_active boolean not null default true);
-insert into ledger_heads (code,name,type) values ('INC-BRANCH-CASH','Branch Cash','income'),('EXP-RENT','Rent','expense');
+insert into ledger_heads (code,name,type) values ('INC-BRANCH-CASH','Cash Received from Branch','income'),('INC-COMPANY-SHARE','Company Share','income'),('EXP-RENT','Rent','expense');
 create table ledger_entries (
   id uuid primary key default gen_random_uuid(), voucher_no text not null unique, seq bigserial not null unique,
   entry_date date not null, ledger_head_id uuid references ledger_heads(id), ledger_head_name text not null,
@@ -202,6 +202,22 @@ test('Create still books one income entry', async () => {
   const d7 = await deposit(1234, { cash: 1000, bank: 234, fuel: 0 });
   const e7 = (await db.query(`select debit::float d, credit::float c, ledger_head_type::text t from ledger_entries where source_id=$1 and deleted_at is null`, [d7.id])).rows;
   ok(e7.length === 1 && e7[0].d === 1234 && e7[0].c === 0 && e7[0].t === 'income', 'new deposit → one income (debit) entry of the Total');
+});
+
+// ── Migration 127: the Total posts under Company Share; fuel stays on INC-FUEL.
+test('Migration 127 — deposit Total posts under Company Share', async () => {
+  await db.exec(read('20260927000127_cash_deposit_company_share_head.sql'));
+  const d = await deposit(9000, { cash: 6000, bank: 3000, fuel: 200 });
+  const rows = (await db.query(`select h.code, e.ledger_head_name, e.debit::float d, e.credit::float c, e.payment_method
+    from ledger_entries e join ledger_heads h on h.id = e.ledger_head_id
+    where e.source_id = $1 and e.deleted_at is null order by e.seq`, [d.id])).rows;
+  ok(rows.length === 2, 'one Total entry + one fuel entry');
+  ok(rows[0].code === 'INC-COMPANY-SHARE' && rows[0].ledger_head_name === 'Company Share', 'Total is under Company Share');
+  ok(rows[0].d === 9000 && rows[0].c === 0 && rows[0].payment_method === 'cash+bank_account', 'Total = Cash + Easypaisa + Bank as one income entry');
+  ok(rows[1].code === 'INC-FUEL' && rows[1].d === 200, 'fuel unchanged on INC-FUEL');
+  const count = (await allLedger()).length;
+  await del(d.id);
+  ok((await liveChain(d.id)) === 0 && (await allLedger()).length === count, 'delete still removes it with no reversal');
 });
 
 test.after(() => db.close());
