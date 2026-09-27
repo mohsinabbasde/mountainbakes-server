@@ -14,6 +14,7 @@ import {
   EditSaleItemsSchema,
   EditDemandItemsSchema,
   DeleteDemandSchema,
+  DeleteCashDepositSchema,
   businessDateStr,
   karachiTimeStr,
   type PaymentMethod,
@@ -1771,6 +1772,133 @@ router.delete('/:id/demand', requireRole('super_admin'), validate(DeleteDemandSc
       stockMoved: outcome.stockMoved === true,
       branchReversals: branchRev,
       poolReversals: (outcome.poolReversals ?? []).map((d) => ({ ...d, delta: Number(d.delta) })),
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * DELETE /api/support/:id/cash-deposit — delete the cash deposit this query was
+ * raised against (the Support Center's "Delete record" / "Delete data").
+ *
+ * Goes through soft_delete_finance_record, the Finance Help Desk's own delete,
+ * so both desks mean the same thing by it. Since migration 125 that removes the
+ * deposit AND every ledger entry it produced in one transaction, recomputes the
+ * running balance, and posts nothing in their place — no reversal, no credit.
+ * Any status may be deleted: a pending or rejected deposit simply has no
+ * ledger entries to remove.
+ *
+ * A second delete (double submit, another tab) finds the deposit already gone
+ * and answers 409 without touching the ledger or the query.
+ */
+router.delete('/:id/cash-deposit', requireRole('super_admin'), validate(DeleteCashDepositSchema), async (req: AuthRequest, res, next) => {
+  try {
+    const ticket = await getTicket(req.params.id);
+    if (!ticket) { res.status(404).json({ error: 'Ticket not found' }); return; }
+    if (refusedAsArchived(ticket, res)) return;
+    if (ticket.reference_type !== 'cash_transfer') {
+      res.status(400).json({ error: 'Only cash deposit queries can delete a cash deposit' });
+      return;
+    }
+
+    const snapshot = (ticket.reference_snapshot ?? null) as SupportReference | null;
+    const transferId = snapshot?.entityId;
+    if (!transferId) { res.status(400).json({ error: 'This ticket has no linked cash deposit to delete' }); return; }
+
+    const { reason, confirmTransferNo, note } = req.body as { reason: string; confirmTransferNo: string; note: string };
+
+    // Re-checked here, as for a demand: the confirmation is worthless if the
+    // thing confirmed is whatever the browser chose to send.
+    if (confirmTransferNo.trim().toUpperCase() !== String(ticket.reference_id ?? '').trim().toUpperCase()) {
+      res.status(400).json({ error: `Type ${ticket.reference_id} exactly to confirm the deletion.` });
+      return;
+    }
+
+    const { data: removed, error } = await supabaseAdmin.rpc('soft_delete_finance_record', {
+      p_reference_type: 'cash_transfer',
+      p_reference_id: transferId,
+      p_reason: [`Support query ${ticket.ticket_number}`, reason].join(' — '),
+      p_actor_id: req.user!.uid,
+      p_actor_name: req.user!.email,
+      // deleted_query_id names a Finance Help Desk query; a support ticket is
+      // not one, so it goes by number only.
+      p_query_id: null,
+      p_query_no: ticket.ticket_number,
+    });
+    if (error) throw error;
+
+    const outcome = (removed ?? {}) as {
+      deleted?: boolean;
+      referenceNo?: string;
+      ledgerRemoved?: string | null;
+      balancesRewritten?: number;
+      closingBalance?: number | null;
+      reason?: string;
+    };
+    if (!outcome.deleted) {
+      res.status(409).json({ error: `${ticket.reference_id} is already deleted — there is nothing left to remove.` });
+      return;
+    }
+    const transferNo = outcome.referenceNo ?? String(ticket.reference_id ?? '');
+
+    await logFinanceAudit(req, {
+      entity: 'cash_transfer',
+      entityId: transferId,
+      entityRef: transferNo,
+      action: 'deleted',
+      newValues: {
+        softDeleted: true,
+        deletedVia: 'support_center',
+        supportTicketNo: ticket.ticket_number,
+        reason,
+        ...(outcome.ledgerRemoved ? { ledgerEntriesRemoved: outcome.ledgerRemoved } : {}),
+        ...(outcome.balancesRewritten
+          ? { balancesRewritten: outcome.balancesRewritten, closingBalance: outcome.closingBalance ?? null }
+          : {}),
+      },
+    });
+
+    const resolutionNote = [
+      note,
+      `Cash deposit ${transferNo} DELETED — ${reason}`,
+      outcome.ledgerRemoved
+        ? `ledger entries removed: ${outcome.ledgerRemoved}`
+        : 'nothing was booked in the ledger for it',
+    ].filter(Boolean).join(' — ');
+
+    const { data, error: updErr } = await supabaseAdmin
+      .from('support_tickets')
+      .update({
+        status: 'resolved',
+        resolution_note: resolutionNote,
+        resolved_by: req.user!.uid,
+        resolved_by_name: req.user!.email,
+        resolved_at: new Date().toISOString(),
+      })
+      .eq('id', req.params.id)
+      .select('*')
+      .single();
+    if (updErr) throw updErr;
+
+    try {
+      if (data.raised_by) {
+        await notify({
+          type: 'support_resolved',
+          title: `Cash deposit ${transferNo} deleted`,
+          message: resolutionNote,
+          targetUserId: data.raised_by,
+          branchId: data.branch_id,
+          relatedId: data.id,
+        });
+      }
+    } catch { /* best-effort */ }
+
+    res.json({
+      ticket: rowToApi(data),
+      deleted: true,
+      transferNo,
+      ledgerRemoved: outcome.ledgerRemoved ?? null,
     });
   } catch (err) {
     next(err);
