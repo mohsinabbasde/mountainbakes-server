@@ -2242,6 +2242,8 @@ router.delete(
         referenceNo?: string;
         balancesRewritten?: number;
         closingBalance?: number | null;
+        /** Cash deposit only (migration 125): the RV- vouchers removed with it. */
+        ledgerRemoved?: string | null;
         reason?: string;
       };
       if (!source.deleted) {
@@ -2282,6 +2284,7 @@ router.delete(
           ...(source.balancesRewritten
             ? { balancesRewritten: source.balancesRewritten, closingBalance: source.closingBalance ?? null }
             : {}),
+          ...(source.ledgerRemoved ? { ledgerEntriesRemoved: source.ledgerRemoved } : {}),
         },
       });
 
@@ -2301,6 +2304,7 @@ router.delete(
         success: true,
         referenceNo: source.referenceNo,
         balancesRewritten: source.balancesRewritten ?? 0,
+        ledgerRemoved: source.ledgerRemoved ?? null,
       });
     } catch (err) {
       next(err);

@@ -431,8 +431,8 @@ export async function paymentsReceivedInWindow(
   afterTs: string,
   untilTs: string,
 ): Promise<{ paymentItems: PaymentReceivedItem[]; paymentsReceivedValue: number }> {
-  // A transfer deleted through the Help Desk had its receipt reversed and
-  // must drop out of the slip's figure too.
+  // A transfer deleted through the Help Desk left the ledger with its
+  // vouchers (migration 125) and must drop out of the slip's figure too.
   const { data, error } = await withoutDeleted(
     supabaseAdmin
       .from('cash_transfers')
