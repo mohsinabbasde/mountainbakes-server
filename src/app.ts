@@ -38,4 +38,9 @@ app.use(rateLimit({ windowMs: 15 * 60 * 1000, max: 500 }));
 app.get('/health', (_req, res) => res.json({ status: 'ok', service: 'mountain-bakes-api' }));
 
 setupRoutes(app);
+// An unmatched route answers in the API's own {error} shape, not Express's HTML
+// "Cannot DELETE /…" page, which the client used to show verbatim in a toast.
+app.use((req, res) => {
+  res.status(404).json({ error: `No API route for ${req.method} ${req.path}` });
+});
 app.use(errorHandler);
