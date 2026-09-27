@@ -9,7 +9,9 @@ import {
   CreateLedgerHeadSchema,
   UpdateFinanceSettingsSchema,
   UpdateLedgerHeadSchema,
+  FINANCE_DASHBOARD_METRICS,
   type FinanceAccount,
+  type FinanceDashboardMetric,
   type LedgerEntryStatus,
   type LedgerHeadType,
   type LedgerQuery,
@@ -29,6 +31,11 @@ import {
   updateLedgerHead,
 } from '../services/finance-ledger.service';
 import { getFinanceSettings, updateFinanceSettings } from '../services/finance-settings.service';
+import {
+  getFinanceDashboardRecords,
+  getFinanceMonthlyDashboard,
+  monthBounds,
+} from '../services/finance-monthly-dashboard.service';
 import { auditSnapshot, listFinanceAudit, logFinanceAudit, type FinanceAuditQuery } from '../services/finance-audit.service';
 
 /**
@@ -67,6 +74,99 @@ router.get('/dashboard', requireFinance('view'), async (req: AuthRequest, res, n
     const to = typeof req.query['to'] === 'string' ? req.query['to'] : legacyDate;
     const branchId = typeof req.query['branchId'] === 'string' && req.query['branchId'] ? req.query['branchId'] : null;
     res.json(await getFinanceDashboard({ from, to, branchId }));
+  } catch (err) {
+    next(err);
+  }
+});
+
+const MONTH_RE = /^\d{4}-(0[1-9]|1[0-2])$/;
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const queryStr = (req: AuthRequest, key: string): string | undefined => {
+  const v = req.query[key];
+  return typeof v === 'string' && v.trim() ? v.trim() : undefined;
+};
+
+/**
+ * GET /api/finance/dashboard/monthly?month=YYYY-MM&from&to&branchId
+ *
+ * Production income (demand, company share, return, discount) against ledger
+ * receipts and company expense, per branch per business month. `month`
+ * defaults to the current business month (02:00 Karachi rollover); `from`/`to`
+ * narrow it to a date range inside that month.
+ */
+router.get('/dashboard/monthly', requireFinance('view'), async (req: AuthRequest, res, next) => {
+  try {
+    const month = queryStr(req, 'month') ?? businessDateStr().slice(0, 7);
+    const from = queryStr(req, 'from');
+    const to = queryStr(req, 'to');
+    const branchId = queryStr(req, 'branchId') ?? null;
+    if (!MONTH_RE.test(month)) {
+      res.status(400).json({ error: 'month must be YYYY-MM' });
+      return;
+    }
+    const { first, last } = monthBounds(month);
+    for (const d of [from, to]) {
+      if (d !== undefined && (!DATE_RE.test(d) || d < first || d > last)) {
+        res.status(400).json({ error: 'from/to must be dates inside the selected month' });
+        return;
+      }
+    }
+    if (from && to && from > to) {
+      res.status(400).json({ error: 'from must not be after to' });
+      return;
+    }
+    if (branchId && !UUID_RE.test(branchId)) {
+      res.status(400).json({ error: 'Unknown branch' });
+      return;
+    }
+    res.json(await getFinanceMonthlyDashboard({ month, from, to, branchId }));
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * GET /api/finance/dashboard/records?metric&from&to&branchId|noBranch&ledgerHeadId&search&page&pageSize
+ *
+ * The source records behind one dashboard figure, paged server-side. The
+ * response's `amount` is the sum of every matching record, so it always equals
+ * the figure that was clicked.
+ */
+router.get('/dashboard/records', requireFinance('view'), async (req: AuthRequest, res, next) => {
+  try {
+    const metric = queryStr(req, 'metric');
+    const from = queryStr(req, 'from');
+    const to = queryStr(req, 'to');
+    const branchId = queryStr(req, 'branchId') ?? null;
+    const ledgerHeadId = queryStr(req, 'ledgerHeadId') ?? null;
+    if (!metric || !(FINANCE_DASHBOARD_METRICS as readonly string[]).includes(metric)) {
+      res.status(400).json({ error: 'Unknown metric' });
+      return;
+    }
+    if (!from || !to || !DATE_RE.test(from) || !DATE_RE.test(to) || from > to) {
+      res.status(400).json({ error: 'from and to are required dates' });
+      return;
+    }
+    if ((branchId && !UUID_RE.test(branchId)) || (ledgerHeadId && !UUID_RE.test(ledgerHeadId))) {
+      res.status(400).json({ error: 'Unknown branch or ledger head' });
+      return;
+    }
+    const page = Math.max(1, Math.floor(Number(queryStr(req, 'page') ?? 1)) || 1);
+    const pageSize = Math.min(100, Math.max(1, Math.floor(Number(queryStr(req, 'pageSize') ?? 25)) || 25));
+    res.json(
+      await getFinanceDashboardRecords({
+        metric: metric as FinanceDashboardMetric,
+        from,
+        to,
+        branchId,
+        noBranch: queryStr(req, 'noBranch') === 'true',
+        ledgerHeadId,
+        search: queryStr(req, 'search')?.slice(0, 100) ?? null,
+        page,
+        pageSize,
+      }),
+    );
   } catch (err) {
     next(err);
   }
