@@ -33,11 +33,7 @@ import { rowToApi } from '../utils/case';
  * Daily Sale Record — `/api/daily-sale-records`.
  *
  * ─── Who may open it (§1) ────────────────────────────────────────────────────
- * `super_admin` and BOTH branch roles. A `branch_user` is included deliberately
- * and it is the exception to the note on BRANCH_ROLES about reporting surfaces
- * naming `branch_manager` literally: the shift account is the person who
- * physically counts the drawer, and a reconciliation only that person's manager
- * could enter is a reconciliation entered from memory the next morning.
+ * `super_admin` and the branch manager, who physically counts the drawer.
  *
  * `production_user` and every finance role are absent. Production never handles a
  * branch's till, and Finance reads these figures through its own Branch Income
@@ -46,7 +42,7 @@ import { rowToApi } from '../utils/case';
  *
  * ─── What each role may DO is decided per endpoint, not here ─────────────────
  *   feed            branch roles + admin   (locks decided per method, in SQL)
- *   verify          branch_manager + admin — a shift counts, a manager signs off
+ *   verify          branch_manager + admin
  *   lock / unlock   admin only
  *   amend           admin only
  *   set a lock      admin only
@@ -74,9 +70,7 @@ router.use(authenticate, requireRole('super_admin', ...BRANCH_ROLES));
  * a 200. Only a super_admin's parameter is read at all; omitting it means every
  * branch consolidated.
  *
- * `isBranchRole` rather than `role === 'branch_manager'`, because a `branch_user`
- * carries its manager's branchId and must be scoped identically (migration 65).
- * Comparing against one role would hand a shift account the admin path.
+ * `isBranchRole` is the shared branch-scoping test (BRANCH_ROLES).
  */
 async function resolveScope(
   req: AuthRequest,
@@ -328,10 +322,7 @@ router.get('/:id', async (req: AuthRequest, res, next) => {
 /**
  * PUT /api/daily-sale-records/:id/verify — sign off the counted figures.
  *
- * `branch_manager` and `super_admin`. A `branch_user` counts and feeds but does
- * not sign off its own count, which is the one separation of duties this feature
- * has and the reason the grant is named literally here rather than as
- * BRANCH_ROLES.
+ * `branch_manager` and `super_admin`.
  */
 router.put('/:id/verify', requireRole('super_admin', 'branch_manager'), async (req: AuthRequest, res, next) => {
   try {

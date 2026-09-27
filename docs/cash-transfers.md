@@ -110,7 +110,7 @@ columns after "Amount to Collect".
 
 | Role | Create | See own branch | See all | Approve / reject |
 |---|---|---|---|---|
-| branch_manager / branch_user | ✓ | ✓ | — | — |
+| branch_manager | ✓ | ✓ | — | — |
 | finance_admin / finance_manager | — | — | ✓ | ✓ |
 | accountant / finance_auditor | — | — | ✓ | — |
 | super_admin | ✓ (with `?branchId=`) | — | ✓ | only with `allowSuperAdminWrite` |

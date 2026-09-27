@@ -697,9 +697,7 @@ router.put('/:id/review', requireRole('super_admin', 'production_user'), validat
 // Two guards, and both matter:
 //
 //  - Branch scope. A branch may only withdraw its OWN demand. Checked against
-//    the JWT's branchId, never a body field — `branch_user` carries its
-//    manager's branchId, so a shift account can delete its shop's demand and
-//    nobody else's.
+//    the JWT's branchId, never a body field.
 //  - Status. Only 'pending' — before Production reviewed it. Enforced as a
 //    check-and-set (`.eq('status', 'pending')`) rather than a read-then-write,
 //    because Production reviewing at the same moment is a real race: a

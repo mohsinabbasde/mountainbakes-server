@@ -19,10 +19,8 @@ export const router = Router();
 /**
  * Export of the Branch Closing sheet over a window — one row per business day.
  *
- * BRANCH_ROLES is included deliberately, and it is why this does not live on
- * /api/reports: that surface is manager-and-above, while the Closing page is
- * explicitly openable by a shift account (it writes nothing). An export button a
- * branch_user can see and cannot use would be worse than no button.
+ * BRANCH_ROLES is included deliberately: the branch opens its own Closing
+ * page (it writes nothing), and exports the same window from it.
  */
 router.use(authenticate, requireRole('super_admin', ...BRANCH_ROLES));
 

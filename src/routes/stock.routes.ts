@@ -523,9 +523,7 @@ const ADMIN_TARGET_KEYS = ADMIN_STOCK_FIGURES;
  * changed your figures — here is what and why"). Best-effort: the correction is
  * already committed and a failed notification must not un-commit it.
  *
- * Targeted at `branch_manager` with the branch id. A `branch_user` on the same
- * branch does not get the toast, but its open Stock page still refetches on the
- * manager's — the shift account shares the branch, not the notification feed.
+ * Targeted at `branch_manager` with the branch id.
  */
 async function notifyBranchOfStockChange(
   branchId: string,

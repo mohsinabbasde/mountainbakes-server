@@ -109,6 +109,22 @@ export const DeleteDemandSchema = z.object({
 });
 export type DeleteDemandInput = z.infer<typeof DeleteDemandSchema>;
 
+/**
+ * Admin deletes the cash deposit a query names (migration 125): the deposit and
+ * every ledger entry it produced are removed, and nothing is posted in their
+ * place. Typing the CT- number is the confirmation, as for a demand.
+ */
+export const DeleteCashDepositSchema = z.object({
+  reason: z
+    .string()
+    .trim()
+    .min(5, 'Please give a reason for deleting this cash deposit')
+    .max(500, 'Reason is too long'),
+  confirmTransferNo: z.string().trim().min(1, 'Type the deposit number to confirm'),
+  note: z.string().trim().max(2000).optional().default(''),
+});
+export type DeleteCashDepositInput = z.infer<typeof DeleteCashDepositSchema>;
+
 export const EditSaleItemsSchema = z.object({
   items: z.array(SaleItemEditSchema).min(1, 'A sale must have at least one item'),
   /**

@@ -43,11 +43,6 @@ router.use(authenticate, requireRole('super_admin', ...BRANCH_ROLES));
  * A branch role is pinned to its own branch off the JWT and the `branchId` query
  * parameter is ignored for it — sending one must never widen what it can see.
  * Only an admin, who has no branch claim of their own, may name a branch.
- *
- * `isBranchRole` rather than a `=== 'branch_manager'` test, because a
- * `branch_user` carries its manager's branchId and has to be scoped identically
- * (migration 65); comparing against one role would hand a shift account the
- * admin path and let it read every branch.
  */
 function scopeBranch(req: AuthRequest): string | null {
   return isBranchRole(req.user!.role)

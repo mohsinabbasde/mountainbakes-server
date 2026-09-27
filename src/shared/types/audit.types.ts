@@ -5,6 +5,9 @@ export type AuditAction =
   | 'user_updated'
   | 'user_activated'
   | 'user_deactivated'
+  // Permanent removal (migration 124). The row is gone, so target_user_id is
+  // null; name and role are kept on the log row and `details` names email + id.
+  | 'user_deleted'
   // Geofencing (migration 48). These are the first entries that target something
   // other than a user, which is why they carry no target_user_id — the affected
   // subject is named in `details` instead. Worth auditing because widening a
