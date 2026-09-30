@@ -11,6 +11,7 @@ import {
   AmendFinanceRecordSchema,
   AmendFinanceTicketSchema,
   AssignFinanceTicketSchema,
+  CorrectFinanceRecordSchema,
   CreateFinanceTicketSchema,
   DeleteFinanceRecordSchema,
   EditFinanceDraftSchema,
@@ -34,6 +35,7 @@ import {
   RecreateFinanceTicketSchema,
   ReopenFinanceTicketSchema,
   RestoreFinanceTicketSchema,
+  financeAmendableValue,
   financeHelpDeskCan,
   isFinanceRecordAmendable,
   isFinanceTicketTerminal,
@@ -42,6 +44,7 @@ import {
   type FinanceQueryPriority,
   type FinanceQueryType,
   type FinanceResolutionType,
+  type CorrectFinanceRecordInput,
   type CreateFinanceTicketInput,
   type FinanceTicketFeedInput,
   type FinanceTicketReferenceLookup,
@@ -2174,6 +2177,269 @@ router.post(
 
       res.json({
         applied: result,
+        record: await liveReference(referenceType, ticket['reference_id'] as string),
+      });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+/** "Rs.2,500" — the Finance UI's own spelling, for notifications and responses. */
+const rupees = (v: unknown) => `Rs.${Number(v ?? 0).toLocaleString('en-PK')}`;
+
+/** Money in paisa, so 2500 and "2500.00" compare equal without float drift. */
+const paisa = (v: unknown) => Math.round(Number(v ?? 0) * 100);
+
+/** What correct_finance_record_for_query reports for each field it changed. */
+interface CorrectedField {
+  referenceType: string;
+  referenceNo: string;
+  field: string;
+  label: string;
+  originalValue: string | null;
+  newValue: string | null;
+  difference: number | null;
+  ledger?: { ledgerAmended?: boolean; reversalVoucherNo?: string; correctedVoucherNo?: string };
+}
+
+/** "Amount Rs.2,500 → Rs.3,000, Description Fuel → Fuel charges". */
+function describeCorrection(applied: CorrectedField[], moneyFields: Set<string>): string {
+  return applied
+    .map((a) => {
+      const show = (v: string | null) => (v === null || v === '' ? '—' : moneyFields.has(a.field) ? rupees(v) : `"${v}"`);
+      return `${a.label} ${show(a.originalValue)} → ${show(a.newValue)}`;
+    })
+    .join(', ');
+}
+
+/**
+ * "Correct record" — the Finance Query's direct correction (migration 129).
+ *
+ * Several fields of the linked record at once, and optionally the query's
+ * resolution, applied by ONE database function in ONE transaction: every field
+ * goes through `amend_finance_record` (the same function /amend uses, so the
+ * whitelist, reversal-and-repost and derived totals are unchanged), then the
+ * amendment rows, the resolve and the version row are written beside them. A
+ * refusal at any step leaves the record, the books and the query as they were.
+ *
+ * Optimistic concurrency at two levels: `expectedVersion` for the query (every
+ * write to a query bumps it) and each edit's `expected` for the record, checked
+ * here for a fast answer and again in SQL against the value actually replaced.
+ */
+router.post(
+  '/:id/correct-record',
+  requireFinanceHelpDeskAdmin(),
+  validate(CorrectFinanceRecordSchema),
+  async (req: AuthRequest, res, next) => {
+    try {
+      const body = req.body as CorrectFinanceRecordInput;
+
+      const ticket = await getTicket(req.params.id as string);
+      if (!ticket) {
+        res.status(404).json({ error: 'Query not found' });
+        return;
+      }
+      if (ticket['deleted_at']) {
+        res.status(409).json({ error: `Query ${ticket['query_no']} has been deleted. Restore it before correcting its record.` });
+        return;
+      }
+      const referenceType = ticket['reference_type'] as FinanceTicketReferenceType | null;
+      if (!referenceType || !ticket['reference_id']) {
+        res.status(409).json({
+          error:
+            `Query ${ticket['query_no']} names no finance record, so there is nothing to correct. ` +
+            'Set its Reference ID first, or answer it with a response.',
+        });
+        return;
+      }
+      if (!isFinanceRecordAmendable(referenceType)) {
+        res.status(409).json({ error: informationalReferenceMessage(referenceType, ticket['reference_no']) });
+        return;
+      }
+      if (Number(ticket['version']) !== body.expectedVersion) {
+        res.status(409).json({
+          error: `Query ${ticket['query_no']} was changed by another user while you were working on it. Reload it and try again.`,
+          details: { code: 'conflict' },
+        });
+        return;
+      }
+
+      const live = await liveReference(referenceType, ticket['reference_id'] as string);
+      if (!live || live['deletedAt']) {
+        res.status(409).json({ error: `${ticket['reference_no'] ?? 'That record'} has been deleted, so there is nothing left to correct.` });
+        return;
+      }
+
+      const allowed = FINANCE_AMENDABLE_FIELDS[referenceType] ?? [];
+      const moneyFields = new Set(allowed.filter((f) => f.kind === 'money').map((f) => f.key));
+      const edits: { field: string; value: string; expected: string; label: string; money: boolean; delta: number }[] = [];
+      for (const edit of body.edits) {
+        const spec = allowed.find((f) => f.key === edit.field);
+        if (!spec) {
+          res.status(400).json({
+            error: `"${edit.field}" cannot be changed on this record. It accepts: ${allowed.map((f) => f.label).join(', ')}.`,
+          });
+          return;
+        }
+        const money = spec.kind === 'money';
+        if (money && !/^\d{1,12}(\.\d{1,2})?$/.test(edit.value)) {
+          res.status(400).json({ error: `${spec.label} must be an amount of 0 or more, with at most 2 decimals.` });
+          return;
+        }
+        if (money && edit.expected && !Number.isFinite(Number(edit.expected))) {
+          res.status(400).json({ error: `The current ${spec.label} sent with the correction is not a number.` });
+          return;
+        }
+        if (spec.kind === 'select' && !(spec.options ?? []).some((o) => o.value === edit.value)) {
+          res.status(400).json({ error: `Choose one of the listed values for ${spec.label}.` });
+          return;
+        }
+
+        const current = financeAmendableValue(referenceType, live, edit.field);
+        const expected = edit.expected ?? '';
+        const same = (a: string, b: string) => (money ? paisa(a) === paisa(b) : a.trim() === b.trim());
+        if (!same(current, expected)) {
+          res.status(409).json({
+            error: 'This record was changed by another user. Please reload the latest version before applying your correction.',
+            details: { code: 'conflict' },
+          });
+          return;
+        }
+        if (same(current, edit.value)) continue;
+        edits.push({
+          field: edit.field,
+          value: edit.value,
+          expected,
+          label: spec.label,
+          money,
+          delta: money ? paisa(edit.value) - paisa(current) : 0,
+        });
+      }
+      if (!edits.length) {
+        res.status(400).json({ error: 'No changes detected.' });
+        return;
+      }
+
+      // An approved record is OVERWRITTEN, and §11 wants that acknowledged in a
+      // way the server can see — the same rule AmendFinanceRecordSchema applies.
+      const approved = ['approved', 'posted', 'locked'].includes(String(live['status'] ?? ''));
+      if (approved && body.confirmOverwrite !== true) {
+        res.status(400).json({
+          error: 'This is an approved financial record. Confirm the overwrite — it is recorded in the audit trail.',
+        });
+        return;
+      }
+
+      // Increases before decreases: moving 10,000 from Cash to Bank on a deposit
+      // must never pass through an all-zero row, which the database refuses.
+      edits.sort((a, b) => b.delta - a.delta);
+
+      const note = body.note?.trim() ?? '';
+      const reason = [`Finance query ${ticket['query_no']}`, note].filter(Boolean).join(' — ');
+      const preview = describeCorrection(
+        edits.map((e) => ({
+          referenceType,
+          referenceNo: String(ticket['reference_no'] ?? ''),
+          field: e.field,
+          label: e.label,
+          originalValue: e.expected,
+          newValue: e.value,
+          difference: null,
+        })),
+        moneyFields,
+      );
+      const adminResponse = body.resolve
+        ? body.adminResponse?.trim() ||
+          `Corrected ${ticket['reference_no']}: ${preview}.${note ? ` ${note}` : ''}`
+        : undefined;
+      const statusFrom = ticket['status'] as FinanceTicketStatus;
+
+      const { data, error } = await supabaseAdmin.rpc('correct_finance_record_for_query', {
+        p_ticket_id: ticket['id'],
+        p_expected_version: body.expectedVersion,
+        p_edits: edits.map(({ field, value, expected, label, money }) => ({ field, value, expected, label, money })),
+        p_reason: reason,
+        p_action: approved ? 'overwrite' : 'amend',
+        p_resolve: body.resolve,
+        p_admin_response: adminResponse ?? null,
+        p_labels: {
+          statusFrom: FINANCE_TICKET_STATUS_LABELS[statusFrom] ?? statusFrom,
+          statusTo: FINANCE_TICKET_STATUS_LABELS.resolved,
+          resolutionType: FINANCE_RESOLUTION_TYPE_LABELS.fixed,
+        },
+        p_actor_id: req.user!.uid,
+        p_actor_name: req.user!.email,
+        p_actor_role: req.user!.role,
+        p_ip_address: requestFingerprint(req).ipAddress,
+        // Reversal and correction are dated TODAY, as on /amend: the day the
+        // wrong voucher was posted is usually closed by now.
+        p_entry_date: businessDateStr(),
+      });
+      if (error) {
+        if (error.code === 'MBCON') {
+          res.status(409).json({ error: error.message, details: { code: 'conflict' } });
+          return;
+        }
+        if (error.code === 'MBNFD') {
+          res.status(404).json({ error: error.message });
+          return;
+        }
+        throw asAmendError(error);
+      }
+
+      const result = data as { applied: CorrectedField[]; statusFrom: FinanceTicketStatus; ticket: Record<string, unknown> };
+      const summary = describeCorrection(result.applied, moneyFields);
+
+      for (const a of result.applied) {
+        await logFinanceAudit(req, {
+          entity: referenceType as FinanceAuditEntity,
+          entityId: ticket['reference_id'] as string,
+          entityRef: a.referenceNo,
+          action: approved ? 'adjusted' : 'updated',
+          previousValues: { [a.field]: a.originalValue },
+          newValues: {
+            [a.field]: a.newValue,
+            event: 'FINANCE_RECORD_CORRECTED',
+            queryNo: ticket['query_no'],
+            reason,
+            ...(a.ledger?.ledgerAmended
+              ? { reversalVoucherNo: a.ledger.reversalVoucherNo, correctedVoucherNo: a.ledger.correctedVoucherNo }
+              : {}),
+          },
+        });
+      }
+      if (body.resolve) {
+        await logFinanceAudit(req, {
+          entity: 'finance_ticket',
+          entityId: ticket['id'] as string,
+          entityRef: ticket['query_no'] as string,
+          action: 'resolved',
+          previousValues: { status: result.statusFrom },
+          newValues: {
+            status: 'resolved',
+            resolutionType: 'fixed',
+            adminResponse,
+            reason,
+            version: result.ticket['version'],
+          },
+        });
+      }
+
+      await notifyRaiser(
+        req,
+        result.ticket,
+        body.resolve ? 'finance_query_resolved' : 'finance_query_amended',
+        body.resolve
+          ? `Query ${ticket['query_no']} — Resolved`
+          : `${ticket['reference_no']} corrected`,
+        `${ticket['reference_no']}: ${summary}`,
+      );
+
+      res.json({
+        applied: result.applied,
+        summary,
+        ticket: rowToApi(result.ticket),
         record: await liveReference(referenceType, ticket['reference_id'] as string),
       });
     } catch (err) {

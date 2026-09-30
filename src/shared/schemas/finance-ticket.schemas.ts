@@ -331,6 +331,42 @@ export const AmendFinanceRecordSchema = z
 export type AmendFinanceRecordInput = z.infer<typeof AmendFinanceRecordSchema>;
 
 /**
+ * Help Desk → ADMIN corrects several fields of the record behind the query at
+ * once, and optionally resolves the query, in one transaction (migration 129).
+ *
+ * `expected` is the value the admin was SHOWN for each field. The database
+ * compares it with the value it actually replaces and refuses the whole
+ * correction if they differ — the record was changed by someone else meanwhile.
+ * `expectedVersion` does the same for the query itself.
+ *
+ * `note` is optional, as on the Support Center's cash deposit correction: the
+ * server always records the Query ID as the reason, and appends the note.
+ */
+export const CorrectFinanceRecordSchema = z
+  .object({
+    edits: z
+      .array(
+        z.object({
+          field: z.string().trim().min(1).max(60),
+          value: z.string().trim().max(500),
+          expected: z.string().trim().max(500).nullable(),
+        }),
+      )
+      .min(1, 'No changes detected.')
+      .max(10),
+    note: z.string().trim().max(2000).optional(),
+    resolve: z.boolean(),
+    adminResponse: z.string().trim().max(4000).optional(),
+    expectedVersion: z.number().int().min(1),
+    confirmOverwrite: z.boolean().optional(),
+  })
+  .refine((v) => new Set(v.edits.map((e) => e.field)).size === v.edits.length, {
+    path: ['edits'],
+    message: 'Each field can be corrected only once per request.',
+  });
+export type CorrectFinanceRecordInput = z.infer<typeof CorrectFinanceRecordSchema>;
+
+/**
  * Help Desk → ADMIN deletes the finance record behind the query.
  *
  * Soft, always (§10, migration 94): the row is stamped and stays readable to an
