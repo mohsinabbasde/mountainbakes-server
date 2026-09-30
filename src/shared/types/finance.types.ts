@@ -1576,7 +1576,10 @@ export type FinanceTicketVersionAction =
   | 'reopened'
   | 'deleted'
   | 'restored'
-  | 'recreated';
+  | 'recreated'
+  // Migration 129 — the linked record was corrected from the query (and the
+  // query possibly resolved in the same transaction).
+  | 'record_corrected';
 
 export const FINANCE_TICKET_VERSION_ACTION_LABELS: Record<FinanceTicketVersionAction, string> = {
   created: 'Created',
@@ -1591,6 +1594,7 @@ export const FINANCE_TICKET_VERSION_ACTION_LABELS: Record<FinanceTicketVersionAc
   deleted: 'Deleted',
   restored: 'Restored',
   recreated: 'Recreated',
+  record_corrected: 'Record corrected',
 };
 
 /** One field that moved between two versions of a query. */
@@ -1845,7 +1849,7 @@ export const FINANCE_AMENDABLE_FIELDS: Record<FinanceTicketReferenceType, Financ
     { key: 'easypaisaAmount', label: 'Easypaisa', kind: 'money', movesLedger: true },
     { key: 'bankAmount', label: 'Bank', kind: 'money', movesLedger: true },
     { key: 'fuelCharges', label: 'Fuel Charges', kind: 'money', movesLedger: true },
-    { key: 'note', label: 'Note', kind: 'text', movesLedger: false },
+    { key: 'note', label: 'Deposit note', kind: 'text', movesLedger: false },
   ],
 };
 
@@ -1863,6 +1867,30 @@ export function isFinanceRecordAmendable(
 ): boolean {
   if (!referenceType) return false;
   return (FINANCE_AMENDABLE_FIELDS[referenceType] ?? []).length > 0;
+}
+
+/**
+ * The current value of an amendable field, read from the record as the API
+ * returns it (camelCase). Mirrors what `amend_finance_record` reads as the
+ * "original value", so the correction form shows — and sends back as
+ * `expected` — the same figure the database will compare against.
+ *
+ * Only a ledger entry differs from a plain column read: it has no `amount`,
+ * it has a debit and a credit, and its amount is whichever side is non-zero.
+ */
+export function financeAmendableValue(
+  referenceType: FinanceTicketReferenceType,
+  record: Record<string, unknown> | null | undefined,
+  field: string,
+): string {
+  if (!record) return '';
+  if (referenceType === 'ledger_entry' && field === 'amount') {
+    const debit = Number(record['debit'] ?? 0);
+    const credit = Number(record['credit'] ?? 0);
+    return String(debit > 0 ? debit : credit);
+  }
+  const raw = record[field];
+  return raw === null || raw === undefined ? '' : String(raw);
 }
 
 // ---------------------------------------------------------------------------
