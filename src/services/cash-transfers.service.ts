@@ -1,5 +1,6 @@
 import { supabaseAdmin } from '../config/supabase';
 import {
+  CASH_DEPOSITS_PER_DAY,
   CASH_TRANSFER_METHODS,
   CASH_TRANSFER_STATUSES,
   businessDateStr,
@@ -221,17 +222,17 @@ export async function createCashTransfer(input: {
   // sale or an expense is.
   const businessDate = await resolveClientBusinessDate(input.body.businessDate, input.role);
 
-  // One live deposit per branch per business day. The Idempotency-Key already
-  // collapses a double click or a retry into one row; this refuses the SECOND
-  // deliberate submission for a day that already has one, which is the
-  // accidental duplicate the owner asked to stop. A rejected or deleted
-  // deposit does not count — the branch raises the day again.
-  const existing = await findLiveDeposit(branch.id, businessDate);
-  if (existing) {
+  // At most CASH_DEPOSITS_PER_DAY live deposits per branch per business day.
+  // The Idempotency-Key already collapses a double click or a retry into one
+  // row; this refuses the deliberate submission past the day's allowance. A
+  // rejected or deleted deposit does not count — the branch raises it again.
+  const existing = await findLiveDeposits(branch.id, businessDate);
+  if (existing.length >= CASH_DEPOSITS_PER_DAY) {
     throw Object.assign(
       new Error(
-        `Cash deposit already exists for this date and branch (${existing.transfer_no}, ${existing.status}). ` +
-          'Ask Finance to correct it through the Help Desk instead of submitting again.',
+        `This date already has ${existing.length} cash deposits for this branch ` +
+          `(${existing.map((d) => d.transfer_no).join(', ')}) — the limit is ${CASH_DEPOSITS_PER_DAY} a day. ` +
+          'Ask Finance to correct one through the Help Desk instead of submitting again.',
       ),
       { status: 409 },
     );
@@ -302,11 +303,11 @@ export async function createCashTransfer(input: {
   return transfer;
 }
 
-/** The branch's live (pending or approved, not deleted) deposit for a day, if any. */
-async function findLiveDeposit(
+/** The branch's live (pending or approved, not deleted) deposits for a day, oldest first. */
+async function findLiveDeposits(
   branchId: string,
   businessDate: string,
-): Promise<{ id: string; transfer_no: string; status: CashTransferStatus } | null> {
+): Promise<{ id: string; transfer_no: string; status: CashTransferStatus }[]> {
   const { data, error } = await withoutDeleted(
     supabaseAdmin.from('cash_transfers').select('id, transfer_no, status'),
   )
@@ -314,10 +315,9 @@ async function findLiveDeposit(
     .eq('business_date', businessDate)
     .neq('status', 'rejected')
     .order('created_at', { ascending: true })
-    .limit(1)
-    .maybeSingle();
+    .limit(CASH_DEPOSITS_PER_DAY);
   if (error) throw error;
-  return (data as { id: string; transfer_no: string; status: CashTransferStatus } | null) ?? null;
+  return (data ?? []) as { id: string; transfer_no: string; status: CashTransferStatus }[];
 }
 
 /** "Rs. 80,000 (Cash + Easypaisa + Bank) + fuel Rs. 2,000" — for the notices. */

@@ -62,6 +62,14 @@ export function cashTransferChannelsLabel(c: CashTransferChannels & { fuelCharge
 }
 
 /**
+ * How many live (pending or approved) deposits a branch may raise for one
+ * business day. Rejected and deleted ones do not count. The API enforces it;
+ * the deposit popup reads the same number to warn before anything is typed.
+ */
+export const CASH_DEPOSITS_PER_DAY = 3;
+
+
+/**
  * pending  — waiting on Finance. The branch cannot edit it; a wrong figure is
  *            rejected and raised again under a fresh photo.
  * approved — booked; `voucherNo` / `ledgerEntryId` are set. Final.
