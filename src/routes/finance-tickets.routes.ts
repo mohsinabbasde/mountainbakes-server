@@ -2284,6 +2284,9 @@ interface CorrectedField {
   label: string;
   originalValue: string | null;
   newValue: string | null;
+  /** As a person reads it — a category or branch by name (migration 130). Absent on the older types. */
+  originalText?: string | null;
+  newText?: string | null;
   difference: number | null;
   ledger?: { ledgerAmended?: boolean; reversalVoucherNo?: string; correctedVoucherNo?: string };
 }
@@ -2293,9 +2296,34 @@ function describeCorrection(applied: CorrectedField[], moneyFields: Set<string>)
   return applied
     .map((a) => {
       const show = (v: string | null) => (v === null || v === '' ? '—' : moneyFields.has(a.field) ? rupees(v) : `"${v}"`);
-      return `${a.label} ${show(a.originalValue)} → ${show(a.newValue)}`;
+      return `${a.label} ${show(a.originalText ?? a.originalValue)} → ${show(a.newText ?? a.newValue)}`;
     })
     .join(', ');
+}
+
+/**
+ * A category or a branch by NAME, for the response the raiser reads. The
+ * correction itself carries ids; a sentence with a uuid in it is not an answer.
+ */
+async function correctionDisplayNames(
+  edits: { kind: string; value: string; expected: string }[],
+): Promise<Map<string, string>> {
+  const names = new Map<string, string>();
+  const ids = (kind: string) =>
+    [...new Set(edits.filter((e) => e.kind === kind).flatMap((e) => [e.value, e.expected]).filter(Boolean))];
+  const heads = ids('head');
+  if (heads.length) {
+    const { data, error } = await supabaseAdmin.from('ledger_heads').select('id, name').in('id', heads);
+    if (error) throw error;
+    for (const h of data ?? []) names.set(h.id as string, h.name as string);
+  }
+  const branches = ids('branch');
+  if (branches.length) {
+    const { data, error } = await supabaseAdmin.from('branches').select('id, name').in('id', branches);
+    if (error) throw error;
+    for (const b of data ?? []) names.set(b.id as string, b.name as string);
+  }
+  return names;
 }
 
 /**
@@ -2358,7 +2386,7 @@ router.post(
 
       const allowed = FINANCE_AMENDABLE_FIELDS[referenceType] ?? [];
       const moneyFields = new Set(allowed.filter((f) => f.kind === 'money').map((f) => f.key));
-      const edits: { field: string; value: string; expected: string; label: string; money: boolean; delta: number }[] = [];
+      const edits: { field: string; value: string; expected: string; label: string; money: boolean; delta: number; kind: string }[] = [];
       for (const edit of body.edits) {
         const spec = allowed.find((f) => f.key === edit.field);
         if (!spec) {
@@ -2380,6 +2408,16 @@ router.post(
           res.status(400).json({ error: `Choose one of the listed values for ${spec.label}.` });
           return;
         }
+        if (spec.kind === 'date' && !/^\d{4}-\d{2}-\d{2}$/.test(edit.value)) {
+          res.status(400).json({ error: `${spec.label} must be a date.` });
+          return;
+        }
+        // A branch may be cleared (company-wide); a category may not.
+        const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+        if ((spec.kind === 'head' || (spec.kind === 'branch' && edit.value !== '')) && !UUID.test(edit.value)) {
+          res.status(400).json({ error: `Choose a ${spec.label.toLowerCase()} from the list.` });
+          return;
+        }
 
         const current = financeAmendableValue(referenceType, live, edit.field);
         const expected = edit.expected ?? '';
@@ -2399,6 +2437,7 @@ router.post(
           label: spec.label,
           money,
           delta: money ? paisa(edit.value) - paisa(current) : 0,
+          kind: spec.kind,
         });
       }
       if (!edits.length) {
@@ -2422,6 +2461,9 @@ router.post(
 
       const note = body.note?.trim() ?? '';
       const reason = [`Finance query ${ticket['query_no']}`, note].filter(Boolean).join(' — ');
+      const names = await correctionDisplayNames(edits);
+      const named = (e: { kind: string }, v: string) =>
+        e.kind === 'branch' && v === '' ? 'Company-wide' : names.get(v) ?? v;
       const preview = describeCorrection(
         edits.map((e) => ({
           referenceType,
@@ -2430,6 +2472,8 @@ router.post(
           label: e.label,
           originalValue: e.expected,
           newValue: e.value,
+          originalText: named(e, e.expected),
+          newText: named(e, e.value),
           difference: null,
         })),
         moneyFields,
@@ -2482,9 +2526,9 @@ router.post(
           entityId: ticket['reference_id'] as string,
           entityRef: a.referenceNo,
           action: approved ? 'adjusted' : 'updated',
-          previousValues: { [a.field]: a.originalValue },
+          previousValues: { [a.field]: a.originalText ?? a.originalValue },
           newValues: {
-            [a.field]: a.newValue,
+            [a.field]: a.newText ?? a.newValue,
             event: 'FINANCE_RECORD_CORRECTED',
             queryNo: ticket['query_no'],
             reason,

@@ -1777,8 +1777,10 @@ export interface FinanceAmendment {
  * A field an admin may amend on a referenced record, per record type.
  *
  * This list is a MIRROR of the `case` arms in `amend_finance_record()`
- * (migration 94) — it decides which inputs the admin's Amend dialog renders, and
- * the function decides, again, whether to honour what comes back. Adding a field
+ * (migration 94) and, for a voucher and a transaction, of the fields
+ * `amend_finance_record_fields()` accepts (migration 130) — it decides which
+ * inputs the admin's correction form renders, and the function decides, again,
+ * whether to honour what comes back. Adding a field
  * here without adding it there produces an input that 400s; the reverse produces
  * a capability nobody can reach. The database is the boundary; this is the form.
  *
@@ -1789,20 +1791,45 @@ export interface FinanceAmendment {
 export interface FinanceAmendableField {
   key: string;
   label: string;
-  /** 'select' offers `options` rather than a free input (migration 120). */
-  kind: 'money' | 'text' | 'select';
+  /**
+   * 'select' offers `options` rather than a free input (migration 120).
+   * 'date' is `YYYY-MM-DD`; 'head' is a ledger head id of the record's own
+   * type; 'branch' is a branch id, or blank for company-wide (migration 130).
+   */
+  kind: 'money' | 'text' | 'select' | 'date' | 'head' | 'branch';
   /** True when changing it re-posts the linked voucher (reversal + correction). */
   movesLedger: boolean;
   options?: readonly { value: string; label: string }[];
 }
 
+const FINANCE_PAYMENT_METHOD_OPTIONS = FINANCE_PAYMENT_METHODS.map((m) => ({
+  value: m as string,
+  label: FINANCE_PAYMENT_METHOD_LABELS[m] ?? m,
+}));
+const FINANCE_ACCOUNT_OPTIONS = FINANCE_ACCOUNTS.map((a) => ({ value: a as string, label: FINANCE_ACCOUNT_LABELS[a] }));
+
 export const FINANCE_AMENDABLE_FIELDS: Record<FinanceTicketReferenceType, FinanceAmendableField[]> = {
+  // A voucher and a transaction are correctable in every field but their type
+  // (migration 130): all the changes of one correction are posted as ONE
+  // reversal and ONE corrected entry. Income ↔ Expense is absent because the
+  // type decides the side of the book; the category may move within its type.
   ledger_entry: [
     { key: 'amount', label: 'Amount', kind: 'money', movesLedger: true },
+    { key: 'entryDate', label: 'Entry date', kind: 'date', movesLedger: true },
+    { key: 'ledgerHeadId', label: 'Category', kind: 'head', movesLedger: true },
+    { key: 'branchId', label: 'Branch', kind: 'branch', movesLedger: true },
+    { key: 'paymentMethod', label: 'Payment method', kind: 'select', movesLedger: true, options: FINANCE_PAYMENT_METHOD_OPTIONS },
+    { key: 'account', label: 'Account', kind: 'select', movesLedger: true, options: FINANCE_ACCOUNT_OPTIONS },
+    { key: 'description', label: 'Description', kind: 'text', movesLedger: true },
   ],
   finance_transaction: [
     { key: 'amount', label: 'Amount', kind: 'money', movesLedger: true },
-    { key: 'description', label: 'Description', kind: 'text', movesLedger: false },
+    { key: 'businessDate', label: 'Business date', kind: 'date', movesLedger: true },
+    { key: 'ledgerHeadId', label: 'Category', kind: 'head', movesLedger: true },
+    { key: 'branchId', label: 'Branch', kind: 'branch', movesLedger: true },
+    { key: 'paymentMethod', label: 'Payment method', kind: 'select', movesLedger: true, options: FINANCE_PAYMENT_METHOD_OPTIONS },
+    { key: 'account', label: 'Account', kind: 'select', movesLedger: true, options: FINANCE_ACCOUNT_OPTIONS },
+    { key: 'description', label: 'Description', kind: 'text', movesLedger: true },
   ],
   salary_payment: [
     { key: 'grossSalary', label: 'Gross Salary', kind: 'money', movesLedger: true },
