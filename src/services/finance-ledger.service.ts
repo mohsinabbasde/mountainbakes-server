@@ -7,6 +7,7 @@ import {
   type FinanceAccount,
   type FinanceDashboard,
   type FinanceDayClosing,
+  type FinancePendingApproval,
   type LedgerEntry,
   type LedgerHead,
   type LedgerHeadType,
@@ -677,6 +678,76 @@ export interface FinanceDashboardQuery {
    * branch, so `finance_day_summary` is never branch-filtered.
    */
   branchId?: string | null;
+}
+
+/**
+ * Every document waiting for approval, oldest first.
+ *
+ * The same four queues the dashboard's "pending approval" figure counts, as
+ * rows — so the number can be followed to what it is counting. Not filtered by
+ * date on purpose: a document nobody approved in August is still waiting in
+ * October, and a date filter is exactly how it gets lost.
+ */
+export async function listPendingApprovals(): Promise<FinancePendingApproval[]> {
+  const pending = ['draft', 'pending_approval'];
+  const [txns, partners, salaries, advances] = await Promise.all([
+    withoutDeleted(supabaseAdmin.from('finance_transactions').select('id, txn_no, txn_type, ledger_head_name, description, amount, business_date, status, created_by_name').in('status', pending)),
+    withoutDeleted(supabaseAdmin.from('partner_expenses').select('id, expense_no, partner_name, description, amount, business_date, status, requested_by_name').in('status', pending)),
+    withoutDeleted(supabaseAdmin.from('salary_payments').select('id, salary_no, employee_name, salary_month, net_salary, payment_date, status, created_by_name').in('status', pending)),
+    withoutDeleted(supabaseAdmin.from('employee_advances').select('id, advance_no, employee_name, total_amount, business_date, status, created_by_name').in('status', pending)),
+  ]);
+  for (const r of [txns, partners, salaries, advances]) {
+    if (r.error) throw r.error;
+  }
+
+  const rows = <T,>(r: { data: unknown }) => (r.data ?? []) as T[];
+  type Row = Record<string, string | number | null>;
+  const text = (v: unknown) => (v === null || v === undefined ? '' : String(v));
+  const day = (v: unknown) => text(v).slice(0, 10);
+
+  const items: FinancePendingApproval[] = [
+    ...rows<Row>(txns).map((r) => ({
+      kind: 'transaction' as const,
+      id: text(r['id']),
+      refNo: text(r['txn_no']),
+      date: day(r['business_date']),
+      description: [text(r['ledger_head_name']), text(r['description'])].filter(Boolean).join(' — '),
+      amount: round2(num(r['amount'])),
+      status: text(r['status']) as FinancePendingApproval['status'],
+      raisedBy: text(r['created_by_name']) || null,
+    })),
+    ...rows<Row>(partners).map((r) => ({
+      kind: 'partner_expense' as const,
+      id: text(r['id']),
+      refNo: text(r['expense_no']),
+      date: day(r['business_date']),
+      description: [text(r['partner_name']), text(r['description'])].filter(Boolean).join(' — '),
+      amount: round2(num(r['amount'])),
+      status: text(r['status']) as FinancePendingApproval['status'],
+      raisedBy: text(r['requested_by_name']) || null,
+    })),
+    ...rows<Row>(salaries).map((r) => ({
+      kind: 'salary' as const,
+      id: text(r['id']),
+      refNo: text(r['salary_no']),
+      date: day(r['payment_date']),
+      description: [text(r['employee_name']), text(r['salary_month'])].filter(Boolean).join(' — '),
+      amount: round2(num(r['net_salary'])),
+      status: text(r['status']) as FinancePendingApproval['status'],
+      raisedBy: text(r['created_by_name']) || null,
+    })),
+    ...rows<Row>(advances).map((r) => ({
+      kind: 'advance' as const,
+      id: text(r['id']),
+      refNo: text(r['advance_no']),
+      date: day(r['business_date']),
+      description: text(r['employee_name']),
+      amount: round2(num(r['total_amount'])),
+      status: text(r['status']) as FinancePendingApproval['status'],
+      raisedBy: text(r['created_by_name']) || null,
+    })),
+  ];
+  return items.sort((a, b) => a.date.localeCompare(b.date) || a.refNo.localeCompare(b.refNo));
 }
 
 /** date-string stepping, same technique `businessDateSeries` already uses below. */

@@ -934,7 +934,13 @@ interface CashDepositAmendment {
   field: DepositField;
   originalValue: string | null;
   newValue: string | null;
-  ledger?: { ledgerAmended?: boolean; reversalVoucherNo?: string | null; correctedVoucherNo?: string | null };
+  ledger?: {
+    ledgerAmended?: boolean;
+    reversalVoucherNo?: string | null;
+    correctedVoucherNo?: string | null;
+    /** A date correction moves the receipts in place (migration 132) — these are the ones that moved. */
+    redatedVoucherNos?: string | null;
+  };
 }
 
 /** The correctable figures of a deposit (migration 121). The Total follows from the first three. */
@@ -969,6 +975,7 @@ function describeDepositChange(changes: CashDepositAmendment[]): string {
       const line =
         `${DEPOSIT_FIELD_LABELS[c.field]} ${depositValueLabel(c.field, c.originalValue)}` +
         ` → ${depositValueLabel(c.field, c.newValue)}`;
+      if (c.ledger?.redatedVoucherNos) return `${line} (${c.ledger.redatedVoucherNos} moved to the new date)`;
       if (!c.ledger?.ledgerAmended) return line;
       const moved = [
         c.ledger.reversalVoucherNo ? `${c.ledger.reversalVoucherNo} reversed` : '',
@@ -1050,7 +1057,7 @@ async function amendCashDeposit(
     if (value !== (live.note ?? '').trim()) pending.push({ field: 'note', value, delta: 0 });
   }
   // The date goes LAST (the most negative delta): an approved deposit's receipts
-  // are re-posted on the corrected day, and they should carry the corrected figures.
+  // move to the corrected day, and the ones a figure change re-posted move with them.
   if ('businessDate' in edits) {
     const value = String(edits['businessDate'] ?? '').trim();
     if (!/^\d{4}-\d{2}-\d{2}$/.test(value) || Number.isNaN(Date.parse(value))) {

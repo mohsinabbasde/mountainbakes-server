@@ -27,6 +27,7 @@ import {
   getLedgerSummary,
   listDayClosings,
   listLedgerHeads,
+  listPendingApprovals,
   queryLedger,
   updateLedgerHead,
 } from '../services/finance-ledger.service';
@@ -74,6 +75,15 @@ router.get('/dashboard', requireFinance('view'), async (req: AuthRequest, res, n
     const to = typeof req.query['to'] === 'string' ? req.query['to'] : legacyDate;
     const branchId = typeof req.query['branchId'] === 'string' && req.query['branchId'] ? req.query['branchId'] : null;
     res.json(await getFinanceDashboard({ from, to, branchId }));
+  } catch (err) {
+    next(err);
+  }
+});
+
+// The documents behind the dashboard's "pending approval" figure, as rows.
+router.get('/pending-approvals', requireFinance('view'), async (_req: AuthRequest, res, next) => {
+  try {
+    res.json({ items: await listPendingApprovals() });
   } catch (err) {
     next(err);
   }

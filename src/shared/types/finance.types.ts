@@ -2112,3 +2112,34 @@ export interface FinanceDashboardRecordsPage {
   pageSize: number;
   rows: FinanceDashboardRecord[];
 }
+
+// ---------------------------------------------------------------------------
+// Pending approvals — GET /api/finance/pending-approvals
+// ---------------------------------------------------------------------------
+
+/** Which approval queue a pending document sits in — and so which screen decides it. */
+export type FinancePendingApprovalKind = 'transaction' | 'partner_expense' | 'salary' | 'advance';
+
+export const FINANCE_PENDING_APPROVAL_LABELS: Record<FinancePendingApprovalKind, string> = {
+  transaction: 'Income / Expense',
+  partner_expense: 'Partner Expense',
+  salary: 'Salary',
+  advance: 'Employee Advance',
+};
+
+/**
+ * One document waiting for approval. These are NOT in the ledger yet — a
+ * document posts its voucher when it is approved — which is why the Daily
+ * Ledger lists them separately, above the book, rather than as rows in it.
+ */
+export interface FinancePendingApproval {
+  kind: FinancePendingApprovalKind;
+  id: string;
+  refNo: string;
+  /** `YYYY-MM-DD` — the document's own business date, however old. */
+  date: string;
+  description: string;
+  amount: number;
+  status: FinanceDocStatus;
+  raisedBy: string | null;
+}
