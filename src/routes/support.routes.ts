@@ -5,6 +5,7 @@ import { requireRole } from '../middleware/requireRole';
 import { validate } from '../middleware/validate';
 import {
   BRANCH_ROLES,
+  CASH_DEPOSITS_PER_DAY,
   cashTransferChannelsLabel,
   CASH_TRANSFER_STATUS_LABELS,
   CreateSupportTicketSchema,
@@ -938,7 +939,7 @@ interface CashDepositAmendment {
 
 /** The correctable figures of a deposit (migration 121). The Total follows from the first three. */
 const DEPOSIT_MONEY_FIELDS = ['cashAmount', 'easypaisaAmount', 'bankAmount', 'fuelCharges'] as const;
-type DepositField = (typeof DEPOSIT_MONEY_FIELDS)[number] | 'note';
+type DepositField = (typeof DEPOSIT_MONEY_FIELDS)[number] | 'note' | 'businessDate';
 
 const DEPOSIT_FIELD_LABELS: Record<DepositField, string> = {
   cashAmount: 'Cash',
@@ -946,6 +947,7 @@ const DEPOSIT_FIELD_LABELS: Record<DepositField, string> = {
   bankAmount: 'Bank',
   fuelCharges: 'Fuel Charges',
   note: 'Note',
+  businessDate: 'Date',
 };
 
 const DEPOSIT_COLUMNS = {
@@ -957,7 +959,7 @@ const DEPOSIT_COLUMNS = {
 
 function depositValueLabel(field: DepositField, value: string | null): string {
   if (value == null || value === '') return '—';
-  return field === 'note' ? value : money(value);
+  return field === 'note' || field === 'businessDate' ? value : money(value);
 }
 
 /** "Cash Rs.1,000 → Rs.1,200 (PV-000041 reversed, posted RV-000231)". */
@@ -1002,7 +1004,7 @@ async function amendCashDeposit(
   const { data: live, error: liveErr } = await withoutDeleted(
     supabaseAdmin
       .from('cash_transfers')
-      .select('id, transfer_no, status, amount, note, cash_amount, easypaisa_amount, bank_amount, fuel_charges')
+      .select('id, transfer_no, status, amount, note, cash_amount, easypaisa_amount, bank_amount, fuel_charges, business_date')
       .eq('id', snapshot.entityId),
   ).maybeSingle();
   if (liveErr) throw liveErr;
@@ -1047,6 +1049,20 @@ async function amendCashDeposit(
     const value = String(edits['note'] ?? '').trim();
     if (value !== (live.note ?? '').trim()) pending.push({ field: 'note', value, delta: 0 });
   }
+  // The date goes LAST (the most negative delta): an approved deposit's receipts
+  // are re-posted on the corrected day, and they should carry the corrected figures.
+  if ('businessDate' in edits) {
+    const value = String(edits['businessDate'] ?? '').trim();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(value) || Number.isNaN(Date.parse(value))) {
+      return { status: 400, error: 'Date must be a valid date.' };
+    }
+    if (value > businessDateStr()) {
+      return { status: 400, error: 'The date of a cash deposit cannot be in the future.' };
+    }
+    if (value !== String(live.business_date)) {
+      pending.push({ field: 'businessDate', value, delta: Number.NEGATIVE_INFINITY });
+    }
+  }
 
   const totalAfter = after.cashAmount + after.easypaisaAmount + after.bankAmount;
   if (totalAfter + after.fuelCharges <= 0) {
@@ -1067,16 +1083,27 @@ async function amendCashDeposit(
   const reason = [`Support query ${ticket.ticket_number}`, note?.trim()].filter(Boolean).join(' — ');
   const changes: CashDepositAmendment[] = [];
   for (const { field, value } of pending) {
-    const { data, error } = await supabaseAdmin.rpc('amend_finance_record', {
-      p_reference_type: 'cash_transfer',
-      p_reference_id: live.id,
-      p_field: field,
-      p_new_value: value,
-      p_reason: reason,
-      p_actor_id: req.user!.uid,
-      p_actor_name: req.user!.email,
-      p_entry_date: businessDateStr(),
-    });
+    const { data, error } =
+      field === 'businessDate'
+        ? await supabaseAdmin.rpc('amend_cash_transfer_date', {
+            p_transfer_id: live.id,
+            p_new_date: value,
+            p_reason: reason,
+            p_actor_id: req.user!.uid,
+            p_actor_name: req.user!.email,
+            p_today: businessDateStr(),
+            p_max_per_day: CASH_DEPOSITS_PER_DAY,
+          })
+        : await supabaseAdmin.rpc('amend_finance_record', {
+            p_reference_type: 'cash_transfer',
+            p_reference_id: live.id,
+            p_field: field,
+            p_new_value: value,
+            p_reason: reason,
+            p_actor_id: req.user!.uid,
+            p_actor_name: req.user!.email,
+            p_entry_date: businessDateStr(),
+          });
     if (error) {
       // A plpgsql RAISE (P0001) is a sentence written for a person — pass it on.
       if (error.code === 'P0001') {
