@@ -468,6 +468,90 @@ async function feedToPatch(body: FinanceTicketFeedInput & { message?: string }):
   return patch;
 }
 
+/** The category a query about each kind of record falls under. */
+const REFERENCE_QUERY_TYPE: Record<FinanceTicketReferenceType, FinanceQueryType> = {
+  ledger_entry: 'ledger',
+  income_approval: 'income',
+  finance_transaction: 'company_transaction',
+  salary_payment: 'salary',
+  employee_advance: 'salary',
+  partner_expense: 'partner_advance',
+  branch_share_payment: 'branch_share',
+  order: 'income',
+  cash_transfer: 'payment',
+};
+
+/** Which free-text handle a reference of each kind also fills. */
+const REFERENCE_HANDLE_COLUMN: Partial<Record<FinanceTicketReferenceType, string>> = {
+  ledger_entry: 'voucher_ref',
+  income_approval: 'income_ref',
+  finance_transaction: 'transaction_ref',
+};
+
+// A ledger voucher carries its figure on one side — debit or credit — and zero on the other.
+const SNAPSHOT_AMOUNT_KEYS = ['amount', 'totalAmount', 'grandTotal', 'netSalary', 'grossSalary', 'debit', 'credit'];
+const SNAPSHOT_DATE_KEYS = ['businessDate', 'entryDate', 'paymentDate', 'transferDate', 'date'];
+
+/**
+ * Fill what a reference-first query did not say from the record it names.
+ *
+ * The New Query popup sends a reference and a description and nothing else, so
+ * the type, subject, amount, branch and date are read HERE from the row the
+ * reference resolved to — never from the client, which has only ever seen a
+ * copy of it. A column the caller did set is left alone, which is what keeps
+ * the admin's full form (recreate) saying exactly what it was told.
+ */
+async function deriveFromReference(patch: Record<string, unknown>): Promise<void> {
+  const referenceType = patch['reference_type'] as FinanceTicketReferenceType | null | undefined;
+  const snapshot = patch['reference_snapshot'] as Record<string, unknown> | null | undefined;
+  if (!referenceType || !snapshot) return;
+  const referenceNo = String(patch['reference_no']);
+  const label = FINANCE_TICKET_REFERENCES[referenceType].label;
+
+  if (patch['query_type'] === undefined) {
+    const txnType = snapshot['txnType'];
+    patch['query_type'] =
+      referenceType === 'finance_transaction' && (txnType === 'income' || txnType === 'expense')
+        ? txnType
+        : REFERENCE_QUERY_TYPE[referenceType];
+  }
+  if (patch['subject'] === undefined) patch['subject'] = `${label} ${referenceNo}`;
+
+  if (patch['amount'] === undefined) {
+    for (const key of SNAPSHOT_AMOUNT_KEYS) {
+      const n = Number(snapshot[key]);
+      if (snapshot[key] !== null && snapshot[key] !== undefined && snapshot[key] !== '' && Number.isFinite(n) && (key === 'debit' ? n > 0 : n >= 0)) {
+        patch['amount'] = n;
+        break;
+      }
+    }
+  }
+  if (patch['business_date'] === undefined) {
+    for (const key of SNAPSHOT_DATE_KEYS) {
+      const v = snapshot[key];
+      if (typeof v === 'string' && /^\d{4}-\d{2}-\d{2}/.test(v)) {
+        patch['business_date'] = v.slice(0, 10);
+        break;
+      }
+    }
+  }
+  if (patch['branch_id'] === undefined && typeof snapshot['branchId'] === 'string' && snapshot['branchId']) {
+    const { data, error } = await supabaseAdmin
+      .from('branches')
+      .select('id, name')
+      .eq('id', snapshot['branchId'])
+      .maybeSingle();
+    if (error) throw error;
+    if (data) {
+      patch['branch_id'] = data.id;
+      patch['branch_name'] = data.name;
+    }
+  }
+
+  const handle = REFERENCE_HANDLE_COLUMN[referenceType];
+  if (handle && patch[handle] === undefined) patch[handle] = referenceNo;
+}
+
 /** Only the columns whose value actually differs from the row — an honest diff. */
 function onlyChanged(patch: Record<string, unknown>, row: Record<string, unknown>): Record<string, unknown> {
   const out: Record<string, unknown> = {};
@@ -805,6 +889,7 @@ router.post('/', requireFinance('create'), validate(CreateFinanceTicketSchema), 
     let patch: Record<string, unknown>;
     try {
       patch = await feedToPatch(body);
+      await deriveFromReference(patch);
     } catch (err) {
       if (err instanceof LookupError) {
         res.status(err.status).json({ error: err.message });

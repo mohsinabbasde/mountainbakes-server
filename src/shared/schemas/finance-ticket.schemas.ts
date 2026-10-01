@@ -145,12 +145,18 @@ export const FINANCE_TICKET_FEED_KEYS = Object.keys(FinanceTicketFeedSchema.shap
  * `draft: true`, stays with the raiser until they submit it (§2 Save Draft).
  */
 export const CreateFinanceTicketSchema = FinanceTicketFeedSchema.extend({
-  queryType: z.enum(FINANCE_QUERY_TYPES),
   priority: z.enum(FINANCE_QUERY_PRIORITIES).default('normal'),
-  subject: z.string().trim().min(3, 'Give the query a short subject').max(200),
   description: z.string().trim().min(3, 'Please describe the issue').max(4000),
   attachmentIds: optionalAttachmentIds,
   draft: z.boolean().optional().default(false),
+}).superRefine((v, ctx) => {
+  // Reference-first (the New Query popup): the reference alone is enough, and
+  // the route fills subject, type, amount, branch and date from the record it
+  // resolves to. Without a reference there is nothing to derive them from, so
+  // the caller has to say what the query is.
+  if (v.referenceNo) return;
+  if (!v.subject) ctx.addIssue({ code: 'custom', path: ['subject'], message: 'Give the query a short subject' });
+  if (!v.queryType) ctx.addIssue({ code: 'custom', path: ['queryType'], message: 'Choose a query type' });
 });
 export type CreateFinanceTicketInput = z.infer<typeof CreateFinanceTicketSchema>;
 
