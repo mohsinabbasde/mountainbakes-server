@@ -4,6 +4,8 @@ import { requireFinance } from '../middleware/requireFinance';
 import { validate } from '../middleware/validate';
 import {
   AdjustLedgerEntrySchema,
+  DeleteLedgerEntrySchema,
+  EditLedgerEntrySchema,
   businessDateStr,
   CloseFinanceDaySchema,
   CreateLedgerHeadSchema,
@@ -21,6 +23,8 @@ import {
   adjustEntry,
   closeFinanceDay,
   createLedgerHead,
+  deleteLedgerEntry,
+  editLedgerEntry,
   getDayClosing,
   getFinanceDashboard,
   getLedgerEntry,
@@ -293,6 +297,82 @@ router.post(
       });
 
       res.status(201).json({ entries });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+/**
+ * EDIT = change the same entry. The voucher keeps its PV-/RV- number; nothing
+ * is reversed and nothing new is posted. Only the fields EditLedgerEntrySchema
+ * lists reach the database — a voucher number in the body is dropped by the
+ * parser, and the trigger would refuse it anyway.
+ */
+router.patch(
+  '/ledger/:id',
+  requireFinance('adjust'),
+  validate(EditLedgerEntrySchema),
+  async (req: AuthRequest, res, next) => {
+    try {
+      const id = String(req.params['id']);
+      const before = await getLedgerEntry(id);
+      if (!before) {
+        res.status(404).json({ error: 'Ledger entry not found' });
+        return;
+      }
+
+      const entry = await editLedgerEntry(id, req.body, actorOf(req));
+
+      const fields = ['voucherNo', 'entryDate', 'ledgerHeadName', 'branchName', 'description', 'debit', 'credit', 'account', 'paymentMethod'];
+      await logFinanceAudit(req, {
+        entity: 'ledger_entry',
+        entityId: id,
+        entityRef: before.voucherNo,
+        action: 'updated',
+        previousValues: auditSnapshot(before as unknown as Record<string, unknown>, fields),
+        newValues: {
+          ...auditSnapshot(entry as unknown as Record<string, unknown>, fields),
+          reason: req.body.reason,
+          changedFields: Object.keys(req.body.changes).filter((k) => req.body.changes[k] !== undefined),
+        },
+      });
+
+      res.json({ entry });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+/** DELETE = delete the entry. No reversal, no new voucher. */
+router.delete(
+  '/ledger/:id',
+  requireFinance('adjust'),
+  validate(DeleteLedgerEntrySchema),
+  async (req: AuthRequest, res, next) => {
+    try {
+      const id = String(req.params['id']);
+      const before = await getLedgerEntry(id);
+      if (!before) {
+        res.status(404).json({ error: 'Ledger entry not found, or it has already been deleted' });
+        return;
+      }
+
+      await deleteLedgerEntry(id, req.body.reason, actorOf(req));
+
+      await logFinanceAudit(req, {
+        entity: 'ledger_entry',
+        entityId: id,
+        entityRef: before.voucherNo,
+        action: 'deleted',
+        previousValues: auditSnapshot(before as unknown as Record<string, unknown>, [
+          'voucherNo', 'entryDate', 'ledgerHeadName', 'branchName', 'description', 'debit', 'credit', 'balance', 'status',
+        ]),
+        newValues: { reason: req.body.reason },
+      });
+
+      res.json({ deleted: true, voucherNo: before.voucherNo });
     } catch (err) {
       next(err);
     }

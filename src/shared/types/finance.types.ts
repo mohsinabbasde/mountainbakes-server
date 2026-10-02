@@ -296,6 +296,9 @@ export interface LedgerEntry {
   createdBy: string | null;
   createdByName: string | null;
   postedAt: string;
+  /** When the voucher was last edited in place, and by whom (migration 135). Null if never. */
+  updatedAt?: string | null;
+  updatedByName?: string | null;
   /**
    * Photos of the SOURCE DOCUMENT this voucher was posted from, resolved on read
    * via (sourceType, sourceId) — they are not stored on the ledger row, which is

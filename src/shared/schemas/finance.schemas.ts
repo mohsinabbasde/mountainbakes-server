@@ -136,6 +136,50 @@ export const AdjustLedgerEntrySchema = z.object({
   correctedDescription: z.string().min(2).max(300).optional(),
 });
 
+/**
+ * Daily Ledger → Edit. The SAME voucher is changed (migrations 133, 135): its
+ * number, its place in the posting order and its side of the book are not in
+ * this payload and cannot be sent — a key that is not listed here is dropped
+ * by the parser before the route sees it.
+ *
+ * `expected` is what the form showed when it was opened. The database compares
+ * it with the voucher as it stands and refuses the edit if somebody else has
+ * changed it since, instead of silently writing over their change.
+ */
+const ledgerEntryFields = {
+  amount: money('Amount').optional(),
+  entryDate: businessDate.optional(),
+  ledgerHeadId: z.string().uuid('Choose a category from the list').optional(),
+  /** '' moves the voucher to company-wide. */
+  branchId: z.union([z.literal(''), z.string().uuid('Choose a branch from the list')]).optional(),
+  paymentMethod: z.string().trim().max(60).optional(),
+  account: z.enum(['cash', 'bank']).optional(),
+  description: z.string().trim().min(2, 'Description is too short').max(300).optional(),
+};
+
+export const EditLedgerEntrySchema = z.object({
+  reason: z.string().trim().min(5, 'Explain why this entry is being changed').max(500),
+  changes: z
+    .object(ledgerEntryFields)
+    .refine((v) => Object.values(v).some((x) => x !== undefined), { message: 'No changes detected.' }),
+  expected: z
+    .object({
+      amount: z.number().optional(),
+      entryDate: z.string().optional(),
+      ledgerHeadId: z.string().optional(),
+      branchId: z.string().optional(),
+      paymentMethod: z.string().optional(),
+      account: z.string().optional(),
+      description: z.string().optional(),
+    })
+    .optional(),
+});
+
+/** Daily Ledger → Delete. The voucher is removed; nothing is posted to cancel it. */
+export const DeleteLedgerEntrySchema = z.object({
+  reason: z.string().trim().min(5, 'Explain why this entry is being deleted').max(500),
+});
+
 // ---------------------------------------------------------------------------
 // Branch income
 // ---------------------------------------------------------------------------
@@ -453,6 +497,8 @@ export type UpdateFinanceTransactionInput = z.infer<typeof UpdateFinanceTransact
 export type ApproveInput = z.infer<typeof ApproveSchema>;
 export type RejectInput = z.infer<typeof RejectSchema>;
 export type AdjustLedgerEntryInput = z.infer<typeof AdjustLedgerEntrySchema>;
+export type EditLedgerEntryInput = z.infer<typeof EditLedgerEntrySchema>;
+export type DeleteLedgerEntryInput = z.infer<typeof DeleteLedgerEntrySchema>;
 export type ImportBranchIncomeInput = z.infer<typeof ImportBranchIncomeSchema>;
 export type CreateEmployeeInput = z.infer<typeof CreateEmployeeSchema>;
 export type UpdateEmployeeInput = z.infer<typeof UpdateEmployeeSchema>;

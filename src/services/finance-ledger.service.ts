@@ -4,6 +4,7 @@ import {
   businessDaysAgoStr,
   SYSTEM_LEDGER_HEAD_CODES,
   type CreateLedgerHeadInput,
+  type EditLedgerEntryInput,
   type FinanceAccount,
   type FinanceDashboard,
   type FinanceDayClosing,
@@ -277,6 +278,52 @@ export async function adjustEntry(
   });
   if (error) throw asClientError(error);
   return rowToApi<LedgerEntry[]>(data ?? []);
+}
+
+/**
+ * Edit a voucher IN PLACE (migrations 133, 135): the same row, the same PV-/RV-
+ * number, no reversal and no replacement. The database does the whole thing in
+ * one transaction and refuses it when `expected` no longer matches the voucher.
+ */
+export async function editLedgerEntry(
+  entryId: string,
+  input: EditLedgerEntryInput,
+  actor: { uid: string; name: string },
+): Promise<LedgerEntry> {
+  const asText = (v: Record<string, unknown> | undefined) =>
+    Object.fromEntries(Object.entries(v ?? {}).filter(([, x]) => x !== undefined).map(([k, x]) => [k, String(x)]));
+
+  const { data, error } = await supabaseAdmin.rpc('edit_finance_ledger_entry', {
+    p_entry_id: entryId,
+    p_set: asText(input.changes),
+    p_expected: asText(input.expected),
+    p_actor_id: actor.uid,
+    p_actor_name: actor.name,
+    p_today: businessDateStr(),
+  });
+  if (error) {
+    if (error.code === 'MBCON') {
+      throw Object.assign(new Error(error.message), { status: 409, details: { code: 'conflict' } });
+    }
+    if (error.code === 'MBNFD') throw Object.assign(new Error(error.message), { status: 404 });
+    throw asClientError(error);
+  }
+  const row = (Array.isArray(data) ? data[0] : data) as Record<string, unknown> | undefined;
+  if (!row) throw Object.assign(new Error('Ledger entry not found'), { status: 404 });
+  return rowToApi<LedgerEntry>(row);
+}
+
+/**
+ * Delete a voucher: it is removed from the book and the balances after it are
+ * recomputed. Nothing is posted to cancel it — no reversal, no new number.
+ */
+export async function deleteLedgerEntry(
+  entryId: string,
+  reason: string,
+  actor: { uid: string; name: string },
+): Promise<LedgerEntry | null> {
+  const [removed] = await adjustEntry(entryId, { reason }, actor);
+  return removed ?? null;
 }
 
 // ---------------------------------------------------------------------------
