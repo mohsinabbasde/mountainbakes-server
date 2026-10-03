@@ -74,7 +74,7 @@ export type RestrictionGroup = (typeof RESTRICTION_GROUPS)[number];
 
 export interface RestrictionRules {
   demand: {
-    /** Counts `pending` demands — forwarded, not yet reviewed by Production/Admin. */
+    /** Counts demands in `awaiting_verification` — sent by Production, not yet verified by the branch. */
     pendingLimit: { enabled: boolean; warnAt: number; blockAt: number };
     backdated: { enabled: boolean; requireApproval: boolean };
     lowSales: { enabled: boolean; minSoldPercent: number };

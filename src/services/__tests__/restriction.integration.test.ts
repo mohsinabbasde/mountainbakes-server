@@ -228,12 +228,13 @@ describe('configuration', () => {
 });
 
 describe('demand', () => {
-  test('3 pending → blocked with the real numbers; another branch is untouched; the refusal is audited', async () => {
+  test('3 awaiting verification → blocked with the real numbers; another branch is untouched; the refusal is audited', async () => {
     await reset();
     for (const n of ['DMD-000201', 'DMD-000202', 'DMD-000203']) {
-      await sql(`insert into production_orders (branch_id, demand_number, status) values ($1, $2, 'pending')`, [ids.a, n]);
+      await sql(`insert into production_orders (branch_id, demand_number, status) values ($1, $2, 'awaiting_verification')`, [ids.a, n]);
     }
-    // Not pending, so it does not count.
+    // Only Awaiting Verification counts: not one still with Production, not a finished one.
+    await sql(`insert into production_orders (branch_id, demand_number, status) values ($1, 'DMD-000198', 'pending')`, [ids.a]);
     await sql(`insert into production_orders (branch_id, demand_number, status) values ($1, 'DMD-000199', 'approved')`, [ids.a]);
 
     const mine = await svc.checkDemand({ branchId: ids.a, now: NOON });
@@ -255,8 +256,8 @@ describe('demand', () => {
     assert.equal(event!.currentValue, '3');
     assert.equal(event!.branchName, 'Gulberg');
 
-    // One is reviewed → recalculated to a warning, and the demand may go.
-    await sql(`update production_orders set status = 'awaiting_verification' where demand_number = 'DMD-000201'`);
+    // The branch verifies one → recalculated to a warning, and the demand may go.
+    await sql(`update production_orders set status = 'verified' where demand_number = 'DMD-000201'`);
     const after = await svc.checkDemand({ branchId: ids.a, now: NOON });
     assert.equal(after.check.allowed, true);
     assert.equal(after.check.restriction!.severity, 'warning');
@@ -483,7 +484,7 @@ describe('admin views', () => {
   test('monitor reports each active branch under the current rules', async () => {
     await reset();
     for (const n of ['DMD-000401', 'DMD-000402']) {
-      await sql(`insert into production_orders (branch_id, demand_number, status) values ($1, $2, 'pending')`, [ids.a, n]);
+      await sql(`insert into production_orders (branch_id, demand_number, status) values ($1, $2, 'awaiting_verification')`, [ids.a, n]);
     }
     await sql(`insert into orders (branch_id) values ($1)`, [ids.a]);
     const rows = await svc.getRestrictionMonitor();
