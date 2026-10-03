@@ -15,6 +15,7 @@ import { idempotent } from '../middleware/idempotency';
 import { resolveClientBusinessDate } from '../utils/clientBusinessDate';
 import { requireInsideGeofence } from '../middleware/requireInsideGeofence';
 import { getAppSettings } from '../services/settings.service';
+import { checkSale, enforceRestrictions } from '../services/restriction.service';
 import { rowToApi } from '../utils/case';
 
 export const router = Router();
@@ -383,6 +384,19 @@ router.post('/pos', requireRole('super_admin', ...BRANCH_ROLES), idempotent('sal
       cashFields = { receivedCash, cashReturned: Math.round((receivedCash - grandTotal) * 100) / 100 };
     }
 
+    // Restriction Rules (migration 136): hourly sales activity, counted by the
+    // server's clock for the branch in the token. Branch roles only — an admin
+    // keying a sale is not the entry pattern the rule measures. In 'warn' mode
+    // the sale goes through and the warning is audited; in 'block' mode this
+    // throws a 409 before an order number is drawn.
+    const saleGuard = isBranchRole(req.user!.role)
+      ? await enforceRestrictions(await checkSale({ branchId }), {
+          action: 'New sale',
+          actor: { uid: req.user!.uid, name: req.user!.email },
+          branch: { id: branchId, name: branch.name },
+        })
+      : null;
+
     const orderNumber = await generateOrderNumber();
     const name = (customerName || '').trim() || 'Walking Customer';
 
@@ -439,6 +453,8 @@ router.post('/pos', requireRole('super_admin', ...BRANCH_ROLES), idempotent('sal
       throw err;
     }
 
+    await saleGuard?.commit(orderNumber);
+
     // Notify the three dashboards when a product has just crossed below the low-stock
     // threshold (only on the crossing, so we don't re-alert on every subsequent sale).
     const crossed = [...balances.values()].filter((b) => b.before >= LOW_STOCK_THRESHOLD && b.after < LOW_STOCK_THRESHOLD);
@@ -492,6 +508,9 @@ router.post('/pos', requireRole('super_admin', ...BRANCH_ROLES), idempotent('sal
       taxAmount,
       createdAt: new Date().toISOString(),
       ...(cashFields ?? {}),
+      // The warning this sale was saved under, if any — never a block, which
+      // would have thrown above.
+      ...(saleGuard?.check.restriction ? { restriction: saleGuard.check.restriction } : {}),
     });
   } catch (err) {
     next(err);

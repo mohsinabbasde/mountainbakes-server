@@ -42,6 +42,7 @@ import { router as financeCashTransfersRouter } from './finance-cash-transfers.r
 import { router as attachmentsRouter } from './attachments.routes';
 import { router as dataRouter } from './data.routes';
 import { router as backupsRouter } from './backups.routes';
+import { router as restrictionsRouter } from './restrictions.routes';
 
 export function setupRoutes(app: Express) {
   app.use('/api/auth', authRouter);
@@ -91,6 +92,11 @@ export function setupRoutes(app: Express) {
   app.use('/api/closing-notifications', closingNotificationsRouter);
   app.use('/api/special-events', specialEventsRouter);
   app.use('/api/settings', settingsRouter);
+  // Admin Settings → Restriction Rules (migration 136): the rules, the approval
+  // requests that lift one once, the branch monitor and the audit trail, plus
+  // the preflight the branch popups call. Enforcement itself lives inside the
+  // write routes it guards, not here.
+  app.use('/api/restrictions', restrictionsRouter);
   // Login History. Opened and pinged by the client, because a static-export app
   // signs in to Supabase directly and this API never sees the login itself.
   app.use('/api/login-history', loginHistoryRouter);

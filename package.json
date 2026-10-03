@@ -29,6 +29,7 @@
     "backup:aws:audit": "tsx --env-file .env src/scripts/backup-aws.ts audit",
     "backup:aws:configure": "tsx --env-file .env src/scripts/backup-aws.ts configure",
     "backup:test": "node --import tsx --test \"src/services/backup/__tests__/*.test.ts\"",
+    "restrictions:test": "node --import tsx --test \"src/services/__tests__/*.test.ts\"",
     "backup:integration": "tsx --env-file .env src/scripts/backup-integration.ts"
   },
   "dependencies": {
