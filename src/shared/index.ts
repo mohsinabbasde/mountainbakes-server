@@ -30,6 +30,7 @@ export * from './types/login-session.types';
 export * from './types/data-engine.types';
 export * from './types/backup.types';
 export * from './types/cash-transfer.types';
+export * from './types/restriction.types';
 
 // Zod schemas + inferred input types
 export * from './schemas/user.schemas';
@@ -57,6 +58,7 @@ export * from './schemas/attachment.schemas';
 export * from './schemas/daily-sale.schemas';
 export * from './schemas/backup.schemas';
 export * from './schemas/cash-transfer.schemas';
+export * from './schemas/restriction.schemas';
 
 // Utils
 export * from './utils/timezone';
@@ -67,3 +69,4 @@ export * from './utils/share';
 export * from './utils/production-amounts';
 export * from './utils/closing';
 export * from './utils/daily-sale';
+export * from './utils/restriction';

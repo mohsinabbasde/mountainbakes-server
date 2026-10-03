@@ -15,12 +15,14 @@ import {
   type UpdateFinancePartnerInput,
   type UpdateFinanceTransactionInput,
   type UpdatePartnerExpenseInput,
+  type UserRole,
 } from '../shared';
 import { rowToApi } from '../utils/case';
 import { withoutDeleted } from '../utils/softDelete';
 import { bindAttachments, listAttachments, listAttachmentsFor } from './attachments.service';
 import { postEntry, requireActiveHead } from './finance-ledger.service';
 import { getLedgerHeadByCode, round2 } from './finance-settings.service';
+import { checkFinanceEntry, enforceRestrictions, type RestrictionGuard } from './restriction.service';
 
 /**
  * Manual income / expense documents and partner expenses.
@@ -213,9 +215,31 @@ async function assertNotDuplicateIncome(
   );
 }
 
+/**
+ * Restriction Rules (migration 136) for a finance entry: the ledger back-entry
+ * period and Company Share keyed as income. Bound to the user, the head, the
+ * date and the amount, so an approval covers exactly the entry it was asked
+ * for. A Super Admin is the approver of these rules, not their subject.
+ */
+async function guardFinanceEntry(
+  entry: { ledgerHeadId: string; businessDate: string; amount: number; branch: { id: string; name: string } | null },
+  actor: { uid: string; name: string; role?: UserRole },
+): Promise<RestrictionGuard | null> {
+  if (actor.role === 'super_admin') return null;
+  return enforceRestrictions(
+    await checkFinanceEntry({
+      userId: actor.uid,
+      ledgerHeadId: entry.ledgerHeadId,
+      businessDate: entry.businessDate,
+      amount: round2(entry.amount),
+    }),
+    { action: 'Ledger entry', actor, branch: entry.branch },
+  );
+}
+
 export async function createTransaction(
   input: CreateFinanceTransactionInput,
-  actor: { uid: string; name: string },
+  actor: { uid: string; name: string; role?: UserRole },
 ): Promise<FinanceTransaction> {
   // The head is read from the database and ITS type decides whether this is
   // income or expense. Nothing the client sent gets a vote — see the schema note.
@@ -226,6 +250,10 @@ export async function createTransaction(
   if (head.type === 'income' && !input.confirmDuplicate) {
     await assertNotDuplicateIncome(head.id, input.amount, businessDate);
   }
+
+  // Last, so an approval is only spent on an entry that has passed every other
+  // check and is about to be written.
+  const guard = await guardFinanceEntry({ ledgerHeadId: head.id, businessDate, amount: input.amount, branch }, actor);
 
   const { data, error } = await supabaseAdmin
     .from('finance_transactions')
@@ -248,9 +276,13 @@ export async function createTransaction(
     })
     .select('*')
     .single();
-  if (error) throw error;
+  if (error) {
+    await guard?.release();
+    throw error;
+  }
 
   const txn = rowToApi<FinanceTransaction>(data);
+  await guard?.commit(txn.txnNo);
   // Binding happens after the insert because the staged photos need this row's
   // id. A failure here throws, leaving an entry with no photo — recoverable
   // (it is a draft or pending, both editable) and far preferable to the
@@ -268,10 +300,34 @@ export async function createTransaction(
 export async function updateTransaction(
   id: string,
   input: UpdateFinanceTransactionInput,
+  actor?: { uid: string; name: string; role?: UserRole },
 ): Promise<FinanceTransaction> {
   const current = await getTransaction(id);
   if (!current) throw Object.assign(new Error('Entry not found'), { status: 404 });
   assertEditable(current, current.txnNo);
+
+  // An edit that changes the date, the head or the amount is a new decision
+  // under the restriction rules. Otherwise "save it for today, then edit the
+  // date" would walk around the back-entry period, and an approval given for
+  // one amount could be stretched to cover another. An edit that leaves all
+  // three alone (a description, a reference) is not re-examined.
+  const nextAmount = input.amount !== undefined ? round2(input.amount) : Number(current.amount);
+  const changed =
+    (input.businessDate !== undefined && input.businessDate !== current.businessDate) ||
+    (input.ledgerHeadId !== undefined && input.ledgerHeadId !== current.ledgerHeadId) ||
+    nextAmount !== Number(current.amount);
+  const guard =
+    actor && changed
+      ? await guardFinanceEntry(
+          {
+            ledgerHeadId: input.ledgerHeadId ?? current.ledgerHeadId,
+            businessDate: input.businessDate ?? current.businessDate,
+            amount: nextAmount,
+            branch: current.branchId ? { id: current.branchId, name: current.branchName ?? '' } : null,
+          },
+          actor,
+        )
+      : null;
 
   const row: Record<string, unknown> = {};
   if (input.ledgerHeadId !== undefined) {
@@ -305,7 +361,11 @@ export async function updateTransaction(
   )
     .select('*')
     .single();
-  if (error) throw error;
+  if (error) {
+    await guard?.release();
+    throw error;
+  }
+  await guard?.commit(current.txnNo);
   return rowToApi<FinanceTransaction>(data);
 }
 

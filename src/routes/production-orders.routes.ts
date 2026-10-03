@@ -27,6 +27,7 @@ import { getAppSettings, orderWindowMinutes } from '../services/settings.service
 import { assertBusinessDayOpen } from '../middleware/assertBusinessDayOpen';
 import { idempotent } from '../middleware/idempotency';
 import { resolveClientBusinessDate } from '../utils/clientBusinessDate';
+import { checkDemand, enforceRestrictions, type RestrictionGuard } from '../services/restriction.service';
 import { rowToApi } from '../utils/case';
 import { invalidate } from '../utils/cache';
 
@@ -211,6 +212,9 @@ router.use(authenticate);
 
 // POST /api/production-orders — branch submits a daily production request
 router.post('/', requireRole(...BRANCH_ROLES), idempotent('production_order.create'), validate(CreateProductionOrderSchema), async (req: AuthRequest, res, next) => {
+  // Held outside the try so the catch can hand back an approval the guard
+  // spent if the demand then fails to save.
+  let guard: RestrictionGuard | null = null;
   try {
     // Branch production requests are only accepted inside the configured order
     // window (default 8:00 AM–2:00 AM Karachi, which wraps past midnight).
@@ -236,6 +240,20 @@ router.post('/', requireRole(...BRANCH_ROLES), idempotent('production_order.crea
       // requiredDate, which is the day the branch wants it delivered.
       businessDate?: string;
     };
+
+    // Restriction Rules (migration 136): pending-verification limit, backdated
+    // demand, low sales after closing. Evaluated here, before anything is
+    // resolved or written, from the token's branch and the server's clock —
+    // the popup's preflight is a courtesy, this is the decision. A refusal
+    // throws a 409 carrying the notice the popup shows.
+    guard = await enforceRestrictions(
+      await checkDemand({ branchId, requiredDate, claimedBusinessDate: claimedDate }),
+      {
+        action: 'Forward demand',
+        actor: { uid: req.user!.uid, name: req.user!.email },
+        branch: { id: branchId, name: req.user!.branchName },
+      },
+    );
 
     // Resolve names AND the RATE server-side — branch users never send either,
     // both are Admin-controlled (§18). One query rather than N point reads.
@@ -326,9 +344,15 @@ router.post('/', requireRole(...BRANCH_ROLES), idempotent('production_order.crea
         created_by: req.user!.uid,
         created_by_name: req.user!.email,
       })
-      .select('id')
+      .select('id, demand_number')
       .single();
     if (orderErr) throw orderErr;
+
+    // The demand exists: record its number against any approval it used, and
+    // audit the warnings it went through with. Cleared so a later failure in
+    // this handler cannot release an approval a saved demand has spent.
+    await guard.commit(order.demand_number as string);
+    guard = null;
 
     // Review-only columns stay null until approval.
     //
@@ -439,6 +463,7 @@ router.post('/', requireRole(...BRANCH_ROLES), idempotent('production_order.crea
 
     res.status(201).json({ id: order.id });
   } catch (err) {
+    if (guard) await guard.release();
     next(err);
   }
 });

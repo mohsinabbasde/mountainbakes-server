@@ -1,6 +1,5 @@
 import { supabaseAdmin } from '../config/supabase';
 import {
-  CASH_DEPOSITS_PER_DAY,
   CASH_TRANSFER_METHODS,
   CASH_TRANSFER_STATUSES,
   businessDateStr,
@@ -21,6 +20,7 @@ import { resolveClientBusinessDate } from '../utils/clientBusinessDate';
 import { bindAttachments, listAttachments, listAttachmentsFor } from './attachments.service';
 import { getLedgerEntry } from './finance-ledger.service';
 import { notify } from './push.service';
+import { checkCashDeposit, enforceRestrictions } from './restriction.service';
 
 /**
  * Cash transfers — money a branch hands to the company (migration 118).
@@ -222,21 +222,19 @@ export async function createCashTransfer(input: {
   // sale or an expense is.
   const businessDate = await resolveClientBusinessDate(input.body.businessDate, input.role);
 
-  // At most CASH_DEPOSITS_PER_DAY live deposits per branch per business day.
-  // The Idempotency-Key already collapses a double click or a retry into one
-  // row; this refuses the deliberate submission past the day's allowance. A
-  // rejected or deleted deposit does not count — the branch raises it again.
-  const existing = await findLiveDeposits(branch.id, businessDate);
-  if (existing.length >= CASH_DEPOSITS_PER_DAY) {
-    throw Object.assign(
-      new Error(
-        `This date already has ${existing.length} cash deposits for this branch ` +
-          `(${existing.map((d) => d.transfer_no).join(', ')}) — the limit is ${CASH_DEPOSITS_PER_DAY} a day. ` +
-          'Ask Finance to correct one through the Help Desk instead of submitting again.',
-      ),
-      { status: 409 },
-    );
-  }
+  // The daily limit is a Restriction Rule now (migration 136): the number comes
+  // from Admin Settings, and an approved one-time exception lifts it. The
+  // Idempotency-Key already collapses a double click or a retry into one row;
+  // this refuses the deliberate submission past the day's allowance. A rejected
+  // or deleted deposit does not count — the branch raises it again.
+  const guard = await enforceRestrictions(
+    await checkCashDeposit({ branchId: branch.id as string, businessDate }),
+    {
+      action: 'Forward deposit',
+      actor: { uid: input.actor.uid, name: input.actor.email },
+      branch: { id: branch.id as string, name: branch.name as string },
+    },
+  );
 
   // The Total is computed HERE, from the channels, whatever the client showed —
   // the schema has already refused a displayed total that disagreed. The
@@ -262,7 +260,11 @@ export async function createCashTransfer(input: {
     })
     .select('*')
     .single();
-  if (insErr) throw insErr;
+  if (insErr) {
+    await guard.release();
+    throw insErr;
+  }
+  await guard.commit(created.transfer_no as string);
 
   // Bind the staged photo(s). The schema required one whenever the Total is
   // above 0, so a throw here means the photo vanished between upload and
@@ -301,23 +303,6 @@ export async function createCashTransfer(input: {
   }
 
   return transfer;
-}
-
-/** The branch's live (pending or approved, not deleted) deposits for a day, oldest first. */
-async function findLiveDeposits(
-  branchId: string,
-  businessDate: string,
-): Promise<{ id: string; transfer_no: string; status: CashTransferStatus }[]> {
-  const { data, error } = await withoutDeleted(
-    supabaseAdmin.from('cash_transfers').select('id, transfer_no, status'),
-  )
-    .eq('branch_id', branchId)
-    .eq('business_date', businessDate)
-    .neq('status', 'rejected')
-    .order('created_at', { ascending: true })
-    .limit(CASH_DEPOSITS_PER_DAY);
-  if (error) throw error;
-  return (data ?? []) as { id: string; transfer_no: string; status: CashTransferStatus }[];
 }
 
 /** "Rs. 80,000 (Cash + Easypaisa + Bank) + fuel Rs. 2,000" — for the notices. */

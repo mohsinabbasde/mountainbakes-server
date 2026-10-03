@@ -11,6 +11,7 @@ import {
   VerifyIncomeSchema,
   type FinanceDocStatus,
   type IncomeApprovalStatus,
+  type UserRole,
 } from '../shared';
 import {
   approveIncome,
@@ -47,8 +48,8 @@ export const router = Router();
 
 router.use(authenticate);
 
-function actorOf(req: AuthRequest): { uid: string; name: string } {
-  return { uid: req.user!.uid, name: req.user!.email };
+function actorOf(req: AuthRequest): { uid: string; name: string; role: UserRole } {
+  return { uid: req.user!.uid, name: req.user!.email, role: req.user!.role };
 }
 
 // ---------------------------------------------------------------------------
@@ -266,7 +267,7 @@ entriesRouter.put(
     try {
       const id = String(req.params['id']);
       const before = await getTransaction(id);
-      const doc = await updateTransaction(id, req.body);
+      const doc = await updateTransaction(id, req.body, actorOf(req));
 
       await logFinanceAudit(req, {
         entity: 'finance_transaction',
