@@ -34,8 +34,6 @@ export const RestrictionGroupSchemas = {
     hourly: z.object({
       enabled: z.boolean(),
       threshold: z.number().int().min(1).max(1000),
-      warnAtThreshold: z.boolean(),
-      mode: z.enum(['warn', 'block']),
     }),
   }),
   cash: z.object({

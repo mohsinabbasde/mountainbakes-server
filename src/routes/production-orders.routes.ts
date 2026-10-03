@@ -17,6 +17,7 @@ import {
   BRANCH_ROLES,
   isBranchRole,
   type ProductionShortfall,
+  evalProductionShortage,
 } from '../shared';
 import { bindAttachments, listAttachmentsFor } from '../services/attachments.service';
 import { notify } from '../services/push.service';
@@ -27,7 +28,7 @@ import { getAppSettings, orderWindowMinutes } from '../services/settings.service
 import { assertBusinessDayOpen } from '../middleware/assertBusinessDayOpen';
 import { idempotent } from '../middleware/idempotency';
 import { resolveClientBusinessDate } from '../utils/clientBusinessDate';
-import { checkDemand, enforceRestrictions, type RestrictionGuard } from '../services/restriction.service';
+import { checkDemand, enforceRestrictions, logRestrictionEvent, type RestrictionGuard } from '../services/restriction.service';
 import { rowToApi } from '../utils/case';
 import { invalidate } from '../utils/cache';
 
@@ -582,6 +583,11 @@ function insufficientStockBody(shortfalls: ProductionShortfall[]) {
     error: 'INSUFFICIENT_STOCK',
     message,
     shortfalls,
+    // The same shortage as a Restriction Rules notice (migration 136), in the
+    // `details` the web client already reads: the Production demand popup shows
+    // every short product with its exact quantities, in place, instead of a
+    // toast that says only INSUFFICIENT_STOCK.
+    details: { code: 'restriction', allowed: false, restriction: evalProductionShortage(shortfalls) },
     ...(shortfalls.length === 1 && first
       ? {
           productId: first.productId,
@@ -657,6 +663,16 @@ router.put('/:id/review', requireRole('super_admin', 'production_user'), validat
       | { status: 'insufficient_stock'; shortfalls: ProductionShortfall[] };
 
     if (result.status === 'insufficient_stock') {
+      await logRestrictionEvent({
+        ruleCode: 'PRODUCTION_STOCK_SHORTAGE',
+        actor: { uid: req.user!.uid, name: req.user!.email },
+        branch: null,
+        ref: id,
+        currentValue: result.shortfalls.map((s) => `${s.productName} −${s.shortage}`).join(', ').slice(0, 200),
+        threshold: `${result.shortfalls.length} short`,
+        action: 'Submit for verification',
+        result: 'Blocked',
+      });
       res.status(409).json(insufficientStockBody(result.shortfalls));
       return;
     }

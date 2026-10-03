@@ -15,6 +15,7 @@ export const RESTRICTION_CODES = [
   'CASH_DEPOSIT_LIMIT',
   'LEDGER_BACKDATE',
   'COMPANY_SHARE_INCOME',
+  'PRODUCTION_STOCK_SHORTAGE',
 ] as const;
 export type RestrictionCode = (typeof RESTRICTION_CODES)[number];
 
@@ -42,6 +43,8 @@ export interface Restriction {
   /** Paragraphs shown after `list`. */
   after?: string[];
   stats?: RestrictionStat[];
+  /** Production stock short of a demand — one row per product, exact quantities. */
+  shortages?: { productName: string; required: number; available: number; short: number }[];
   /** Sold-percentage bar: both values are 0–100. */
   meter?: { value: number; required: number };
   /** The admin's reason on a rejected request. */
@@ -80,7 +83,12 @@ export interface RestrictionRules {
     lowSales: { enabled: boolean; minSoldPercent: number };
   };
   sales: {
-    hourly: { enabled: boolean; threshold: number; warnAtThreshold: boolean; mode: 'warn' | 'block' };
+    /**
+     * Minimum sales activity: a branch that has recorded fewer than `threshold`
+     * completed sales in the current hour is shown a warning. Never blocks — a
+     * till must not be stopped for selling too little.
+     */
+    hourly: { enabled: boolean; threshold: number };
   };
   cash: {
     dailyLimit: { enabled: boolean; limit: number; allowExceptions: boolean };
@@ -100,10 +108,7 @@ export const DEFAULT_RESTRICTION_RULES: RestrictionRules = {
     lowSales: { enabled: true, minSoldPercent: 30 },
   },
   sales: {
-    // 'warn', not 'block': a blocked till is a lost sale, and whether the third
-    // entry in an hour should really be refused is the owner's call to make in
-    // Admin Settings, not a default.
-    hourly: { enabled: true, threshold: 2, warnAtThreshold: true, mode: 'warn' },
+    hourly: { enabled: true, threshold: 2 },
   },
   cash: { dailyLimit: { enabled: true, limit: 3, allowExceptions: true } },
   ledger: { backdate: { enabled: true, allowedDays: 3 } },
