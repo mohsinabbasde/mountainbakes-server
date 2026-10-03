@@ -14,6 +14,7 @@ import {
   evalLedgerBackdate,
   evalLowSales,
   evalPendingDemand,
+  enforcesProductionStock,
   evalProductionShortage,
   mergeRules,
   pickRestriction,
@@ -207,19 +208,35 @@ describe('production — stock shortage', () => {
     assert.equal(evalProductionShortage([]), null);
   });
 
-  test('one short product → named, with exact quantities', () => {
-    const r = evalProductionShortage([{ productName: 'Cream Puff', requested: 100, available: 75, shortage: 25 }])!;
+  test('one short product → named, with exact quantities, and told what to do', () => {
+    const r = evalProductionShortage([{ productName: 'Cream Puff', requested: 100, available: 70, shortage: 30 }])!;
+    assert.equal(r.code, 'PRODUCTION_STOCK_SHORTAGE');
     assert.equal(r.severity, 'blocking');
-    assert.equal(r.title, 'Stock Shortage');
-    assert.deepEqual(r.shortages, [{ productName: 'Cream Puff', required: 100, available: 75, short: 25 }]);
+    assert.equal(allows(r), false);
+    assert.equal(r.title, 'Production Stock Shortage');
+    assert.deepEqual(r.messages, ['Production stock is less than demand stock.']);
+    assert.deepEqual(r.shortages, [{ productName: 'Cream Puff', required: 100, available: 70, short: 30 }]);
+    assert.match(r.after!.join(' '), /add new stock/);
+    assert.match(r.after!.join(' '), /contact the Admin for approval of this demand/);
   });
 
   test('several short products → every one is listed', () => {
     const r = evalProductionShortage([
-      { productName: 'Cream Puff', requested: 100, available: 75, shortage: 25 },
-      { productName: 'Lotus Pastry', requested: 50, available: 40, shortage: 10 },
+      { productName: 'Cream Puff', requested: 100, available: 70, shortage: 30 },
+      { productName: 'Chocolate Balls', requested: 50, available: 30, shortage: 20 },
     ])!;
-    assert.deepEqual(r.shortages!.map((x) => [x.productName, x.short]), [['Cream Puff', 25], ['Lotus Pastry', 10]]);
+    assert.deepEqual(r.shortages!.map((x) => [x.productName, x.short]), [['Cream Puff', 30], ['Chocolate Balls', 20]]);
+  });
+
+  test('the rule decides whether stock is checked; only an allowed admin override gets past it', () => {
+    const on = { enabled: true, allowAdminOverride: true };
+    assert.equal(enforcesProductionStock(on, { adminOverride: false }), true);
+    assert.equal(enforcesProductionStock(on, { adminOverride: true }), false);
+    assert.equal(enforcesProductionStock({ enabled: true, allowAdminOverride: false }, { adminOverride: true }), true);
+    assert.equal(enforcesProductionStock({ enabled: false, allowAdminOverride: false }, { adminOverride: false }), false);
+    assert.deepEqual(D.production.stockShortage, on);
+    assert.equal(RestrictionGroupSchemas.production.safeParse(D.production).success, true);
+    assert.equal(RestrictionGroupSchemas.production.safeParse({ stockShortage: { enabled: true } }).success, false);
   });
 });
 

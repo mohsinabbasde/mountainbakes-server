@@ -179,6 +179,8 @@ before(async () => {
   const migration = readFileSync(join(__dirname, '../../../supabase/migrations/20261003000136_restriction_rules.sql'), 'utf8');
   // One transaction, as `supabase db push` applies it.
   await db.exec(`begin;${migration}commit;`);
+  const productionGroup = readFileSync(join(__dirname, '../../../supabase/migrations/20261003000137_restriction_rules_production_group.sql'), 'utf8');
+  await db.exec(`begin;${productionGroup}commit;`);
 
   const one = async (q: string) => (await sql(q)).rows[0]!['id'] as string;
   ids.a = await one(`insert into branches (name) values ('Gulberg') returning id`);
@@ -224,6 +226,18 @@ describe('configuration', () => {
     const [event] = await svc.listRestrictionEvents({ ruleCode: 'RULES_CONFIG', limit: 1 });
     assert.equal(event!.result, 'Updated');
     assert.match(event!.eventNo, /^RE-\d{6}$/);
+  });
+
+  test('the production group is on by default, saves like any other, and an unknown group is refused by the table', async () => {
+    await reset();
+    assert.deepEqual((await svc.getRestrictionRules()).production.stockShortage, { enabled: true, allowAdminOverride: true });
+
+    await svc.saveRestrictionGroup('production', { stockShortage: { enabled: true, allowAdminOverride: false } }, admin());
+    const state = await svc.getRestrictionRulesState();
+    assert.deepEqual(state.rules.production.stockShortage, { enabled: true, allowAdminOverride: false });
+    assert.equal(state.saved.production.updatedByName, 'admin@mb.test');
+
+    await assert.rejects(sql(`insert into restriction_rules (group_key, config) values ('bogus', '{}')`));
   });
 });
 

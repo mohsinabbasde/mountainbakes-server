@@ -36,6 +36,9 @@ export const RestrictionGroupSchemas = {
       threshold: z.number().int().min(1).max(1000),
     }),
   }),
+  production: z.object({
+    stockShortage: z.object({ enabled: z.boolean(), allowAdminOverride: z.boolean() }),
+  }),
   cash: z.object({
     dailyLimit: z.object({
       enabled: z.boolean(),

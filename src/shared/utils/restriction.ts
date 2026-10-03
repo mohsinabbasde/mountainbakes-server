@@ -365,6 +365,22 @@ export function evalHourlySales(
 // ─── Production ──────────────────────────────────────────────────────────────
 
 /**
+ * Whether Submit for Verification must be checked against production stock.
+ *
+ * `adminOverride` is a Super Admin consciously sending a short demand through
+ * (`?override=1`); the route has already established the role. It is honoured
+ * only while the rule allows it, and it is the ONLY way past the check — adding
+ * stock makes the check pass, it never approves anything by itself.
+ */
+export function enforcesProductionStock(
+  cfg: RestrictionRules['production']['stockShortage'],
+  input: { adminOverride: boolean },
+): boolean {
+  if (!cfg.enabled) return false;
+  return !(input.adminOverride && cfg.allowAdminOverride);
+}
+
+/**
  * Production stock short of a demand at "Submit for Verification". Names every
  * short product with its exact quantities — never a bare "stock is
  * insufficient". The arithmetic is the database's (review_production_order_checked);
@@ -377,8 +393,8 @@ export function evalProductionShortage(
   return {
     code: 'PRODUCTION_STOCK_SHORTAGE',
     severity: 'blocking',
-    title: 'Stock Shortage',
-    messages: [],
+    title: 'Production Stock Shortage',
+    messages: ['Production stock is less than demand stock.'],
     shortages: shortfalls.map((s) => ({
       productName: s.productName,
       required: s.requested,
@@ -386,8 +402,8 @@ export function evalProductionShortage(
       short: s.shortage,
     })),
     after: [
-      'Additional stock is required before this demand can be approved.',
-      'After adding new stock, contact Admin for approval of this demand.',
+      'Please add new stock for the required products.',
+      'After adding the new stock, contact the Admin for approval of this demand.',
     ],
     requiresAdminApproval: false,
   };
