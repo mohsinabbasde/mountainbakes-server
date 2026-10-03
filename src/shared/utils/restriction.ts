@@ -188,13 +188,13 @@ export function evalPendingDemand(
     return {
       code: 'DEMAND_PENDING_LIMIT',
       severity: 'blocking',
-      title: 'Demand Forwarding Restricted',
+      title: 'New Demand Not Authorized',
       messages: [plural(count, 'Your demand number:', 'Your demand numbers:')],
       list,
       after: [
-        plural(count, 'is still not verified.', 'are still not verified.'),
-        'Your new demand is not authorized.',
-        'Please verify the demands you have received, or contact the Admin to resolve this problem.',
+        plural(count, 'is still awaiting verification.', 'are still awaiting verification.'),
+        'You cannot forward a new demand until the pending demands are verified.',
+        'Please contact the Admin to resolve this issue.',
       ],
       threshold: cfg.blockAt,
       currentValue: count,
@@ -208,8 +208,9 @@ export function evalPendingDemand(
       severity: 'warning',
       title: 'Warning',
       messages: [
-        `You currently have ${count} ${plural(count, 'demand', 'demands')} Awaiting Verification.`,
-        'Please verify the demands you have received before submitting additional demands.',
+        `You currently have ${count} ${plural(count, 'demand', 'demands')} awaiting verification.`,
+        'Please wait for verification before submitting additional demands.',
+        'Pending Demand Numbers:',
       ],
       list,
       threshold: cfg.blockAt,
@@ -331,46 +332,64 @@ export function evalLowSales(
 // ─── Sales ───────────────────────────────────────────────────────────────────
 
 /**
- * Hourly sales activity. `count` is the number of sales ALREADY recorded by the
- * branch in the current clock hour, so it answers "may the next one go in?":
- *
- *   below the threshold  → nothing
- *   at the threshold     → the first warning (if switched on); the next sale is
- *                          the one that exceeds, so in 'block' mode it is refused
- *   above the threshold  → the "maximum reached" warning ('warn' mode only —
- *                          'block' never lets the count get here)
+ * Hourly sales activity — a MINIMUM, not a cap. `count` is the number of
+ * completed sales the branch has recorded in the current clock hour; while it
+ * is below the required number the New Sale popup carries a warning. It never
+ * blocks: refusing a sale because too few were made would only make it worse.
  */
 export function evalHourlySales(
   cfg: RestrictionRules['sales']['hourly'],
   input: { count: number; hourLabel: string },
 ): Restriction | null {
-  if (!cfg.enabled || input.count < cfg.threshold) return null;
-
-  const stats = [
-    { label: 'Business hour', value: input.hourLabel },
-    { label: 'Entries', value: `${input.count} / ${cfg.threshold}` },
-  ];
-  const maxReached: Pick<Restriction, 'title' | 'messages'> = {
-    title: 'Sales Activity Warning',
-    messages: [
-      'The maximum hourly sales-entry threshold has been reached.',
-      'Please verify that sales are being entered correctly and that stock is being sold.',
-      'Contact Admin if this restriction needs review.',
-    ],
-  };
-  const base = { code: 'HOURLY_SALES_LIMIT' as const, stats, threshold: cfg.threshold, currentValue: input.count, requiresAdminApproval: false };
-
-  if (cfg.mode === 'block') return { ...base, ...maxReached, severity: 'blocking' };
-  if (input.count > cfg.threshold) return { ...base, ...maxReached, severity: 'warning' };
-  if (!cfg.warnAtThreshold) return null;
+  if (!cfg.enabled || input.count >= cfg.threshold) return null;
   return {
-    ...base,
+    code: 'HOURLY_SALES_LIMIT',
     severity: 'warning',
     title: 'Sales Activity Warning',
     messages: [
-      `${input.count} sales ${plural(input.count, 'entry has', 'entries have')} already been recorded during this hour.`,
-      'Please ensure sales are being entered regularly and accurately.',
+      input.count === 0
+        ? 'Your branch has not recorded any sale during the current hourly period.'
+        : `Your branch has recorded only ${input.count} ${plural(input.count, 'sale', 'sales')} during the current hourly period.`,
+      'Please continue normal sales activity.',
     ],
+    stats: [
+      { label: 'Business hour', value: input.hourLabel },
+      { label: 'Sales this hour', value: `${input.count} / ${cfg.threshold}` },
+    ],
+    threshold: cfg.threshold,
+    currentValue: input.count,
+    requiresAdminApproval: false,
+  };
+}
+
+// ─── Production ──────────────────────────────────────────────────────────────
+
+/**
+ * Production stock short of a demand at "Submit for Verification". Names every
+ * short product with its exact quantities — never a bare "stock is
+ * insufficient". The arithmetic is the database's (review_production_order_checked);
+ * this only words it.
+ */
+export function evalProductionShortage(
+  shortfalls: { productName: string; requested: number; available: number; shortage: number }[],
+): Restriction | null {
+  if (shortfalls.length === 0) return null;
+  return {
+    code: 'PRODUCTION_STOCK_SHORTAGE',
+    severity: 'blocking',
+    title: 'Stock Shortage',
+    messages: [],
+    shortages: shortfalls.map((s) => ({
+      productName: s.productName,
+      required: s.requested,
+      available: s.available,
+      short: s.shortage,
+    })),
+    after: [
+      'Additional stock is required before this demand can be approved.',
+      'After adding new stock, contact Admin for approval of this demand.',
+    ],
+    requiresAdminApproval: false,
   };
 }
 

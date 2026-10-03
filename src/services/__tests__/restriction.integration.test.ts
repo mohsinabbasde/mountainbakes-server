@@ -36,7 +36,7 @@ const STUBS = `
   create table production_orders (
     id uuid primary key default gen_random_uuid(), branch_id uuid, demand_number text, status text,
     submitted_at timestamptz not null default now());
-  create table orders (id uuid primary key default gen_random_uuid(), branch_id uuid, created_at timestamptz not null default now());
+  create table orders (id uuid primary key default gen_random_uuid(), branch_id uuid, status text not null default 'delivered', created_at timestamptz not null default now());
   create table cash_transfers (
     id uuid primary key default gen_random_uuid(), transfer_no text, branch_id uuid, business_date date,
     status text, deleted_at timestamptz, created_at timestamptz not null default now());
@@ -365,25 +365,23 @@ describe('demand', () => {
 });
 
 describe('sales', () => {
-  test('counted per branch in the current hour by the server clock; warn then block as configured', async () => {
+  test('completed sales are counted per branch in the current hour by the server clock; too few warns, never blocks', async () => {
     await reset();
-    await sql(`insert into orders (branch_id) values ($1), ($1)`, [ids.a]);
-    await sql(`insert into orders (branch_id, created_at) values ($1, now() - interval '2 hours')`, [ids.a]);
-    await sql(`insert into orders (branch_id) values ($1)`, [ids.b]);
+    assert.equal((await svc.checkSale({ branchId: ids.a })).check.restriction!.currentValue, 0);
 
-    const warned = await svc.checkSale({ branchId: ids.a });
-    assert.equal(warned.check.allowed, true);
-    assert.equal(warned.check.restriction!.currentValue, 2);
+    await sql(`insert into orders (branch_id, status) values ($1, 'delivered')`, [ids.a]);
+    // None of these is sales activity for branch A this hour.
+    await sql(`insert into orders (branch_id, status) values ($1, 'pending'), ($1, 'cancelled')`, [ids.a]);
+    await sql(`insert into orders (branch_id, status, created_at) values ($1, 'delivered', now() - interval '2 hours')`, [ids.a]);
+    await sql(`insert into orders (branch_id, status) values ($1, 'delivered')`, [ids.b]);
 
-    const guard = await svc.enforceRestrictions(warned, ctx('New sale'));
-    await guard.commit('MB-000777');
-    const [event] = await svc.listRestrictionEvents({ ruleCode: 'HOURLY_SALES_LIMIT', limit: 1 });
-    assert.deepEqual([event!.result, event!.ref, event!.currentValue, event!.threshold], ['Warned', 'MB-000777', '2', '2']);
+    const low = await svc.checkSale({ branchId: ids.a });
+    assert.equal(low.check.allowed, true);
+    assert.equal(low.check.restriction!.severity, 'warning');
+    assert.equal(low.check.restriction!.currentValue, 1);
 
-    assert.deepEqual((await svc.checkSale({ branchId: ids.b })).check, { allowed: true, restriction: null });
-
-    await svc.saveRestrictionGroup('sales', { hourly: { enabled: true, threshold: 2, warnAtThreshold: true, mode: 'block' } }, admin());
-    await assert.rejects(async () => svc.enforceRestrictions(await svc.checkSale({ branchId: ids.a }), ctx('New sale')), svc.RestrictionError);
+    await sql(`insert into orders (branch_id, status) values ($1, 'delivered')`, [ids.a]);
+    assert.deepEqual((await svc.checkSale({ branchId: ids.a })).check, { allowed: true, restriction: null });
   });
 });
 

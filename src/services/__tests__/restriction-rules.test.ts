@@ -14,6 +14,7 @@ import {
   evalLedgerBackdate,
   evalLowSales,
   evalPendingDemand,
+  evalProductionShortage,
   mergeRules,
   pickRestriction,
   type RequestState,
@@ -46,7 +47,7 @@ describe('demand — pending verification limit', () => {
     const r = evalPendingDemand(cfg, dmds(2))!;
     assert.equal(r.severity, 'warning');
     assert.equal(allows(r), true);
-    assert.match(r.messages[0]!, /2 demands Awaiting Verification/);
+    assert.match(r.messages[0]!, /2 demands awaiting verification/);
   });
 
   test('3 and 4 pending → blocked, listing the real demand numbers', () => {
@@ -168,42 +169,57 @@ describe('demand — low sales after closing', () => {
 });
 
 describe('sales — hourly activity', () => {
-  const warn = D.sales.hourly;
-  const block = { ...warn, mode: 'block' as const };
-  const run = (cfg: typeof warn, count: number) => evalHourlySales(cfg, { count, hourLabel: '10:00–11:00' });
+  const cfg = D.sales.hourly;
+  const run = (count: number) => evalHourlySales(cfg, { count, hourLabel: '10:00–11:00' });
 
-  test('0 and 1 sales this hour → allowed, nothing shown', () => {
-    assert.equal(run(warn, 0), null);
-    assert.equal(run(warn, 1), null);
-    assert.equal(run(block, 1), null);
-  });
-
-  test('2 sales this hour → warning', () => {
-    const r = run(warn, 2)!;
+  test('0 sales this hour → warning', () => {
+    const r = run(0)!;
     assert.equal(r.severity, 'warning');
-    assert.match(r.messages[0]!, /2 sales entries have already been recorded/);
+    assert.match(r.messages[0]!, /has not recorded any sale/);
   });
 
-  test('3rd sale, configured to warn → saved, warned', () => {
-    assert.equal(allows(run(warn, 2)), true);
-    const after = run(warn, 3)!;
-    assert.equal(after.severity, 'warning');
-    assert.match(after.messages[0]!, /maximum hourly sales-entry threshold/);
+  test('1 sale this hour → warning, naming the count', () => {
+    const r = run(1)!;
+    assert.equal(r.severity, 'warning');
+    assert.match(r.messages[0]!, /recorded only 1 sale during the current hourly period/);
+    assert.equal(r.currentValue, 1);
+    assert.equal(r.threshold, 2);
   });
 
-  test('3rd sale, configured to block → refused', () => {
-    const r = run(block, 2)!;
+  test('2 or more sales → normal, nothing shown', () => {
+    assert.equal(run(2), null);
+    assert.equal(run(9), null);
+  });
+
+  test('it never blocks a sale, and can be switched off', () => {
+    assert.equal(allows(run(0)), true);
+    assert.equal(evalHourlySales({ ...cfg, enabled: false }, { count: 0, hourLabel: '10:00–11:00' }), null);
+  });
+
+  test('the required number is configurable', () => {
+    assert.equal(evalHourlySales({ enabled: true, threshold: 5 }, { count: 4, hourLabel: '10:00–11:00' })!.severity, 'warning');
+    assert.equal(evalHourlySales({ enabled: true, threshold: 5 }, { count: 5, hourLabel: '10:00–11:00' }), null);
+  });
+});
+
+describe('production — stock shortage', () => {
+  test('demand within stock → nothing', () => {
+    assert.equal(evalProductionShortage([]), null);
+  });
+
+  test('one short product → named, with exact quantities', () => {
+    const r = evalProductionShortage([{ productName: 'Cream Puff', requested: 100, available: 75, shortage: 25 }])!;
     assert.equal(r.severity, 'blocking');
-    assert.equal(allows(r), false);
+    assert.equal(r.title, 'Stock Shortage');
+    assert.deepEqual(r.shortages, [{ productName: 'Cream Puff', required: 100, available: 75, short: 25 }]);
   });
 
-  test('new hour → the count starts again', () => {
-    assert.equal(run(block, 0), null);
-  });
-
-  test('warning at threshold can be switched off without affecting the block', () => {
-    assert.equal(run({ ...warn, warnAtThreshold: false }, 2), null);
-    assert.equal(run({ ...block, warnAtThreshold: false }, 2)!.severity, 'blocking');
+  test('several short products → every one is listed', () => {
+    const r = evalProductionShortage([
+      { productName: 'Cream Puff', requested: 100, available: 75, shortage: 25 },
+      { productName: 'Lotus Pastry', requested: 50, available: 40, shortage: 10 },
+    ])!;
+    assert.deepEqual(r.shortages!.map((x) => [x.productName, x.short]), [['Cream Puff', 25], ['Lotus Pastry', 10]]);
   });
 });
 

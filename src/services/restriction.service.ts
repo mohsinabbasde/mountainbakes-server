@@ -575,6 +575,9 @@ export async function checkSale(input: { branchId: string; now?: Date }): Promis
     .from('orders')
     .select('id', { count: 'exact', head: true })
     .eq('branch_id', input.branchId)
+    // Completed sales only: a counter sale is 'delivered' the moment it is
+    // saved. An open or cancelled order is not sales activity.
+    .eq('status', 'delivered')
     .gte('created_at', hour.fromISO);
   if (error) throw error;
 
@@ -774,7 +777,7 @@ export async function getRestrictionMonitor(): Promise<RestrictionMonitorRow[]> 
     getRestrictionRules(),
     supabaseAdmin.from('branches').select('id, name').eq('is_active', true).order('name'),
     pendingDemands(),
-    supabaseAdmin.from('orders').select('branch_id').gte('created_at', hour.fromISO).limit(5000),
+    supabaseAdmin.from('orders').select('branch_id').eq('status', 'delivered').gte('created_at', hour.fromISO).limit(5000),
     withoutDeleted(supabaseAdmin.from('cash_transfers').select('branch_id'))
       .eq('business_date', today)
       .neq('status', 'rejected')
