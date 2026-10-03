@@ -46,7 +46,7 @@ describe('demand — pending verification limit', () => {
     const r = evalPendingDemand(cfg, dmds(2))!;
     assert.equal(r.severity, 'warning');
     assert.equal(allows(r), true);
-    assert.match(r.messages[0]!, /2 demands waiting for verification/);
+    assert.match(r.messages[0]!, /2 demands Awaiting Verification/);
   });
 
   test('3 and 4 pending → blocked, listing the real demand numbers', () => {

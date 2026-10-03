@@ -174,7 +174,7 @@ function approvalGated(copy: ApprovalCopy, approvalsOpen: boolean, request: Requ
 
 /**
  * Pending-verification limit. `pendingNumbers` are the branch's real demand
- * numbers still waiting on review, oldest first.
+ * numbers in the Awaiting Verification status, oldest first.
  */
 export function evalPendingDemand(
   cfg: RestrictionRules['demand']['pendingLimit'],
@@ -194,7 +194,7 @@ export function evalPendingDemand(
       after: [
         plural(count, 'is still not verified.', 'are still not verified.'),
         'Your new demand is not authorized.',
-        'Please contact the Admin to resolve this problem.',
+        'Please verify the demands you have received, or contact the Admin to resolve this problem.',
       ],
       threshold: cfg.blockAt,
       currentValue: count,
@@ -208,8 +208,8 @@ export function evalPendingDemand(
       severity: 'warning',
       title: 'Warning',
       messages: [
-        `You currently have ${count} ${plural(count, 'demand', 'demands')} waiting for verification.`,
-        'Please wait for the pending demands to be verified before submitting additional demands.',
+        `You currently have ${count} ${plural(count, 'demand', 'demands')} Awaiting Verification.`,
+        'Please verify the demands you have received before submitting additional demands.',
       ],
       list,
       threshold: cfg.blockAt,

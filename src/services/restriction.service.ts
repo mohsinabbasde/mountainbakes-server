@@ -444,12 +444,19 @@ async function ledgerHead(id: string): Promise<{ id: string; name: string; type:
   return data as { id: string; name: string; type: string; code: string };
 }
 
-/** The branch's demands still waiting on Production/Admin review, oldest first. */
+/**
+ * The demands that count towards the pending-verification limit, oldest first:
+ * status `awaiting_verification` — Production has sent the goods and the branch
+ * has not yet confirmed receipt (the "Awaiting Verification" status on screen).
+ * The branch clears them itself by verifying what it received. A `pending`
+ * demand, still waiting on Production, does not count: the branch cannot act
+ * on it.
+ */
 async function pendingDemands(branchId?: string): Promise<{ branchId: string; demandNumber: string; submittedAt: string }[]> {
   let query = supabaseAdmin
     .from('production_orders')
     .select('branch_id, demand_number, submitted_at')
-    .eq('status', 'pending')
+    .eq('status', 'awaiting_verification')
     .order('submitted_at', { ascending: true })
     .limit(1000);
   if (branchId) query = query.eq('branch_id', branchId);
