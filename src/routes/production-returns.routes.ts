@@ -10,7 +10,7 @@ import {
   businessDaysAgoStr,
 } from '../shared';
 import { notify } from '../services/push.service';
-import { returnIntoPool, recordProductionAdjustment } from '../services/production-stock.service';
+import { acceptReturnIntoReturnStock } from '../services/return-stock.service';
 import { applyStockMovement } from '../services/stock.service';
 import { rowToApi } from '../utils/case';
 
@@ -143,12 +143,15 @@ router.post('/', validate(CreateProductionReturnSchema), async (req: AuthRequest
 
 // PUT /api/production-returns/:id/review — approve, reject, or send back.
 //
+// "return stock" below is Branch Return Stock, a separate inventory from the
+// production pool. NO outcome here moves production stock (migration 139).
+//
 // THREE OUTCOMES, and which stock moves depends on `source` — on how much of the
 // return has already happened by the time Production sees it:
 //
 //                   source 'branch'                   source null (recorded here)
 //                   branch already debited at raise    nothing moved yet
-//   accepted        pool ↑                             pool ↑ AND branch ↓
+//   accepted        return stock ↑                     return stock ↑ AND branch ↓
 //   rejected        branch ↑ — units go back           nothing to undo
 //   returned        nothing; back to the branch        refused (see below)
 //
@@ -189,33 +192,53 @@ router.put('/:id/review', validate(ReviewProductionReturnSchema), async (req: Au
       return;
     }
 
-    // Atomic check-and-set: the `.eq('status', 'pending')` predicate is what makes
-    // a double review a no-op (migration 05). A zero-row result means the return
-    // was reviewed by someone else in between — the not-found case was already
-    // ruled out above.
+    // Atomic check-and-set: the `status = 'pending'` predicate is what makes a
+    // double review a no-op (migration 05). A null result means the return was
+    // reviewed by someone else in between — the not-found case was already ruled
+    // out above.
+    //
+    // An ACCEPT goes through `accept_production_return` (migration 139), which
+    // does that check-and-set AND credits Branch Return Stock in one transaction.
+    // It credits Return Stock only. Production stock is not touched by a return,
+    // whatever the disposition: the single path from one inventory to the other
+    // is the explicit transfer on /api/return-stock/transfer.
     //
     // `reviewed_*` is stamped on all three, 'returned' included: it is the record
     // of who last looked at the row, and a send-back is a review. It is cleared
     // again when the branch resubmits (`branch-returns.service.ts`), because a
     // row waiting on Production must not name a reviewer.
-    const { data: reviewed, error: updErr } = await supabaseAdmin
-      .from('production_returns')
-      .update({
-        status,
-        // Only an accept carries a disposition; the schema already refuses one on
-        // a reject or a send-back, and neither moves production stock.
-        ...(status === 'accepted'
-          ? { disposition, ...(dispositionNote ? { disposition_note: dispositionNote } : {}) }
-          : {}),
-        reviewed_by: req.user!.uid,
-        reviewed_by_name: req.user!.email,
-        reviewed_at: new Date().toISOString(),
-      })
-      .eq('id', id)
-      .eq('status', 'pending')
-      .select('branch_id, product_id, product_name, qty, reason')
-      .maybeSingle();
-    if (updErr) throw updErr;
+    let reviewed: { branch_id: string; product_id: string; product_name: string; qty: number | string; reason: string | null } | null;
+    if (status === 'accepted') {
+      const accepted = await acceptReturnIntoReturnStock({
+        returnId: id,
+        disposition,
+        dispositionNote: dispositionNote ?? null,
+        actorId: req.user!.uid,
+        actorName: req.user!.email,
+      });
+      reviewed = accepted && {
+        branch_id: accepted.branchId,
+        product_id: accepted.productId,
+        product_name: accepted.productName,
+        qty: accepted.qty,
+        reason: accepted.reason,
+      };
+    } else {
+      const { data, error: updErr } = await supabaseAdmin
+        .from('production_returns')
+        .update({
+          status,
+          reviewed_by: req.user!.uid,
+          reviewed_by_name: req.user!.email,
+          reviewed_at: new Date().toISOString(),
+        })
+        .eq('id', id)
+        .eq('status', 'pending')
+        .select('branch_id, product_id, product_name, qty, reason')
+        .maybeSingle();
+      if (updErr) throw updErr;
+      reviewed = data;
+    }
 
     if (!reviewed) {
       res.status(409).json({ error: 'Return already reviewed' });
@@ -224,47 +247,7 @@ router.put('/:id/review', validate(ReviewProductionReturnSchema), async (req: Au
 
     const qty = Number(reviewed.qty);
 
-    // Accepted returns flow INTO the production pool. Idempotent by ref_id, so
-    // the separate-transaction gap carried over from the original is retry-safe.
-    // The refId is the return's own id, which is also what the raise path minted
-    // for it — one product's return credits the pool once however often this runs.
     if (status === 'accepted') {
-      // The units came back — always recorded, whatever condition they are in.
-      await returnIntoPool(
-        id,
-        { productId: reviewed.product_id, productName: reviewed.product_name, qty },
-        undefined,
-        {
-          branchId: reviewed.branch_id,
-          reason: reviewed.reason ?? null,
-          actorId: req.user!.uid,
-          actorName: req.user!.email,
-        },
-      );
-
-      // ...but they only become SALEABLE if their condition says so (§10).
-      //
-      // A write-off is booked as its own ADJUSTMENT_OUT rather than by skipping
-      // the credit above. Both movements are then in the ledger — Return Stock
-      // reports what physically returned, Adjustment reports the write-off, and
-      // the balance nets to no change. Skipping the credit would have left the
-      // same balance while erasing the fact that anything came back at all, and
-      // nobody could later ask how much stock was written off or why.
-      if (disposition !== 'saleable') {
-        await recordProductionAdjustment({
-          productId: reviewed.product_id,
-          productName: reviewed.product_name,
-          qty: -Math.abs(qty),
-          adjustmentType: disposition === 'expired' ? 'expired' : 'damaged',
-          reason:
-            dispositionNote ||
-            `${disposition === 'expired' ? 'Expired' : 'Damaged'} stock returned from branch — written off`,
-          remarks: `Return ${id}`,
-          actorId: req.user!.uid,
-          actorName: req.user!.email,
-        });
-      }
-
       // Branch side ONLY for a return Production recorded itself. See the table
       // above: a branch-raised return debited the shop when it was raised.
       if (!fromBranch) {
@@ -317,7 +300,7 @@ router.put('/:id/review', validate(ReviewProductionReturnSchema), async (req: Au
     // a rejected return has changed their balance back and a sent-back one is
     // waiting on them to correct it.
     const outcome = {
-      accepted: { title: 'Return Accepted', message: `${qty} × ${reviewed.product_name} returned to production` },
+      accepted: { title: 'Return Accepted', message: `${qty} × ${reviewed.product_name} received into return stock` },
       rejected: { title: 'Return Rejected', message: `${qty} × ${reviewed.product_name} is back in your branch stock` },
       returned: { title: 'Return Sent Back', message: `${qty} × ${reviewed.product_name} needs correcting before production can accept it` },
     }[status];

@@ -1,5 +1,5 @@
-// Central Production department operations: the production stock pool, product
-// returns, and production expenses. These are distinct from per-branch `stock`
+// Central Production department operations: the production stock pool, Branch
+// Return Stock, product returns, and production expenses. These are distinct from per-branch `stock`
 // (see stock.types.ts) — the production pool is a single, branch-agnostic pool
 // keyed by productId.
 
@@ -8,7 +8,14 @@
 export type ProductionStockMovementType =
   | 'prepare' // Production prepared units → pool +
   | 'transfer_out' // branch VERIFIED the delivery, goods left the pool → pool − (migration 58)
-  | 'return_in' // accepted return added back → pool +
+  // LEGACY. Before migration 139 an accepted return was credited to the pool
+  // automatically. Nothing writes this any more — an accepted return now lands in
+  // Branch Return Stock (`return_stock`) and never in the pool. The value stays
+  // because the old rows do.
+  | 'return_in'
+  // Explicit, authorised transfer from Branch Return Stock → pool + (migration
+  // 139). The ONLY way returned units can become production stock.
+  | 'return_transfer'
   | 'sale' // sold at the production counter → pool − (branch stock untouched)
   | 'adjustment';
 
@@ -63,13 +70,20 @@ export interface ProductionStockHistoryRow {
  *
  * ── THE ARITHMETIC ───────────────────────────────────────────────────────────
  *     totalStock = opening + preparedToday
- *     balance    = opening + preparedToday + returned + adjustment
- *                  − demandFulfilled − soldToday
+ *     balance    = opening + preparedToday + returnTransferIn + returned
+ *                  + adjustment − demandFulfilled − soldToday
  *     available  = balance − branchDemand
  *
  * `adjustment` is SIGNED, so the spec's "+ positive adjustments − negative
- * adjustments" is one addition of a number that may be negative. `returned` is
- * ADDED (accepted returns only — see below). Every figure is counted exactly once.
+ * adjustments" is one addition of a number that may be negative. Every figure is
+ * counted exactly once.
+ *
+ * ── BRANCH RETURNS ARE NOT IN HERE ───────────────────────────────────────────
+ * A branch return is Branch Return Stock (`ReturnStockRow`), a separate inventory
+ * with its own ledger. Accepting one moves NOTHING in this pool. The only return
+ * units inside the balance are the ones somebody explicitly transferred in
+ * (`returnTransferIn`) — and, on days before migration 139, the ones the old
+ * automatic credit booked (`returned`), which is zero on every day since.
  *
  * Note what `balance` does NOT subtract: OUTSTANDING branch demand. A branch
  * asking for goods does not consume them, and reducing the pool at submission
@@ -106,7 +120,16 @@ export interface ProductionStockFigures {
   demandFulfilled: number;
   /** Σ −sale on the day, reported positive. Production counter sales. */
   soldToday: number;
-  /** Σ return_in on the day — ACCEPTED, saleable returns only. Damaged/expired stock never lands here. */
+  /**
+   * Σ return_transfer on the day — units explicitly transferred in from Branch
+   * Return Stock. NOT the day's branch returns: those stay in Return Stock.
+   */
+  returnTransferIn: number;
+  /**
+   * LEGACY: Σ return_in on the day. Non-zero only on days before migration 139,
+   * when accepting a return credited the pool automatically. Kept so those closed
+   * days still add up; always 0 afterwards.
+   */
   returned: number;
   /** Σ adjustment on the day. SIGNED: the direction is the information. */
   adjustment: number;
@@ -167,6 +190,7 @@ export interface ProductionStockRow extends ProductionStockFigures {
  *
  * The stored types map:
  *   prepare → PREPARED · transfer_out → DEMAND_FULFILLED · return_in → RETURN
+ *   return_transfer → RETURN_TRANSFER
  *   sale → SALE · adjustment → ADJUSTMENT_IN (delta > 0) / ADJUSTMENT_OUT (delta < 0)
  */
 export type ProductionLedgerType =
@@ -176,6 +200,7 @@ export type ProductionLedgerType =
   | 'DEMAND_FULFILLED'
   | 'SALE'
   | 'RETURN'
+  | 'RETURN_TRANSFER'
   | 'ADJUSTMENT_IN'
   | 'ADJUSTMENT_OUT'
   | 'CLOSING';
@@ -233,18 +258,75 @@ export interface ProductionShortfall {
  * not stock, and treating every accepted return as saleable put it back on the
  * shelf for the counter and the next demand to draw against.
  *
- * A written-off return books BOTH a `return_in` (the units came back) and an
- * `adjustment` (they were written off). The balance nets to no change, but Return
- * Stock and Adjustment each report what actually happened rather than the pair
- * silently cancelling out of the record.
+ * Since migration 139 NO accepted return reaches production stock, whatever its
+ * disposition: every one lands in Branch Return Stock. The disposition is now the
+ * record of the goods' condition, which is what whoever later considers
+ * transferring them into production needs to know.
  */
 export type ProductionReturnDisposition = 'saleable' | 'damaged' | 'expired';
 
 export const RETURN_DISPOSITION_LABELS: Record<ProductionReturnDisposition, string> = {
-  saleable: 'Back to saleable stock',
-  damaged: 'Damaged — written off',
-  expired: 'Expired — written off',
+  saleable: 'Saleable',
+  damaged: 'Damaged',
+  expired: 'Expired',
 };
+
+// ── Branch Return Stock ──────────────────────────────────────────────────────
+
+/**
+ * Movements on the Branch Return Stock ledger (`return_stock_history`).
+ *
+ * There are exactly two, and no write-off: Return Stock goes up when a return is
+ * accepted and down only by an explicit transfer into production.
+ */
+export type ReturnStockMovementType =
+  | 'return_in' // accepted branch return → return stock +
+  | 'transfer_out'; // explicit transfer to production → return stock −
+
+/**
+ * One product's Branch Return Stock for a business day.
+ *
+ * A SEPARATE inventory from `ProductionStockRow`. The two are never summed: a
+ * figure here is not production stock until `transferredToday` says somebody
+ * moved it.
+ *
+ *     balance = opening + returnedToday − transferredToday
+ */
+export interface ReturnStockRow {
+  productId: string;
+  stockCode: string;
+  productName: string;
+  categoryId: string | null;
+  categoryName: string | null;
+  /** Σ delta before the day. */
+  opening: number;
+  /** Σ return_in on the day — returns accepted from branches. */
+  returnedToday: number;
+  /** Σ −transfer_out on the day, reported positive — moved into production stock. */
+  transferredToday: number;
+  /** Return Stock on hand at the end of the day. */
+  balance: number;
+}
+
+/** One row of the Branch Return Stock ledger. */
+export interface ReturnStockMovementRow {
+  id: string;
+  createdAt: string; // ISO UTC
+  businessDate: string;
+  productId: string;
+  productName: string;
+  type: ReturnStockMovementType;
+  /** SIGNED: + came back from a branch, − transferred to production. */
+  qty: number;
+  balanceAfter: number;
+  branchId: string | null;
+  branchName: string | null;
+  /** The return that booked it; null on a transfer. */
+  productionReturnId: string | null;
+  referenceId: string;
+  createdByName: string | null;
+  reason: string | null;
+}
 
 // ── Product Returns ──────────────────────────────────────────────────────────
 
@@ -255,11 +337,12 @@ export const RETURN_DISPOSITION_LABELS: Record<ProductionReturnDisposition, stri
  *
  * - `pending`  — awaiting Production. The units have already left the branch
  *                balance (a branch return moves them as it is saved) but the
- *                central pool has NOT been credited yet.
+ *                Branch Return Stock has NOT been credited yet.
  * - `returned` — Production handed it back to the branch to correct. Same stock
  *                position as `pending`, moves nothing on its own; the branch
  *                fixes the figure and resubmits, which returns it to `pending`.
- * - `accepted` — Production took it. The pool is credited. Final.
+ * - `accepted` — Production took it. Branch Return Stock is credited, NOT
+ *                production stock. Final.
  * - `rejected` — Production refused it. The units go back onto the branch
  *                balance. Final.
  *
@@ -286,7 +369,7 @@ export interface ProductionReturn {
    * which stock has already moved by then, and the review has to know:
    *
    * - `'branch'` — the units are already OFF the branch balance and are waiting
-   *   on Production, so accepting only credits the pool and rejecting only puts
+   *   on Production, so accepting only credits Branch Return Stock and rejecting only puts
    *   them back on the branch.
    * - `null` — nothing has moved at all; it is Production's note that goods
    *   arrived, so accepting does BOTH movements and rejecting does none.

@@ -107,15 +107,24 @@ export const ReviewProductionReturnSchema = z
     dispositionNote: z.string().trim().max(500).optional(),
   })
   .refine((r) => r.status === 'accepted' || !r.disposition || r.disposition === 'saleable', {
-    message: 'Only an accepted return can be written off — reject it instead.',
+    message: 'Only an accepted return can be marked damaged or expired — reject it instead.',
     path: ['disposition'],
   })
   .refine((r) => r.disposition === undefined || r.disposition === 'saleable' || !!r.dispositionNote, {
     // Writing stock off is the one outcome here that destroys value, so it is the
     // one that has to say why — the same rule adjustments follow.
-    message: 'Say why the stock is being written off.',
+    message: 'Say why the stock is damaged or expired.',
     path: ['dispositionNote'],
   });
+
+// ── Branch Return Stock → Production Stock transfer ──────────────────────────
+// The ONLY way returned units become production stock. Always explicit, always
+// with a reason; the server refuses more than Return Stock holds.
+export const TransferReturnStockSchema = z.object({
+  productId: z.string().min(1, 'Product is required'),
+  qty: z.number().positive('Quantity must be greater than zero'),
+  reason: z.string().trim().min(1, 'Reason is required').max(500),
+});
 
 // ── Branch-initiated Returns (from the branch Stock page) ────────────────────
 // The branch returns unsold/damaged stock straight to production. branchId is
@@ -125,8 +134,8 @@ export const ReviewProductionReturnSchema = z
 // REVIEWED, NOT AUTO-APPROVED. This used to insert already 'accepted' with both
 // stock movements applied before the response was written. It now inserts
 // 'pending': the units come off the branch balance immediately (they have
-// physically left the shop) but the central pool is credited only when
-// Production approves.
+// physically left the shop) but Branch Return Stock is credited only when
+// Production approves. Production stock is never credited by a return.
 //
 // One submission carries MANY products — a branch closing out an evening hands
 // back everything unsold at once. `reason` is shared across the whole return
@@ -186,5 +195,6 @@ export const ReviseBranchReturnSchema = z.object({
 export type PrepareProductionInput = z.infer<typeof PrepareProductionSchema>;
 export type CreateProductionReturnInput = z.infer<typeof CreateProductionReturnSchema>;
 export type ReviewProductionReturnInput = z.infer<typeof ReviewProductionReturnSchema>;
+export type TransferReturnStockInput = z.infer<typeof TransferReturnStockSchema>;
 export type CreateBranchReturnInput = z.infer<typeof CreateBranchReturnSchema>;
 export type ReviseBranchReturnInput = z.infer<typeof ReviseBranchReturnSchema>;

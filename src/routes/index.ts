@@ -13,6 +13,7 @@ import { router as productionRouter } from './production.routes';
 import { router as productionOrdersRouter } from './production-orders.routes';
 import { router as productionStockRouter } from './production-stock.routes';
 import { router as productionReturnsRouter } from './production-returns.routes';
+import { router as returnStockRouter } from './return-stock.routes';
 import { router as productionDiscountsRouter } from './production-discounts.routes';
 import { router as branchDiscountsRouter } from './branch-discounts.routes';
 import { router as cashTransfersRouter } from './cash-transfers.routes';
@@ -65,6 +66,9 @@ export function setupRoutes(app: Express) {
   app.use('/api/production-orders', productionOrdersRouter);
   app.use('/api/production-stock', productionStockRouter);
   app.use('/api/production-returns', productionReturnsRouter);
+  // Branch Return Stock — a separate inventory from the production pool
+  // (migration 139). Never served as part of /api/production-stock.
+  app.use('/api/return-stock', returnStockRouter);
   // Discount claims, split across two prefixes the way returns are: the branch
   // raises and corrects on one, Production reviews on the other, and each router
   // carries its own requireRole at the mount instead of re-checking per handler.

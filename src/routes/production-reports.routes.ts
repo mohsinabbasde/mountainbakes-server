@@ -4,6 +4,7 @@ import { authenticate, type AuthRequest } from '../middleware/auth';
 import { requireRole } from '../middleware/requireRole';
 import { businessDateStr, businessDaysAgoStr } from '../shared';
 import { getProductionStockRows } from '../services/production-stock.service';
+import { getReturnStockRows } from '../services/return-stock.service';
 import { genericPDF, genericExcel, genericCSV } from '../services/production-export.service';
 import { getPreviousOrderBalance } from '../services/previous-balance.service';
 import { format } from 'date-fns';
@@ -23,6 +24,7 @@ export type ProductionReportType =
   | 'pending-balance'
   | 'returned-products'
   | 'production-stock'
+  | 'branch-return-stock'
   | 'branch-stock'
   | 'collections';
 
@@ -197,11 +199,15 @@ async function buildReport(
       const rows = await getProductionStockRows();
       // The same nine columns, in the same order, as the Production Stock page —
       // exported from the SAME query, so the sheet and the screen cannot disagree.
+      //
+      // "From Returns" is what was explicitly TRANSFERRED in from Branch Return
+      // Stock (plus the pre-migration-139 automatic credit on old days). Branch
+      // Return Stock itself is a different inventory and has its own report.
       return {
         title: 'Production Stock',
         headers: [
           'Product', 'Opening Stock', 'Prepared Stock', 'Total Stock',
-          'Branch Demand Stock', 'Sale', 'Return Stock', 'Adjustment', 'Balance',
+          'Branch Demand Stock', 'Sale', 'From Returns', 'Adjustment', 'Balance',
         ],
         rows: rows.map((r) => [
           r.productName,
@@ -210,10 +216,19 @@ async function buildReport(
           r.totalStock,
           r.branchDemand,
           r.soldToday,
-          r.returned,
+          r.returnTransferIn + r.returned,
           r.adjustment,
           r.balance,
         ]),
+      };
+    }
+    case 'branch-return-stock': {
+      // A separate inventory from Production Stock — never summed with it.
+      const rows = await getReturnStockRows();
+      return {
+        title: 'Branch Return Stock',
+        headers: ['Product', 'Opening', 'Returned Today', 'Transferred to Production', 'Return Stock'],
+        rows: rows.map((r) => [r.productName, r.opening, r.returnedToday, r.transferredToday, r.balance]),
       };
     }
     case 'branch-stock': {

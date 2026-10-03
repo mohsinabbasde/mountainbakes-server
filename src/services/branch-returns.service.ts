@@ -17,7 +17,8 @@ import { isBusinessDayClosed } from './daily-closing.service';
  * ledgers:
  *
  *   1. branch `stock`             −qty   (`stock_history` type 'return')   ← done
- *   2. central `production_stock`  +qty   ('return_in')                     ← NOT yet
+ *   2. Branch Return Stock (`return_stock`)  +qty   ('return_in')          ← NOT yet
+ *      (never `production_stock` — a return is not production stock; migration 139)
  *
  * The pool credit waits for Production to approve. That asymmetry is the whole
  * reason this file is short now: a correction here only ever has to move the

@@ -154,26 +154,9 @@ export function transferOutOnApproval(
   );
 }
 
-/** On an accepted return, add units BACK into the pool. */
-export function returnIntoPool(
-  returnId: string,
-  item: { productId: string; productName: string; qty: number },
-  businessDate?: string,
-  origin?: { branchId?: string | null; reason?: string | null; actorId?: string | null; actorName?: string | null },
-): Promise<number> {
-  return applyProductionStockMovement({
-    productId: item.productId,
-    productName: item.productName,
-    delta: Math.abs(item.qty),
-    type: 'return_in',
-    refId: returnId,
-    ...(businessDate ? { businessDate } : {}),
-    branchId: origin?.branchId ?? null,
-    reason: origin?.reason ?? null,
-    createdBy: origin?.actorId ?? null,
-    createdByName: origin?.actorName ?? null,
-  });
-}
+// There is deliberately NO "return into pool" here. An accepted branch return is
+// Branch Return Stock (return-stock.service.ts) and moves nothing in this pool;
+// the only bridge is the explicit transfer in that module (migration 139).
 
 /**
  * Atomically validate the pool, write the order + its line items, decrement
@@ -351,6 +334,7 @@ export async function getProductionStockRows(date: string = businessDateStr()): 
         branchDemand: 0,
         demandFulfilled: 0,
         soldToday: 0,
+        returnTransferIn: 0,
         returned: 0,
         adjustment: 0,
         balance: 0,
@@ -372,7 +356,7 @@ export async function getProductionStockRows(date: string = businessDateStr()): 
   }
 
   // ── The day's own movements ────────────────────────────────────────────────
-  // SIGNED, not Math.abs. The pool stores prepare/return_in positive and
+  // SIGNED, not Math.abs. The pool stores prepare/return_transfer positive and
   // transfer_out/sale negative, so negating the two outbound types reports them
   // positive for display. It matters for corrections: an admin lowering "Prepared"
   // appends a NEGATIVE 'prepare', and abs() would count that as more production.
@@ -383,6 +367,8 @@ export async function getProductionStockRows(date: string = businessDateStr()): 
     const delta = Number(h.delta ?? 0);
     if (h.type === 'prepare') row.preparedToday += delta;
     else if (h.type === 'transfer_out') row.demandFulfilled -= delta;
+    else if (h.type === 'return_transfer') row.returnTransferIn += delta;
+    // Pre-migration-139 rows only: nothing writes 'return_in' any more.
     else if (h.type === 'return_in') row.returned += delta;
     else if (h.type === 'sale') row.soldToday -= delta;
     else if (h.type === 'adjustment') row.adjustment += delta;
@@ -401,12 +387,16 @@ export async function getProductionStockRows(date: string = businessDateStr()): 
 
   // ── Fold the row up ────────────────────────────────────────────────────────
   //     totalStock = opening + prepared
-  //     balance    = opening + prepared + returned + adjustment − fulfilled − sold
+  //     balance    = opening + prepared + returnTransferIn + returned + adjustment
+  //                  − fulfilled − sold
   //     available  = balance − branchDemand
   //
   // `adjustment` is signed, so the spec's "+ positive − negative" is one addition.
-  // Every figure is counted EXACTLY once: `returned` appears only in the balance
-  // (it is NOT also folded into totalStock), and `adjustment` likewise.
+  // Every figure is counted EXACTLY once.
+  //
+  // BRANCH RETURN STOCK IS NOT IN THIS SUM. Accepted returns sit in their own
+  // inventory; `returnTransferIn` is only what was explicitly transferred here,
+  // and `returned` is the legacy automatic credit, zero since migration 139.
   //
   // OUTSTANDING DEMAND IS NOT IN THE BALANCE. A branch asking for goods does not
   // consume them — the units are still on the shelf until the branch verifies the
@@ -416,7 +406,7 @@ export async function getProductionStockRows(date: string = businessDateStr()): 
   for (const row of rows.values()) {
     row.totalStock = row.opening + row.preparedToday;
     row.balance =
-      row.opening + row.preparedToday + row.returned + row.adjustment -
+      row.opening + row.preparedToday + row.returnTransferIn + row.returned + row.adjustment -
       row.demandFulfilled - row.soldToday;
     row.available = row.balance - row.branchDemand;
     row.status = productionStockStatus(row.balance, row.branchDemand);
@@ -424,7 +414,8 @@ export async function getProductionStockRows(date: string = businessDateStr()): 
 
   const carriesFigures = (r: ProductionStockRow): boolean =>
     r.opening !== 0 || r.preparedToday !== 0 || r.branchDemand !== 0 ||
-    r.demandFulfilled !== 0 || r.soldToday !== 0 || r.returned !== 0 || r.adjustment !== 0;
+    r.demandFulfilled !== 0 || r.soldToday !== 0 || r.returnTransferIn !== 0 ||
+    r.returned !== 0 || r.adjustment !== 0;
 
   // Shortages first — the rows someone has to do something about — then by size.
   const URGENCY: Record<ProductionStockRow['status'], number> = { shortage: 0, out: 1, low: 2, healthy: 3 };
@@ -468,6 +459,7 @@ export async function getProductionStockFigures(
     branchDemand: 0,
     demandFulfilled: 0,
     soldToday: 0,
+    returnTransferIn: 0,
     returned: 0,
     adjustment: 0,
     balance: 0,
@@ -481,6 +473,7 @@ export async function getProductionStockFigures(
     const delta = Number(h.delta ?? 0);
     if (h.type === 'prepare') figures.preparedToday += delta;
     else if (h.type === 'transfer_out') figures.demandFulfilled -= delta;
+    else if (h.type === 'return_transfer') figures.returnTransferIn += delta;
     else if (h.type === 'return_in') figures.returned += delta;
     else if (h.type === 'sale') figures.soldToday -= delta;
     else if (h.type === 'adjustment') figures.adjustment += delta;
@@ -490,8 +483,8 @@ export async function getProductionStockFigures(
   // Same arithmetic as getProductionStockRows — see the comment there.
   figures.totalStock = figures.opening + figures.preparedToday;
   figures.balance =
-    figures.opening + figures.preparedToday + figures.returned + figures.adjustment -
-    figures.demandFulfilled - figures.soldToday;
+    figures.opening + figures.preparedToday + figures.returnTransferIn + figures.returned +
+    figures.adjustment - figures.demandFulfilled - figures.soldToday;
   figures.available = figures.balance - figures.branchDemand;
   return figures;
 }
@@ -516,7 +509,8 @@ export interface ProductionStockCorrectionTargets {
    * targets, and renaming it here would mean renaming it in SQL for no gain.
    */
   approvedQty?: number;
-  returned?: number;
+  // No `returned`: a return is Branch Return Stock, not a pool figure, and the
+  // RPC's `returned` target would book a `return_in` straight into the pool.
   soldToday?: number;
   balance?: number;
 }
@@ -619,6 +613,9 @@ export async function applyProductionStockCorrection(params: {
       branchDemand: 0,
       demandFulfilled,
       soldToday,
+      // The RPC does not report transfers from Return Stock separately; any on
+      // the day are inside `opening` as rebuilt above.
+      returnTransferIn: 0,
       returned,
       adjustment,
       balance,

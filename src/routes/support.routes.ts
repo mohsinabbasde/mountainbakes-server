@@ -114,7 +114,6 @@ const PRODUCTION_FIGURE_LABELS = {
   preparedToday: 'Prepared Stock',
   approvedQty: 'Branch Demand (delivered)',
   soldToday: 'Sale',
-  returned: 'Return Stock',
   balance: 'Balance',
 } as const;
 
@@ -127,7 +126,6 @@ const PRODUCTION_FIGURE_FIELD = {
   preparedToday: 'preparedToday',
   approvedQty: 'demandFulfilled',
   soldToday: 'soldToday',
-  returned: 'returned',
   balance: 'balance',
 } as const satisfies Record<keyof typeof PRODUCTION_FIGURE_LABELS, keyof ProductionStockFigures>;
 
@@ -567,7 +565,7 @@ async function resolveReference(
     // with the page.
     const f = await getProductionStockFigures(product.id, today);
     // NO Opening, and no running Pool Balance either. The pool is read as the day
-    // it had — prepared and returned in, approved and sold out — because that is
+    // it had — prepared in, approved and sold out — because that is
     // what the Production Stock page shows, what the counter sells against, and
     // therefore the only thing a query raised from either can be about.
     fields.push(
@@ -578,7 +576,7 @@ async function resolveReference(
       { label: '  · outstanding (not yet verified)', value: String(f.branchDemand) },
       { label: '  · fulfilled (verified out)', value: String(f.demandFulfilled) },
       { label: 'Sale', value: String(f.soldToday) },
-      { label: 'Return Stock', value: String(f.returned) },
+      { label: 'Transferred from Return Stock', value: String(f.returnTransferIn + f.returned) },
       { label: 'Adjustment', value: f.adjustment > 0 ? `+${f.adjustment}` : String(f.adjustment) },
       { label: 'Balance', value: String(f.balance) },
     );
@@ -601,7 +599,6 @@ async function resolveReference(
         { key: 'preparedToday', label: 'Prepared Stock', kind: 'number', value: f.preparedToday },
         { key: 'approvedQty', label: 'Demand Fulfilled', kind: 'number', value: f.demandFulfilled },
         { key: 'soldToday', label: 'Sale', kind: 'number', value: f.soldToday },
-        { key: 'returned', label: 'Return Stock', kind: 'number', value: f.returned },
         { key: 'balance', label: 'Balance', kind: 'number', value: f.balance },
       ],
       isProductionPool: true,
@@ -1204,9 +1201,12 @@ router.patch('/:id/figures', requireRole('super_admin'), validate(ChangeFiguresS
     // below would otherwise claim it.
     if (isPoolStock) {
       // Absolute targets, as on the branch. `totalStock` is not among them: it is
-      // prepared + returned, with no movement of its own to book against.
+      // opening + prepared, with no movement of its own to book against. Nor is
+      // `returned`: a return is Branch Return Stock, not a pool figure, and the
+      // RPC's `returned` target would book it straight into the pool.
+
       const targets: ProductionStockCorrectionTargets = {};
-      for (const key of ['preparedToday', 'approvedQty', 'soldToday', 'returned', 'balance'] as const) {
+      for (const key of ['preparedToday', 'approvedQty', 'soldToday', 'balance'] as const) {
         const raw = edits[key];
         if (raw === undefined || raw === '') continue;
         const value = Number(raw);
@@ -1214,7 +1214,7 @@ router.patch('/:id/figures', requireRole('super_admin'), validate(ChangeFiguresS
           res.status(400).json({ error: `${PRODUCTION_FIGURE_LABELS[key]} must be a number.` });
           return;
         }
-        // The four movement figures are counts and cannot be negative. Balance
+        // The three movement figures are counts and cannot be negative. Balance
         // can: the pool is allowed to run negative (migration 15) and does, so
         // refusing one would make an already-negative product impossible to
         // correct.

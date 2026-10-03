@@ -1,0 +1,13 @@
+-- 138: production-pool 'return_transfer' movement type.
+--
+-- Branch Return Stock becomes its own inventory in migration 139. The ONLY way
+-- units may then move from it into the production pool is an explicit transfer,
+-- and that transfer needs a movement type of its own on the pool side: booking
+-- it as 'return_in' would make it indistinguishable from the pre-139 rows that
+-- credited the pool automatically on acceptance, which is the behaviour being
+-- removed.
+--
+-- A migration of its own, exactly like migrations 34 and 49: Postgres cannot use
+-- a new enum value in the same transaction that adds it, so the function that
+-- writes `type = 'return_transfer'` lands in the next file.
+alter type production_stock_movement_type add value if not exists 'return_transfer';

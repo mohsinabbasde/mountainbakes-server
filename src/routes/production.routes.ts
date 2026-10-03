@@ -3,6 +3,7 @@ import { supabaseAdmin } from '../config/supabase';
 import { authenticate, type AuthRequest } from '../middleware/auth';
 import { requireRole } from '../middleware/requireRole';
 import { notify } from '../services/push.service';
+import { getReturnStockTotal } from '../services/return-stock.service';
 import { businessDateStr, businessDaysAgoStr } from '../shared';
 import { rowToApi } from '../utils/case';
 
@@ -59,6 +60,9 @@ router.get('/overview', async (_req, res, next) => {
     for (const r of [demandRes, prepHistRes, availRes, returnsRes, branchesRes, productsRes]) {
       if (r.error) throw r.error;
     }
+    // Its own card, never added to `availableProductionStock`: returned goods are
+    // a separate inventory until someone explicitly transfers them (migration 139).
+    const branchReturnStock = await getReturnStockTotal();
 
     const demand = demandRes.data as unknown as DemandOverview;
     const { waitingOrders, totalDemandQty, approvedOrders, changedOrders } = demand;
@@ -86,7 +90,7 @@ router.get('/overview', async (_req, res, next) => {
         waitingOrders, approvedOrders, deliveredOrders, changedOrders,
         returnedProducts, todayProduction, weeklyProduction, monthlyProduction,
         totalBranches: branchesRes.count ?? 0, totalProducts: productsRes.count ?? 0,
-        totalDemandQty, availableProductionStock,
+        totalDemandQty, availableProductionStock, branchReturnStock,
       },
       demandByDay: demand.demandByDay,
       demandByMonth: demand.demandByMonth,

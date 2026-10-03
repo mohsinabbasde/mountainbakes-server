@@ -43,6 +43,8 @@ function ledgerTypeOf(type: ProductionStockMovementType, delta: number): Product
       return 'DEMAND_FULFILLED';
     case 'return_in':
       return 'RETURN';
+    case 'return_transfer':
+      return 'RETURN_TRANSFER';
     case 'sale':
       return 'SALE';
     case 'adjustment':
@@ -55,6 +57,7 @@ const STORED_TYPE_FOR: Partial<Record<ProductionLedgerType, ProductionStockMovem
   PREPARED: 'prepare',
   DEMAND_FULFILLED: 'transfer_out',
   RETURN: 'return_in',
+  RETURN_TRANSFER: 'return_transfer',
   SALE: 'sale',
   ADJUSTMENT_IN: 'adjustment',
   ADJUSTMENT_OUT: 'adjustment',
