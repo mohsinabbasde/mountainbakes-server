@@ -1,5 +1,6 @@
 import { supabaseAdmin } from '../config/supabase';
 import {
+  computeDailySaleCompanyShare,
   computeDailySaleDifferences,
   computeDailySaleSummary,
   DAILY_SALE_MANUAL_METHODS,
@@ -17,6 +18,8 @@ import {
   type PaymentMethodLock,
 } from '../shared';
 import { rowToApi } from '../utils/case';
+import { withoutDeleted } from '../utils/softDelete';
+import { getBranchShareSplits, getFinanceSettings } from './finance-settings.service';
 
 /**
  * Daily Sale Record — the branch's daily reconciliation of system sales against
@@ -286,6 +289,10 @@ function composeRecord(args: {
   businessDate: string;
   stored: Record<string, unknown> | undefined;
   live: AutoFigures | undefined;
+  /** The branch's company share as Admin has it now. */
+  currentSharePct: number;
+  /** The percentage on the day's income approval, when it has one. */
+  snapshotSharePct: number | null;
 }): DailySaleRecord {
   const { stored, live } = args;
   const status = (stored ? String(stored['status']) : 'open') as DailySaleRecordStatus;
@@ -306,6 +313,7 @@ function composeRecord(args: {
   };
 
   const diffs = computeDailySaleDifferences({ ...auto }, manual);
+  const share = computeDailySaleCompanyShare(auto.autoTotalSale, args.snapshotSharePct, args.currentSharePct);
 
   return {
     id: stored ? String(stored['id']) : null,
@@ -315,6 +323,7 @@ function composeRecord(args: {
     branchName: (stored?.['branch_name'] as string | null) || args.branchName,
     businessDate: args.businessDate,
     ...auto,
+    ...share,
     ...manual,
     fedBy: (stored?.['fed_by'] as string | null) ?? null,
     fedByName: (stored?.['fed_by_name'] as string | null) ?? null,
@@ -336,6 +345,51 @@ function composeRecord(args: {
     generatedAt: (stored?.['generated_at'] as string | null) ?? new Date().toISOString(),
     createdAt: (stored?.['created_at'] as string | null) ?? null,
     updatedAt: (stored?.['updated_at'] as string | null) ?? null,
+  };
+}
+
+/**
+ * The company-share percentages a window of records needs.
+ *
+ * `current` is what Admin has configured per branch right now — the branch's own
+ * percentage, else the global finance setting (`getBranchShareSplits`). The
+ * setting has no effective-dated history, so on its own it would re-price every
+ * past day whenever it changed. `snapshot` is what stops that for the days that
+ * matter: an income approval stores the percentage it was imported at, keyed
+ * `branchId|businessDate`, and that figure wins for its day.
+ *
+ * A day with no approval yet has no snapshot and reads at the current rate.
+ */
+async function loadCompanyShares(
+  branchIds: string[],
+  from: string,
+  to: string,
+): Promise<{ current: Map<string, number>; snapshot: Map<string, number>; fallback: number }> {
+  const snapshot = new Map<string, number>();
+  if (branchIds.length === 0) return { current: new Map(), snapshot, fallback: 0 };
+
+  const [splits, settings, approvals] = await Promise.all([
+    getBranchShareSplits(branchIds),
+    getFinanceSettings(),
+    withoutDeleted(
+      supabaseAdmin
+        .from('finance_income_approvals')
+        .select('branch_id, business_date, company_share_pct')
+        .in('branch_id', branchIds)
+        .gte('business_date', from)
+        .lte('business_date', to),
+    ),
+  ]);
+  if (approvals.error) throw asClientError(approvals.error);
+
+  for (const a of (approvals.data ?? []) as Record<string, unknown>[]) {
+    const pct = numOrNull(a['company_share_pct']);
+    if (pct !== null) snapshot.set(`${a['branch_id']}|${a['business_date']}`, pct);
+  }
+  return {
+    current: new Map([...splits].map(([id, s]) => [id, s.companySharePct])),
+    snapshot,
+    fallback: Number(settings.companySharePct ?? 0),
   };
 }
 
@@ -419,6 +473,9 @@ export async function listDailySaleRecords(params: ListParams): Promise<DailySal
     }
   }
 
+  // Company share: two reads for the whole window, never one per row.
+  const shares = await loadCompanyShares([...new Set([...liveBranches, ...storedBranches])], from, to);
+
   const records: DailySaleRecord[] = [...new Set([...live.keys(), ...stored.keys()])]
     .map((key) => {
       const [branchId, businessDate] = key.split('|') as [string, string];
@@ -428,6 +485,8 @@ export async function listDailySaleRecords(params: ListParams): Promise<DailySal
         businessDate,
         stored: stored.get(key),
         live: live.get(key),
+        currentSharePct: shares.current.get(branchId) ?? shares.fallback,
+        snapshotSharePct: shares.snapshot.get(key) ?? null,
       });
     })
     // Newest first, then by branch — the order the board reads in, and stable
@@ -488,12 +547,15 @@ export async function getDailySaleRecordDetail(
   if (figuresRes.error) throw asClientError(figuresRes.error);
 
   const liveRow = ((figuresRes.data ?? []) as Record<string, unknown>[])[0];
+  const shares = await loadCompanyShares([branchId], businessDate, businessDate);
   const record = composeRecord({
     branchId,
     branchName: (branchRes.data?.name as string | undefined) ?? '',
     businessDate,
     stored: row,
     live: liveRow ? figuresFromRow(rowToApi<FiguresRow>(liveRow)) : undefined,
+    currentSharePct: shares.current.get(branchId) ?? shares.fallback,
+    snapshotSharePct: shares.snapshot.get(`${branchId}|${businessDate}`) ?? null,
   });
 
   const audits = ((auditsRes.data ?? []) as Record<string, unknown>[]).map(
