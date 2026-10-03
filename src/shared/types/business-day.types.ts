@@ -27,7 +27,7 @@ export interface ProductionSummary {
   ordersClosed: number; // approved/reviewed orders dated to the business day
   ordersPending: number; // still-pending orders carried forward
   approvedQty: number; // units approved (moved into branches)
-  returnedQty: number; // units returned into the central pool
+  returnedQty: number; // units returned to Branch Return Stock (not production stock)
   pendingBalanceQty: number; // outstanding production_balances carried forward
 }
 

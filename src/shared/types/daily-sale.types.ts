@@ -156,6 +156,18 @@ export interface DailySaleRecord {
   // ── AUTO — from the sales system. Never editable. ──
   /** Money taken, after discount, excluding cancelled and staff sales. */
   autoTotalSale: number;
+  /**
+   * The company's percentage of this branch's takings for this day, 0–100.
+   *
+   * The Admin configuration: the branch's own `companySharePct` where it has
+   * one, else the global finance setting (`resolveShareSplit`). Where the day has
+   * already been imported for income approval, the percentage snapshotted on that
+   * approval is used instead, so a later change in Admin does not re-price a day
+   * that was booked at the old rate.
+   */
+  companySharePct: number;
+  /** `autoTotalSale × companySharePct`, to two places. Server-computed. */
+  companyShare: number;
   autoCash: number;
   autoEasypaisa: number;
   autoFoodpanda: number;

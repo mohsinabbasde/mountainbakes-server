@@ -72,7 +72,7 @@ export interface RestrictionCheck {
 
 // ─── Configuration ───────────────────────────────────────────────────────────
 
-export const RESTRICTION_GROUPS = ['demand', 'sales', 'cash', 'ledger', 'company'] as const;
+export const RESTRICTION_GROUPS = ['demand', 'sales', 'production', 'cash', 'ledger', 'company'] as const;
 export type RestrictionGroup = (typeof RESTRICTION_GROUPS)[number];
 
 export interface RestrictionRules {
@@ -89,6 +89,15 @@ export interface RestrictionRules {
      * till must not be stopped for selling too little.
      */
     hourly: { enabled: boolean; threshold: number };
+  };
+  production: {
+    /**
+     * Submit for Verification is refused while any product on the demand asks
+     * for more than the available production stock. `allowAdminOverride` is
+     * whether a Super Admin may still send a short demand through; a production
+     * user never can.
+     */
+    stockShortage: { enabled: boolean; allowAdminOverride: boolean };
   };
   cash: {
     dailyLimit: { enabled: boolean; limit: number; allowExceptions: boolean };
@@ -110,6 +119,7 @@ export const DEFAULT_RESTRICTION_RULES: RestrictionRules = {
   sales: {
     hourly: { enabled: true, threshold: 2 },
   },
+  production: { stockShortage: { enabled: true, allowAdminOverride: true } },
   cash: { dailyLimit: { enabled: true, limit: 3, allowExceptions: true } },
   ledger: { backdate: { enabled: true, allowedDays: 3 } },
   company: { shareIncome: { enabled: true, allowApproval: true } },

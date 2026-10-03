@@ -17,6 +17,7 @@ import {
   BRANCH_ROLES,
   isBranchRole,
   type ProductionShortfall,
+  enforcesProductionStock,
   evalProductionShortage,
 } from '../shared';
 import { bindAttachments, listAttachmentsFor } from '../services/attachments.service';
@@ -28,7 +29,7 @@ import { getAppSettings, orderWindowMinutes } from '../services/settings.service
 import { assertBusinessDayOpen } from '../middleware/assertBusinessDayOpen';
 import { idempotent } from '../middleware/idempotency';
 import { resolveClientBusinessDate } from '../utils/clientBusinessDate';
-import { checkDemand, enforceRestrictions, logRestrictionEvent, type RestrictionGuard } from '../services/restriction.service';
+import { checkDemand, enforceRestrictions, getRestrictionRules, logRestrictionEvent, type RestrictionGuard } from '../services/restriction.service';
 import { rowToApi } from '../utils/case';
 import { invalidate } from '../utils/cache';
 
@@ -636,7 +637,13 @@ router.put('/:id/review', requireRole('super_admin', 'production_user'), validat
     // super_admin: a production user cannot approve past a shortage, but an admin
     // can consciously decide to. It declines the guard, not the audit trail —
     // every movement is still written exactly as it would have been.
+    //
+    // Both the check and the escape hatch are Restriction Rules (Admin Settings →
+    // Restriction Rules → Production): the rule can be switched off, and the
+    // admin override can be closed. Read here, from the server's own copy —
+    // nothing the client sends decides whether stock is checked.
     const override = req.query['override'] === '1' && req.user!.role === 'super_admin';
+    const enforceStock = enforcesProductionStock((await getRestrictionRules()).production.stockShortage, { adminOverride: override });
 
     const { data, error } = await supabaseAdmin.rpc('review_production_order_checked', {
       p_order_id: id,
@@ -646,7 +653,7 @@ router.put('/:id/review', requireRole('super_admin', 'production_user'), validat
       p_reviewed_by: req.user!.uid,
       p_reviewed_by_name: req.user!.email,
       p_packing_overrides: approvedPackingItems ?? [],
-      p_enforce_stock: !override,
+      p_enforce_stock: enforceStock,
     });
     if (error) throw error;
 

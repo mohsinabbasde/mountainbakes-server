@@ -170,10 +170,10 @@ export async function buildBranchReport(
 // Production
 // ---------------------------------------------------------------------------
 export async function buildProductionReport(businessDate: string): Promise<ProductionClosingReport> {
-  const [movements, closing, demandOrders] = await Promise.all([
+  const [movements, closing, demandOrders, returnMovements] = await Promise.all([
     supabaseAdmin
       .from('production_stock_history')
-      .select('type, delta')
+      .select('type, delta, ref_id')
       .eq('business_date', businessDate),
     // Everything the ledger booked UP TO AND INCLUDING this day — the pool's
     // closing balance for it, which is also the next day's opening.
@@ -190,20 +190,37 @@ export async function buildProductionReport(businessDate: string): Promise<Produ
       .from('production_orders')
       .select('status, items:production_order_items(qty, approved_qty)')
       .eq('business_date', businessDate),
+    // Returns accepted on the day live in Branch Return Stock's own ledger
+    // (migration 139), not in the pool's.
+    supabaseAdmin
+      .from('return_stock_history')
+      .select('delta, ref_id')
+      .eq('business_date', businessDate)
+      .eq('type', 'return_in'),
   ]);
-  for (const r of [movements, closing, demandOrders]) {
+  for (const r of [movements, closing, demandOrders, returnMovements]) {
     if (r.error) throw r.error;
   }
 
-  // The central pool's ledger for THIS DAY: prepare (+), return_in (+),
-  // transfer_out (−), sale (−), adjustment (signed).
-  let prepared = 0, delivered = 0, returned = 0;
-  for (const m of (movements.data ?? []) as { type: string; delta: number }[]) {
+  // The central pool's ledger for THIS DAY: prepare (+), transfer_out (−),
+  // sale (−), adjustment (signed), return_transfer (+).
+  //
+  // `returned` is what branches sent back that day. It is reported, and it is NOT
+  // part of `remaining`: returned goods are Branch Return Stock. On days before
+  // migration 139 the pool ledger carries the same returns as legacy `return_in`
+  // rows, so the two sources are merged by return id rather than added.
+  let prepared = 0, delivered = 0;
+  const returnedByRef = new Map<string, number>();
+  for (const m of (returnMovements.data ?? []) as { delta: number; ref_id: string }[]) {
+    returnedByRef.set(m.ref_id, num(m.delta));
+  }
+  for (const m of (movements.data ?? []) as { type: string; delta: number; ref_id: string }[]) {
     const d = num(m.delta);
     if (m.type === 'prepare') prepared += d;
     else if (m.type === 'transfer_out') delivered += Math.abs(d);
-    else if (m.type === 'return_in') returned += d;
+    else if (m.type === 'return_in' && !returnedByRef.has(m.ref_id)) returnedByRef.set(m.ref_id, d);
   }
+  const returned = [...returnedByRef.values()].reduce((s, q) => s + q, 0);
   const remaining = ((closing.data ?? []) as { delta: number }[]).reduce((s, m) => s + num(m.delta), 0);
 
   let demandTotal = 0, demandApproved = 0, ordersClosed = 0, ordersPending = 0;

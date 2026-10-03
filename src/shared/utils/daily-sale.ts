@@ -1,4 +1,5 @@
 import type { DailySaleRecord, DailySaleSummary } from '../types/daily-sale.types';
+import { splitShare } from './share';
 
 /**
  * The difference figures for one Daily Sale Record.
@@ -60,6 +61,29 @@ export interface DailySaleManualFigures {
   manualCash: number | null;
   manualEasypaisa: number | null;
   manualBank: number | null;
+}
+
+/**
+ * The company's share of one day's Total Sale.
+ *
+ * `snapshotPct` is the percentage recorded on the day's income approval, when the
+ * day has one; `currentPct` is what Admin has configured for the branch now
+ * (already resolved through `resolveShareSplit`). The snapshot wins: a day booked
+ * at 70% stays at 70% after Admin moves the branch to 75%.
+ *
+ * The amount is `splitShare`'s, so it rounds exactly as the ledger's split does.
+ * A missing or out-of-range percentage yields 0 rather than NaN.
+ */
+export function computeDailySaleCompanyShare(
+  totalSale: number,
+  snapshotPct: number | null | undefined,
+  currentPct: number,
+): { companySharePct: number; companyShare: number } {
+  const usable = (v: unknown): v is number =>
+    v !== null && v !== undefined && v !== '' && Number.isFinite(Number(v)) && Number(v) >= 0 && Number(v) <= 100;
+  const companySharePct = usable(snapshotPct) ? Number(snapshotPct) : usable(currentPct) ? Number(currentPct) : 0;
+  const total = Number.isFinite(Number(totalSale)) ? Number(totalSale) : 0;
+  return { companySharePct, companyShare: splitShare(total, companySharePct).companyShare };
 }
 
 /** `manual − expected`, or null when nothing was counted. */
