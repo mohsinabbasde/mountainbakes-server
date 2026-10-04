@@ -22,6 +22,17 @@ interface DemandOverview {
   topProducts: { productId: string | null; productName: string; qty: number }[];
 }
 
+type DashboardPeriod = 'today' | 'week' | 'month';
+
+/** `YYYY-MM-DD` shifted by whole months, the day clamped to the target month's length. */
+function shiftMonthsStr(dateStr: string, months: number, day?: number): string {
+  const [y, m, d] = dateStr.split('-').map(Number) as [number, number, number];
+  const first = new Date(Date.UTC(y, m - 1 + months, 1));
+  const last = new Date(Date.UTC(first.getUTCFullYear(), first.getUTCMonth() + 1, 0)).getUTCDate();
+  first.setUTCDate(Math.min(day ?? d, last));
+  return first.toISOString().slice(0, 10);
+}
+
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 // GET /api/production/overview — dashboard cards + chart series for Production.
@@ -29,6 +40,7 @@ router.get('/overview', async (req, res, next) => {
   try {
     const todayStr = businessDateStr();
     const dow = new Date(`${todayStr}T00:00:00Z`).getUTCDay(); // 0=Sun..6=Sat
+    const monthStartStr = `${todayStr.slice(0, 7)}-01`;
     const daysSinceMonday = (dow + 6) % 7;
     const weekStartStr = businessDaysAgoStr(daysSinceMonday); // Monday of this week
     // Week-to-date against the SAME weekdays of last week — Monday..Wednesday is
@@ -37,16 +49,26 @@ router.get('/overview', async (req, res, next) => {
     const prevWeekEndStr = businessDaysAgoStr(7);
     // Anything that is not a uuid is treated as "all branches" rather than a 400:
     // the filter is a chip on a dashboard, and a stale id should not blank it.
+    const period: DashboardPeriod = req.query.period === 'today' || req.query.period === 'month'
+      ? req.query.period
+      : 'week';
+    // Each period is compared with the same stretch of the one before it:
+    // today with yesterday, Monday..today with last Monday..the same weekday,
+    // the 1st..today with the 1st..the same day of last month.
+    const win = period === 'today'
+      ? { from: todayStr, prevFrom: businessDaysAgoStr(1), prevTo: businessDaysAgoStr(1) }
+      : period === 'month'
+        ? { from: monthStartStr, prevFrom: shiftMonthsStr(monthStartStr, -1), prevTo: shiftMonthsStr(todayStr, -1) }
+        : { from: weekStartStr, prevFrom: prevWeekStartStr, prevTo: prevWeekEndStr };
     const branchId = typeof req.query.branchId === 'string' && UUID_RE.test(req.query.branchId)
       ? req.query.branchId
       : null;
-    const monthStartStr = `${todayStr.slice(0, 7)}-01`;
     const last7 = businessDaysAgoStr(6);
     const historyFrom = weekStartStr < monthStartStr ? weekStartStr : monthStartStr;
     const demandFrom = businessDaysAgoStr(179); // ~6 months for the monthly chart
     const dayFrom = businessDaysAgoStr(29); // 30-day daily/weekly window
 
-    const [demandRes, weekRes, prepHistRes, availRes, returnsRes, branchesRes, productsRes] = await Promise.all([
+    const [demandRes, weekRes, seriesRes, prepHistRes, availRes, returnsRes, branchesRes, productsRes] = await Promise.all([
       // Was: fetch every non-cancelled production_orders row (with embedded
       // items) in the 180-day window and reduce it in Node on every call — the
       // same shape GET /api/reports/summary had before it was fixed, except
@@ -58,11 +80,17 @@ router.get('/overview', async (req, res, next) => {
       supabaseAdmin.rpc('production_demand_overview', {
         p_demand_from: demandFrom, p_day_from: dayFrom, p_last7: last7,
       }),
-      // The week-to-date block of the dashboard (migration 140). Aggregated in
-      // SQL for the same reason as the call above.
+      // The period block of the dashboard (migration 140; "week" is its
+      // default period, the function itself takes any pair of windows).
+      // Aggregated in SQL for the same reason as the call above.
       supabaseAdmin.rpc('production_dashboard_week', {
-        p_from: weekStartStr, p_to: todayStr,
-        p_prev_from: prevWeekStartStr, p_prev_to: prevWeekEndStr,
+        p_from: win.from, p_to: todayStr,
+        p_prev_from: win.prevFrom, p_prev_to: win.prevTo,
+        p_branch_id: branchId,
+      }),
+      // 12 months of demand beside output, and today by the hour (migration 141).
+      supabaseAdmin.rpc('production_dashboard_series', {
+        p_month_from: shiftMonthsStr(monthStartStr, -11), p_today: todayStr,
         p_branch_id: branchId,
       }),
       supabaseAdmin.from('production_stock_history').select('type, delta, business_date').gte('business_date', historyFrom),
@@ -76,7 +104,7 @@ router.get('/overview', async (req, res, next) => {
       supabaseAdmin.from('branches').select('id, name').eq('is_active', true).order('name'),
       supabaseAdmin.from('products').select('id', { count: 'exact', head: true }).eq('is_active', true),
     ]);
-    for (const r of [demandRes, weekRes, prepHistRes, availRes, returnsRes, branchesRes, productsRes]) {
+    for (const r of [demandRes, weekRes, seriesRes, prepHistRes, availRes, returnsRes, branchesRes, productsRes]) {
       if (r.error) throw r.error;
     }
     // Its own card, never added to `availableProductionStock`: returned goods are
@@ -120,10 +148,12 @@ router.get('/overview', async (req, res, next) => {
       topProducts: demand.topProducts,
       branches,
       week: {
-        from: weekStartStr, to: todayStr,
-        prevFrom: prevWeekStartStr, prevTo: prevWeekEndStr,
+        period,
+        from: win.from, to: todayStr,
+        prevFrom: win.prevFrom, prevTo: win.prevTo,
         branchId,
         ...(weekRes.data as unknown as Record<string, unknown>),
+        ...(seriesRes.data as unknown as Record<string, unknown>),
       },
     });
   } catch (err) {
