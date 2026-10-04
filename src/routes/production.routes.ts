@@ -22,19 +22,31 @@ interface DemandOverview {
   topProducts: { productId: string | null; productName: string; qty: number }[];
 }
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 // GET /api/production/overview — dashboard cards + chart series for Production.
-router.get('/overview', async (_req, res, next) => {
+router.get('/overview', async (req, res, next) => {
   try {
     const todayStr = businessDateStr();
     const dow = new Date(`${todayStr}T00:00:00Z`).getUTCDay(); // 0=Sun..6=Sat
-    const weekStartStr = businessDaysAgoStr((dow + 6) % 7); // Monday of this week
+    const daysSinceMonday = (dow + 6) % 7;
+    const weekStartStr = businessDaysAgoStr(daysSinceMonday); // Monday of this week
+    // Week-to-date against the SAME weekdays of last week — Monday..Wednesday is
+    // compared with last Monday..Wednesday, never with a full seven days.
+    const prevWeekStartStr = businessDaysAgoStr(daysSinceMonday + 7);
+    const prevWeekEndStr = businessDaysAgoStr(7);
+    // Anything that is not a uuid is treated as "all branches" rather than a 400:
+    // the filter is a chip on a dashboard, and a stale id should not blank it.
+    const branchId = typeof req.query.branchId === 'string' && UUID_RE.test(req.query.branchId)
+      ? req.query.branchId
+      : null;
     const monthStartStr = `${todayStr.slice(0, 7)}-01`;
     const last7 = businessDaysAgoStr(6);
     const historyFrom = weekStartStr < monthStartStr ? weekStartStr : monthStartStr;
     const demandFrom = businessDaysAgoStr(179); // ~6 months for the monthly chart
     const dayFrom = businessDaysAgoStr(29); // 30-day daily/weekly window
 
-    const [demandRes, prepHistRes, availRes, returnsRes, branchesRes, productsRes] = await Promise.all([
+    const [demandRes, weekRes, prepHistRes, availRes, returnsRes, branchesRes, productsRes] = await Promise.all([
       // Was: fetch every non-cancelled production_orders row (with embedded
       // items) in the 180-day window and reduce it in Node on every call — the
       // same shape GET /api/reports/summary had before it was fixed, except
@@ -46,6 +58,13 @@ router.get('/overview', async (_req, res, next) => {
       supabaseAdmin.rpc('production_demand_overview', {
         p_demand_from: demandFrom, p_day_from: dayFrom, p_last7: last7,
       }),
+      // The week-to-date block of the dashboard (migration 140). Aggregated in
+      // SQL for the same reason as the call above.
+      supabaseAdmin.rpc('production_dashboard_week', {
+        p_from: weekStartStr, p_to: todayStr,
+        p_prev_from: prevWeekStartStr, p_prev_to: prevWeekEndStr,
+        p_branch_id: branchId,
+      }),
       supabaseAdmin.from('production_stock_history').select('type, delta, business_date').gte('business_date', historyFrom),
       // AVAILABLE, not the raw pool balance: goods a branch has already been
       // promised are still on the shelf but are not free to sell or re-promise.
@@ -54,10 +73,10 @@ router.get('/overview', async (_req, res, next) => {
       // table it sits above.
       supabaseAdmin.rpc('production_stock_availability'),
       supabaseAdmin.from('production_returns').select('qty, status').eq('business_date', todayStr),
-      supabaseAdmin.from('branches').select('id', { count: 'exact', head: true }).eq('is_active', true),
+      supabaseAdmin.from('branches').select('id, name').eq('is_active', true).order('name'),
       supabaseAdmin.from('products').select('id', { count: 'exact', head: true }).eq('is_active', true),
     ]);
-    for (const r of [demandRes, prepHistRes, availRes, returnsRes, branchesRes, productsRes]) {
+    for (const r of [demandRes, weekRes, prepHistRes, availRes, returnsRes, branchesRes, productsRes]) {
       if (r.error) throw r.error;
     }
     // Its own card, never added to `availableProductionStock`: returned goods are
@@ -85,17 +104,27 @@ router.get('/overview', async (_req, res, next) => {
       .filter((r) => r.status === 'accepted')
       .reduce((s, r) => s + Number(r.qty || 0), 0);
 
+    const branches = ((branchesRes.data ?? []) as { id: string; name: string }[])
+      .map((b) => ({ branchId: b.id, branchName: b.name }));
+
     res.json({
       cards: {
         waitingOrders, approvedOrders, deliveredOrders, changedOrders,
         returnedProducts, todayProduction, weeklyProduction, monthlyProduction,
-        totalBranches: branchesRes.count ?? 0, totalProducts: productsRes.count ?? 0,
+        totalBranches: branches.length, totalProducts: productsRes.count ?? 0,
         totalDemandQty, availableProductionStock, branchReturnStock,
       },
       demandByDay: demand.demandByDay,
       demandByMonth: demand.demandByMonth,
       branchDemand: demand.branchDemand,
       topProducts: demand.topProducts,
+      branches,
+      week: {
+        from: weekStartStr, to: todayStr,
+        prevFrom: prevWeekStartStr, prevTo: prevWeekEndStr,
+        branchId,
+        ...(weekRes.data as unknown as Record<string, unknown>),
+      },
     });
   } catch (err) {
     next(err);
