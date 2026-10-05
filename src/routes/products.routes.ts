@@ -195,7 +195,17 @@ router.get('/', authenticate, async (req, res, next) => {
           .in('id', heldIds)
           .order('name', { ascending: true });
         if (specialErr) throw specialErr;
-        rows = [...rows, ...((specials ?? []) as Record<string, unknown>[])];
+        // A temporary item has no SKU and no category. Sent as empty text and a
+        // label rather than null, so a client that assumes every product has
+        // both (the till's search did) cannot fall over on one.
+        rows = [
+          ...rows,
+          ...((specials ?? []) as Record<string, unknown>[]).map((p) => ({
+            ...p,
+            sku: p['sku'] ?? '',
+            category_name: p['category_name'] ?? 'Special Order',
+          })),
+        ];
       }
     }
 
