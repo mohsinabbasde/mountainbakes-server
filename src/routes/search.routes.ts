@@ -34,7 +34,8 @@ router.get('/', async (req: AuthRequest, res, next) => {
 
     const [ordersRes, productsRes, customersRes, packingRes] = await Promise.all([
       ordersQuery,
-      supabaseAdmin.from('products').select('id, name, sku, price').eq('is_active', true).limit(200),
+      // Catalogue products only — a Special Order's temporary item is not a product to look up.
+      supabaseAdmin.from('products').select('id, name, sku, price').eq('is_active', true).eq('is_special', false).limit(200),
       // Production users have no access to customer data.
       isProductionUser
         ? Promise.resolve(null)

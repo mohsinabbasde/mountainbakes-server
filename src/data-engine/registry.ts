@@ -668,6 +668,13 @@ const financeAuditConfig: ResourceConfig = {
 const productsConfig: ResourceConfig = {
   table: 'products',
   roles: ALL_ROLES,
+  // The product LIST is the permanent catalogue. A Special Order line mints a
+  // hidden `is_special` product so its stock and its sale have something to hang
+  // on (migration 145), but a customised cake is a temporary item: it must never
+  // appear in the admin Products list, its export or its totals — for any role.
+  // It stays reachable where it belongs: Production Stock, the ordering branch's
+  // stock, and that branch's till.
+  scope: () => [{ column: 'is_special', op: 'eq', value: false }],
   fields: [
     f('name', 'text'),
     f('sku', 'text'),
