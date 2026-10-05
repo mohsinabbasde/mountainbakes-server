@@ -28,6 +28,7 @@ import { router as searchRouter } from './search.routes';
 import { router as supportRouter } from './support.routes';
 import { router as closingNotificationsRouter } from './closing-notifications.routes';
 import { router as specialEventsRouter } from './special-events.routes';
+import { router as specialOrdersRouter } from './special-orders.routes';
 import { router as settingsRouter } from './settings.routes';
 import { router as loginHistoryRouter } from './login-history.routes';
 import { router as loginAttemptsRouter } from './login-attempts.routes';
@@ -95,6 +96,7 @@ export function setupRoutes(app: Express) {
   app.use('/api/support', supportRouter);
   app.use('/api/closing-notifications', closingNotificationsRouter);
   app.use('/api/special-events', specialEventsRouter);
+  app.use('/api/special-orders', specialOrdersRouter);
   app.use('/api/settings', settingsRouter);
   // Admin Settings → Restriction Rules (migration 136): the rules, the approval
   // requests that lift one once, the branch monitor and the audit trail, plus

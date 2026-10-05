@@ -134,11 +134,24 @@ router.get('/', authenticate, async (req, res, next) => {
      */
     const includeSpecial = req.query['includeSpecial'] === 'true';
 
+    /**
+     * `sellable=true` is the till's variant: the ordinary catalogue PLUS the
+     * Special Order items this caller's own branch currently holds in stock
+     * (migration 145 puts one there when the branch verifies it). A one-off
+     * cake must not appear in any catalogue — but once it is on the branch's
+     * shelf it has to be sellable, and only at that branch.
+     *
+     * The branch is the token's. Never cached: the answer differs per branch
+     * and changes with every verification and every sale.
+     */
+    const sellable = req.query['sellable'] === 'true' && !includeSpecial;
+    const sellableBranchId = sellable ? ((req as AuthRequest).user?.branchId ?? null) : null;
+
     // Cache only the unfiltered-by-search list variants (the hot path used across the
     // app); free-text searches are pass-through so results are always fresh.
     // The key varies with includeSpecial — otherwise the first caller's variant
     // would be served to the other for the rest of the TTL.
-    const cacheKey = search
+    const cacheKey = search || sellableBranchId
       ? null
       : `products:${categoryId ?? 'all'}:${isActive ?? 'any'}:${includeSpecial ? 'all' : 'ordinary'}`;
     if (cacheKey) {
@@ -163,7 +176,30 @@ router.get('/', authenticate, async (req, res, next) => {
     const { data, error } = await query;
     if (error) throw error;
 
-    const products = rowToApi<Record<string, unknown>[]>(data ?? []);
+    let rows = (data ?? []) as Record<string, unknown>[];
+
+    if (sellableBranchId) {
+      const { data: held, error: heldErr } = await supabaseAdmin
+        .from('stock')
+        .select('product_id')
+        .eq('branch_id', sellableBranchId)
+        .gt('balance', 0);
+      if (heldErr) throw heldErr;
+      const heldIds = (held ?? []).map((h) => h.product_id as string);
+      if (heldIds.length > 0) {
+        const { data: specials, error: specialErr } = await supabaseAdmin
+          .from('products')
+          .select('*')
+          .eq('is_special', true)
+          .eq('is_active', true)
+          .in('id', heldIds)
+          .order('name', { ascending: true });
+        if (specialErr) throw specialErr;
+        rows = [...rows, ...((specials ?? []) as Record<string, unknown>[])];
+      }
+    }
+
+    const products = rowToApi<Record<string, unknown>[]>(rows);
     const payload = { products, total: products.length };
     if (cacheKey) setCached(cacheKey, payload);
     res.json(payload);

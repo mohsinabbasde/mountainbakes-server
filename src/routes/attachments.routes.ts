@@ -51,6 +51,7 @@ const ENTITY_ROLES: Record<AttachmentEntity, (role: UserRole) => boolean> = {
   production_order_demand: (r) => isBranchRole(r) || r === 'super_admin',
   production_order_verification: (r) => isBranchRole(r) || r === 'super_admin',
   production_order_special_item: (r) => isBranchRole(r) || r === 'super_admin',
+  special_order_verification: (r) => isBranchRole(r) || r === 'super_admin',
   // Finance Help Desk (migration 94). Both sides of the desk attach documents —
   // a raiser evidences the problem, an admin evidences the correction — so this
   // is the finance roles AND super_admin, which is what `canAccessFinanceHelpDesk`

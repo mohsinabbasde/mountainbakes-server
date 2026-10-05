@@ -3,31 +3,13 @@ import { optionalAttachmentIds, requiredAttachmentIds } from './attachment.schem
 import { optionalBusinessDate } from './business-date.schemas';
 
 /**
- * A one-off the branch needs that is not in the catalogue — a named cake, a
- * colour of box nobody stocks. Free text by nature: there is no product to pick.
- *
- * The server turns each of these into a hidden `is_special` product and an
- * ordinary order line against it, which is what lets a special item reach
- * production stock and branch stock like anything else (migration 69).
- *
- * Only the name and quantity are required. The description and the photo are
- * both optional — a branch asking for "20 blue boxes" has nothing to add.
- */
-export const SpecialOrderItemSchema = z.object({
-  name: z.string().trim().min(1, 'Item name is required').max(120, 'Item name is too long'),
-  qty: z.number().int().positive('Quantity must be at least 1'),
-  description: z.string().trim().max(500, 'Description is too long').default(''),
-  attachmentIds: optionalAttachmentIds,
-});
-
-/**
  * 'YYYY-MM-DD', and a date that actually exists — `new Date('2026-02-31')` rolls
  * over to March rather than failing, so the round-trip back to a string is what
  * catches it. Kept as a plain string end to end: the column is a Postgres `date`
  * with no time component, and parsing it into a Date would drag the Karachi
  * offset into a value that has no time of day to offset.
  */
-const dateOnly = z
+export const dateOnly = z
   .string()
   .trim()
   .regex(/^\d{4}-\d{2}-\d{2}$/, 'Enter a date as YYYY-MM-DD')
@@ -54,15 +36,26 @@ export const ProductionOrderPackingItemSchema = z.object({
 // branchId is derived from the auth token server-side, never trusted from the client.
 export const CreateProductionOrderSchema = z
   .object({
-    // No longer `.min(1)`: a demand may legitimately consist only of special
-    // order items (a branch asking for one named cake and nothing else). The
-    // superRefine below enforces the real rule — a demand must contain SOMETHING.
+    // A demand may consist only of packing materials, so this is not `.min(1)`;
+    // the superRefine below enforces the real rule — a demand must contain SOMETHING.
     items: z.array(ProductionOrderItemSchema).default([]),
     // Optional by design: most demands are products only, and an absent key must
     // behave exactly like the pre-packing-material payload.
     packingItems: z.array(ProductionOrderPackingItemSchema).default([]),
-    /** One-off items typed by hand. Absent on most demands. */
-    specialItems: z.array(SpecialOrderItemSchema).default([]),
+    /**
+     * ALWAYS EMPTY. A Special Order is not a demand (migration 143): it is raised
+     * through POST /api/special-orders and never becomes a demand line.
+     *
+     * The key is still accepted, empty, because the mobile app sends
+     * `specialItems: []` on every demand and a stale web bundle sends it too. A
+     * NON-empty list is refused rather than quietly dropped or quietly turned
+     * into demand lines — the first loses what the branch asked for, the second
+     * is the exact thing this rule exists to stop.
+     */
+    specialItems: z
+      .array(z.unknown())
+      .max(0, 'Special Order items are no longer sent with a demand. Refresh the app and submit them as a Special Order.')
+      .default([]),
     /**
      * The date the branch needs this delivered by. REQUIRED — a demand with no
      * required date is the thing this field exists to stop.
@@ -107,33 +100,14 @@ export const CreateProductionOrderSchema = z
     businessDate: optionalBusinessDate,
   })
   .superRefine((val, ctx) => {
-    // A demand has to ask for something. Checked across all three kinds rather
-    // than with `.min(1)` on `items`, so a special-items-only demand is valid
-    // while a completely empty one is still rejected.
-    if (val.items.length === 0 && val.specialItems.length === 0 && val.packingItems.length === 0) {
+    // A demand has to ask for something.
+    if (val.items.length === 0 && val.packingItems.length === 0) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ['items'],
         message: 'At least one item is required',
       });
     }
-
-    // Two special lines with the same name would resolve to the SAME auto-created
-    // product, giving one order two lines against one product — which the review
-    // and the per-(branch, product) balance carry are not built for. Rejected
-    // here, matching the existing rule for duplicate packing materials.
-    const seenSpecial = new Set<string>();
-    val.specialItems.forEach((item, i) => {
-      const key = item.name.trim().toLowerCase();
-      if (seenSpecial.has(key)) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          path: ['specialItems', i, 'name'],
-          message: 'This special item is already on the demand',
-        });
-      }
-      seenSpecial.add(key);
-    });
 
     // One material, one quantity — a duplicate row is meaningless and would also
     // violate the unique constraint in migration 39. Caught here so the user gets a
@@ -232,7 +206,6 @@ export const VerifyProductionOrderSchema = z.object({
   attachmentIds: requiredAttachmentIds,
 });
 
-export type SpecialOrderItemInput = z.infer<typeof SpecialOrderItemSchema>;
 export type CreateProductionOrderInput = z.infer<typeof CreateProductionOrderSchema>;
 export type ReviewProductionOrderInput = z.infer<typeof ReviewProductionOrderSchema>;
 export type CancelProductionOrderInput = z.infer<typeof CancelProductionOrderSchema>;
