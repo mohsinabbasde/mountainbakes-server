@@ -54,17 +54,45 @@ export const CreateSpecialOrderSchema = z.object({
   businessDate: optionalBusinessDate,
 });
 
+/** A whole, non-negative quantity — what was prepared, or what was received. */
+const stockQty = (message: string) =>
+  z.number({ required_error: message, invalid_type_error: message }).int(message).nonnegative(message).max(1_000_000, message);
+
 /**
- * The branch verifying a prepared Special Order.
+ * Production marking a Special Order prepared.
  *
- * The photo is REQUIRED — it is the proof of the finished item, and an order
- * cannot be approved (and so cannot reach stock) without it. It is stored under
- * its own attachment entity, separate from the request photo.
+ * `items` is optional: an item left out is prepared in full. A quantity here is
+ * what Production actually MADE — it is stored beside the requested quantity,
+ * never over it, and it is the quantity that enters Production Stock. There is
+ * no amount field: Production cannot change what the branch agreed.
+ */
+export const PrepareSpecialOrderSchema = z.object({
+  items: z
+    .array(z.object({ itemId: z.string().uuid(), preparedQty: stockQty('Enter the quantity prepared.') }))
+    .max(50)
+    .default([]),
+});
+
+/**
+ * The branch's VERIFY & APPROVE of a prepared Special Order.
+ *
+ * The photo is REQUIRED — it is the proof of what was received, and nothing
+ * reaches branch stock without it. It is stored under its own attachment entity,
+ * separate from the request photo.
+ *
+ * `items` is optional: an item left out is received in full (its prepared
+ * quantity). A quantity here can never exceed what was prepared — the server
+ * checks that against its own record, not against anything sent here.
  */
 export const VerifySpecialOrderSchema = z.object({
   attachmentIds: requiredAttachmentIds,
+  items: z
+    .array(z.object({ itemId: z.string().uuid(), receivedQty: stockQty('Enter the quantity received.') }))
+    .max(50)
+    .default([]),
 });
 
 export type SpecialOrderLineInput = z.infer<typeof SpecialOrderLineSchema>;
 export type CreateSpecialOrderInput = z.infer<typeof CreateSpecialOrderSchema>;
+export type PrepareSpecialOrderInput = z.infer<typeof PrepareSpecialOrderSchema>;
 export type VerifySpecialOrderInput = z.infer<typeof VerifySpecialOrderSchema>;
