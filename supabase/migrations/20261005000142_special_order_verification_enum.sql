@@ -1,0 +1,13 @@
+-- 142: the attachment entity for a Special Order's VERIFICATION photo.
+--
+-- Its own migration, and nothing else in it: Postgres will not let a value added
+-- to an enum be USED inside the transaction that added it (same constraint
+-- migration 69 notes). Migration 143 creates the functions that read it.
+--
+-- The REQUEST photo keeps the entity it already has
+-- ('production_order_special_item', entity_id = the item row). This second value
+-- is what keeps the two apart: the branch's proof of the finished item hangs off
+-- the special ORDER, under a different entity, and attachments are immutable once
+-- bound (migration 67) — so the verification photo cannot overwrite, replace or
+-- be confused with the photo the order was raised with.
+alter type attachment_entity add value if not exists 'special_order_verification';

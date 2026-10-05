@@ -18,6 +18,10 @@ export const ATTACHMENT_ENTITIES = [
   'production_order_demand',
   'production_order_verification',
   'production_order_special_item',
+  // Special Orders (migration 142): the branch's proof of the finished item,
+  // bound to the special ORDER. Deliberately not the entity the request photo
+  // uses, so the two can never be confused or overwrite one another.
+  'special_order_verification',
   // Finance Help Desk (migration 94): the supporting document a raiser attaches
   // to a query, and to each reply in its conversation. Two entities rather than
   // one — a photo posted mid-thread belongs to the message that explains it, and
@@ -43,6 +47,7 @@ export const ATTACHMENT_ENTITY_LABELS: Record<AttachmentEntity, string> = {
   production_order_demand: 'Demand',
   production_order_verification: 'Delivery verification',
   production_order_special_item: 'Special order item',
+  special_order_verification: 'Special order verification',
   finance_ticket: 'Finance Help Desk query',
   finance_ticket_message: 'Help Desk reply',
   cash_transfer: 'Branch cash transfer',
