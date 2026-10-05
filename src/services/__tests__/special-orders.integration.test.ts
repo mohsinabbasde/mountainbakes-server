@@ -811,6 +811,31 @@ describe('orders verified before migration 145', () => {
     assert.equal(await branchStockFor(BRANCH_A, 'Legacy Cake'), 3);
   });
 
+  test('146: an order approved under 143 (pool only) is delivered to its branch — once, however often it runs', async () => {
+    const { id, orderNumber } = await raise('branch-a', [line('Stranded Cake', 1, 3900)]);
+    const { rows } = await db.query<{ product_id: string }>(`select product_id from special_order_items where special_order_id = $1`, [id]);
+    // Exactly what migration 143's approval left behind: approved, +1 in the pool, nothing at the branch.
+    await db.query(`update special_orders set status = 'approved', approved_at = now(), approved_by_name = 'prod@mb.test' where id = $1`, [id]);
+    await rpc('apply_production_stock_movement', {
+      p_product_id: rows[0]!.product_id, p_product_name: 'Stranded Cake', p_delta: 1, p_type: 'prepare',
+      p_ref_id: `${orderNumber}/1`, p_business_date: '2026-10-05',
+    });
+    const others = await num(`select coalesce(sum(balance), 0) as n from stock`);
+
+    const fix = read('20261005000146_deliver_stranded_special_orders.sql');
+    await db.exec(fix);
+    await db.exec(fix);
+
+    assert.equal(await branchStockFor(BRANCH_A, 'Stranded Cake'), 1);
+    assert.equal(await poolFor('Stranded Cake'), 0);
+    assert.equal(await preparedFor('Stranded Cake'), 1);
+    assert.equal(await num(`select count(*) as n from stock_history where ref_id = $1`, [`${orderNumber}/1`]), 1);
+    const item = (await orderFor('branch-a', id)).items[0];
+    assert.deepEqual([item.qty, item.preparedQty, item.verifiedQty], [1, 1, 1]);
+    // Every order that WAS delivered properly is left exactly as it was.
+    assert.equal(await num(`select coalesce(sum(balance), 0) as n from stock`), others + 1);
+  });
+
   test('an order prepared before 145 (no stock booked) is booked in full when the branch verifies', async () => {
     const { id } = await raise('branch-a', [line('Half Way Cake', 2, 600)]);
     await db.query(`update special_orders set status = 'awaiting_verification', prepared_at = now() where id = $1`, [id]);
