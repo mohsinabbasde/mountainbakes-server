@@ -102,7 +102,7 @@ router.get('/overview', async (req, res, next) => {
       supabaseAdmin.rpc('production_stock_availability'),
       supabaseAdmin.from('production_returns').select('qty, status').eq('business_date', todayStr),
       supabaseAdmin.from('branches').select('id, name').eq('is_active', true).order('name'),
-      supabaseAdmin.from('products').select('id', { count: 'exact', head: true }).eq('is_active', true),
+      supabaseAdmin.from('products').select('id', { count: 'exact', head: true }).eq('is_active', true).eq('is_special', false),
     ]);
     for (const r of [demandRes, weekRes, seriesRes, prepHistRes, availRes, returnsRes, branchesRes, productsRes]) {
       if (r.error) throw r.error;
