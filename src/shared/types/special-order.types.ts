@@ -8,7 +8,8 @@ import type { Attachment } from './attachment.types';
  *   pending               sent to Production, waiting for preparation
  *   awaiting_verification Production prepared it; the branch must verify it
  *   verified              the branch verified it, with its photo
- *   approved              approved — and its quantity is in Production Stock
+ *   approved              approved — its quantity was added to Production Stock
+ *                         and delivered to the ordering branch's stock
  *
  * No stock moves at any step except the last, and there it moves exactly once.
  */
@@ -24,7 +25,7 @@ export const SPECIAL_ORDER_STATUS_LABELS: Record<SpecialOrderStatus, string> = {
 export interface SpecialOrderItem {
   id: string;
   itemName: string;
-  /** The quantity ordered — and exactly the quantity added to Production Stock on approval. */
+  /** The quantity ordered — and exactly the quantity booked into Production Stock, and on to the branch, on approval. */
   qty: number;
   /** The agreed amount for the WHOLE ROW. Not a unit rate; never used for stock. */
   amount: number;
@@ -34,7 +35,7 @@ export interface SpecialOrderItem {
   productId: string;
   /** The photo(s) the order was raised with. Never replaced by the verification photo. */
   requestPhotos: Attachment[];
-  /** The one stock movement this item produced. Null until the order is approved. */
+  /** The stock ADDITION this item produced (its 'prepare' movement). Null until the order is approved. */
   stockMovementId: string | null;
   /** Its human-readable ledger number (STK-YYYYMMDD-NNNNNN). */
   stockTransactionNo: string | null;

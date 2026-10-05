@@ -39,6 +39,7 @@ const STUBS = `
     ('prepare', 'transfer_out', 'return_in', 'sale', 'adjustment', 'return_transfer');
   create type attachment_entity as enum
     ('production_order_demand', 'production_order_verification', 'production_order_special_item');
+  create type stock_movement_type as enum ('sale', 'production', 'return', 'adjustment');
   create table counters (id text primary key, count bigint not null);
   create table branches (id uuid primary key default gen_random_uuid(), name text);
   create table users (id uuid primary key default gen_random_uuid());
@@ -57,6 +58,14 @@ const STUBS = `
     reason text, remarks text, metadata jsonb,
     transaction_no text default ('STK-TEST-' || nextval('test_txn_seq')),
     created_at timestamptz not null default now(),
+    unique (ref_id, product_id, type));
+  create table stock (
+    id uuid primary key default gen_random_uuid(), branch_id uuid not null, product_id uuid not null,
+    product_name text, balance numeric not null default 0, unique (branch_id, product_id));
+  create table stock_history (
+    id uuid primary key default gen_random_uuid(), branch_id uuid not null, product_id uuid not null,
+    product_name text, type stock_movement_type not null, delta numeric not null,
+    balance_after numeric not null default 0, ref_id text, business_date date not null,
     unique (ref_id, product_id, type));
   create table production_orders (
     id uuid primary key default gen_random_uuid(), branch_id uuid,
@@ -82,6 +91,15 @@ function ledgerWriteFromMigration89(): string {
   const start = sql.indexOf('create or replace function public.apply_production_stock_movement(');
   const end = sql.indexOf('$$;', start) + 3;
   assert.ok(start > 0 && end > start, 'apply_production_stock_movement not found in migration 89');
+  return sql.slice(start, end);
+}
+
+/** `apply_stock_movement` (branch stock) exactly as migration 12 defines it. */
+function branchLedgerWriteFromMigration12(): string {
+  const sql = read('20260719000012_stock_functions.sql');
+  const start = sql.indexOf('create or replace function public.apply_stock_movement(');
+  const end = sql.indexOf('$$;', start) + 3;
+  assert.ok(start > 0 && end > start, 'apply_stock_movement not found in migration 12');
   return sql.slice(start, end);
 }
 
@@ -264,9 +282,21 @@ async function prepareAndVerify(as: string, id: string): Promise<string> {
 const num = async (sql: string, params: unknown[] = []) =>
   Number((await db.query<{ n: string | number }>(sql, params)).rows[0]!.n);
 const ledgerRows = () => num(`select count(*) as n from production_stock_history`);
+/** What Production Stock holds for an item right now (net of everything). */
 const poolFor = (name: string) =>
   num(`select coalesce(sum(s.balance), 0) as n from production_stock s
         join products p on p.id = s.product_id where lower(p.name) = lower($1)`, [name]);
+/** How much was ADDED to Production Stock for an item — the 'prepare' movements. */
+const preparedFor = (name: string) =>
+  num(`select coalesce(sum(h.delta), 0) as n from production_stock_history h
+        join products p on p.id = h.product_id
+       where lower(p.name) = lower($1) and h.type = 'prepare'`, [name]);
+/** What one branch's own stock holds for an item. */
+const branchStockFor = (branchId: string, name: string) =>
+  num(`select coalesce(sum(s.balance), 0) as n from stock s
+        join products p on p.id = s.product_id
+       where s.branch_id = $1 and lower(p.name) = lower($2)`, [branchId, name]);
+const branchLedgerRows = () => num(`select count(*) as n from stock_history`);
 const demandRows = () =>
   num(`select (select count(*) from production_orders) + (select count(*) from production_order_items) as n`);
 
@@ -277,11 +307,13 @@ before(async () => {
   db = new PGlite();
   await db.exec(STUBS);
   await db.exec(ledgerWriteFromMigration89());
+  await db.exec(branchLedgerWriteFromMigration12());
   await db.exec(read('20260818000084_idempotency_keys.sql'));
   // 142 in its own transaction, as `db push` runs it: the enum value has to be
   // committed before anything can use it.
   await db.exec(`begin;${read('20261005000142_special_order_verification_enum.sql')}commit;`);
   await db.exec(`begin;${read('20261005000143_special_orders.sql')}commit;`);
+  await db.exec(`begin;${read('20261005000144_special_order_delivers_to_branch.sql')}commit;`);
 
   await db.query(`insert into branches (id, name) values ($1, 'DHA Branch'), ($2, 'Gulshan Branch')`, [BRANCH_A, BRANCH_B]);
   for (const a of Object.values(ACTORS)) await db.query(`insert into users (id) values ($1)`, [a.id]);
@@ -360,11 +392,12 @@ describe('raising a Special Order', () => {
   });
 
   test('6. it is NOT a demand: no demand row, no demand line, and no stock', async () => {
-    const before = { demand: await demandRows(), ledger: await ledgerRows() };
+    const before = { demand: await demandRows(), ledger: await ledgerRows(), branch: await branchLedgerRows() };
     await raise('branch-a', [line('Not A Demand Cake', 4, 900)]);
     assert.equal(await demandRows(), before.demand);
     assert.equal(await ledgerRows(), before.ledger);
-    assert.equal(await poolFor('Not A Demand Cake'), 0);
+    assert.equal(await branchLedgerRows(), before.branch);
+    assert.equal(await preparedFor('Not A Demand Cake'), 0);
   });
 
   test('the amount is never written to the product or its price', async () => {
@@ -493,7 +526,9 @@ describe('Production prepares, the branch verifies with a photo', () => {
     assert.equal(order.verifiedByName, 'a@mb.test');
     assert.ok(order.verifiedAt);
     assert.deepEqual(order.verificationPhotos.map((p: { id: string }) => p.id), [photo]);
+    // Verification moves nothing — not in Production Stock, not in branch stock.
     assert.equal(await ledgerRows(), ledger);
+    assert.equal(await branchStockFor(BRANCH_A, 'Verified Cake'), 0);
   });
 
   test('it cannot be verified before Production has prepared it', async () => {
@@ -547,7 +582,7 @@ describe('Production prepares, the branch verifies with a photo', () => {
   });
 });
 
-describe('approval — the one stock addition', () => {
+describe('approval — the one stock addition, delivered to the branch', () => {
   test('26. only Production or Admin may approve', async () => {
     const { id } = await raise('branch-a', [line('Guarded Cake', 2, 400)]);
     await prepareAndVerify('branch-a', id);
@@ -555,9 +590,10 @@ describe('approval — the one stock addition', () => {
       assert.equal((await call(who, 'PUT', `/api/special-orders/${id}/approve`)).status, 403);
     }
     assert.equal((await orderFor('production', id)).status, 'verified');
-    assert.equal(await poolFor('Guarded Cake'), 0);
+    assert.equal(await preparedFor('Guarded Cake'), 0);
     assert.equal((await call('admin', 'PUT', `/api/special-orders/${id}/approve`)).status, 200);
-    assert.equal(await poolFor('Guarded Cake'), 2);
+    assert.equal(await preparedFor('Guarded Cake'), 2);
+    assert.equal(await branchStockFor(BRANCH_A, 'Guarded Cake'), 2);
   });
 
   test('it cannot be approved before the branch has verified it with a photo', async () => {
@@ -566,21 +602,25 @@ describe('approval — the one stock addition', () => {
     await call('production', 'PUT', `/api/special-orders/${id}/prepare`);
     assert.equal((await call('production', 'PUT', `/api/special-orders/${id}/approve`)).status, 409);
     assert.equal((await orderFor('production', id)).status, 'awaiting_verification');
-    assert.equal(await poolFor('Unverified Cake'), 0);
+    assert.equal(await preparedFor('Unverified Cake'), 0);
   });
 
   test('12–15. approval adds exactly the ordered quantity, once; the amount is untouched', async () => {
     const { id, orderNumber } = await raise('branch-a', [line('Custom Cake', 5, 1500)]);
     await prepareAndVerify('branch-a', id);
-    assert.equal(await poolFor('Custom Cake'), 0);
+    assert.equal(await preparedFor('Custom Cake'), 0);
 
     const res = await call('production', 'PUT', `/api/special-orders/${id}/approve`);
     assert.equal(res.status, 200);
     assert.equal(res.body.movements.length, 1);
     assert.equal(res.body.movements[0].qty, 5);
 
-    // +5 — not +1500, not +10.
-    assert.equal(await poolFor('Custom Cake'), 5);
+    // +5 into Production Stock — not +1500, not +10 …
+    assert.equal(await preparedFor('Custom Cake'), 5);
+    // … then the same 5 out to the branch that ordered it, and into its stock.
+    assert.equal(await poolFor('Custom Cake'), 0);
+    assert.equal(await branchStockFor(BRANCH_A, 'Custom Cake'), 5);
+    assert.equal(await branchStockFor(BRANCH_B, 'Custom Cake'), 0);
 
     const order = await orderFor('production', id);
     assert.equal(order.status, 'approved');
@@ -593,7 +633,7 @@ describe('approval — the one stock addition', () => {
     // The ledger row traces back to the order, and the item traces forward to it.
     const { rows } = await db.query<Record<string, unknown>>(
       `select id, transaction_no, type::text as type, delta, ref_id, reason, branch_id, created_by_name, metadata
-         from production_stock_history where ref_id like $1`, [`${orderNumber}/%`]);
+         from production_stock_history where ref_id like $1 and type = 'prepare'`, [`${orderNumber}/%`]);
     assert.equal(rows.length, 1);
     const move = rows[0]!;
     assert.equal(move['type'], 'prepare');
@@ -607,6 +647,17 @@ describe('approval — the one stock addition', () => {
     });
     assert.equal(order.items[0].stockMovementId, move['id']);
     assert.equal(order.items[0].stockTransactionNo, move['transaction_no']);
+
+    // The delivery is traceable the same way, in both ledgers.
+    const out = await db.query<Record<string, unknown>>(
+      `select delta, ref_id, branch_id, metadata->>'specialOrderNumber' as so
+         from production_stock_history where ref_id like $1 and type = 'transfer_out'`, [`${orderNumber}/%`]);
+    assert.deepEqual(out.rows.map((r) => [Number(r['delta']), r['ref_id'], r['branch_id'], r['so']]),
+      [[-5, `${orderNumber}/1`, BRANCH_A, orderNumber]]);
+    const into = await db.query<Record<string, unknown>>(
+      `select type::text as type, delta, ref_id, branch_id from stock_history where ref_id like $1`, [`${orderNumber}/%`]);
+    assert.deepEqual(into.rows.map((r) => [r['type'], Number(r['delta']), r['ref_id'], r['branch_id']]),
+      [['production', 5, `${orderNumber}/1`, BRANCH_A]]);
   });
 
   test('18–19. approving again — a retry, a double click — adds nothing', async () => {
@@ -618,8 +669,11 @@ describe('approval — the one stock addition', () => {
 
     for (const r of [...results, later]) assert.equal(r.status, 200);
     assert.equal(later.body.alreadyApproved, true);
-    assert.equal(await poolFor('Once Only Cake'), 5);
-    assert.equal(await num(`select count(*) as n from production_stock_history where ref_id like $1`, [`${orderNumber}/%`]), 1);
+    assert.equal(await preparedFor('Once Only Cake'), 5);
+    assert.equal(await branchStockFor(BRANCH_A, 'Once Only Cake'), 5);
+    // One prepare + one transfer_out in the pool, one receipt at the branch.
+    assert.equal(await num(`select count(*) as n from production_stock_history where ref_id like $1`, [`${orderNumber}/%`]), 2);
+    assert.equal(await num(`select count(*) as n from stock_history where ref_id like $1`, [`${orderNumber}/%`]), 1);
 
     // Even the ledger write itself, replayed by hand under the same reference,
     // is a no-op — the second guard behind the status check.
@@ -628,7 +682,9 @@ describe('approval — the one stock addition', () => {
       p_product_id: rows[0]!.product_id, p_product_name: 'Once Only Cake', p_delta: 5, p_type: 'prepare',
       p_ref_id: `${orderNumber}/1`, p_business_date: '2026-10-05',
     });
-    assert.equal(await poolFor('Once Only Cake'), 5);
+    assert.equal(await preparedFor('Once Only Cake'), 5);
+    assert.equal(await poolFor('Once Only Cake'), 0);
+    assert.equal(await branchStockFor(BRANCH_A, 'Once Only Cake'), 5);
   });
 
   test('every row of a multi-row order is added once, each by its own movement', async () => {
@@ -641,10 +697,12 @@ describe('approval — the one stock addition', () => {
     await prepareAndVerify('branch-a', id);
     assert.equal((await call('production', 'PUT', `/api/special-orders/${id}/approve`)).status, 200);
 
-    assert.equal(await poolFor('Row One Cake'), 4);
-    assert.equal(await poolFor('Row Two Cake'), 2);
+    assert.equal(await preparedFor('Row One Cake'), 4);
+    assert.equal(await preparedFor('Row Two Cake'), 2);
+    assert.equal(await branchStockFor(BRANCH_A, 'Row One Cake'), 4);
+    assert.equal(await branchStockFor(BRANCH_A, 'Row Two Cake'), 2);
     const { rows } = await db.query<{ ref_id: string; delta: string }>(
-      `select ref_id, delta from production_stock_history where ref_id like $1 order by ref_id`, [`${orderNumber}/%`]);
+      `select ref_id, delta from production_stock_history where ref_id like $1 and type = 'prepare' order by ref_id`, [`${orderNumber}/%`]);
     assert.deepEqual(rows.map((r) => [r.ref_id, Number(r.delta)]), [
       [`${orderNumber}/1`, 1], [`${orderNumber}/2`, 2], [`${orderNumber}/3`, 3],
     ]);
@@ -666,7 +724,11 @@ describe('several orders, several branches', () => {
     await prepareAndVerify('branch-b', raised[1]!.id);
     await prepareAndVerify('branch-a', raised[2]!.id);
     await Promise.all(raised.map((r) => call('production', 'PUT', `/api/special-orders/${r.id}/approve`)));
-    assert.equal(await poolFor('Shared Name Cake'), 9);
+    assert.equal(await preparedFor('Shared Name Cake'), 9);
+    // Each branch receives its OWN orders — 2 + 4 for A, 3 for B.
+    assert.equal(await branchStockFor(BRANCH_A, 'Shared Name Cake'), 6);
+    assert.equal(await branchStockFor(BRANCH_B, 'Shared Name Cake'), 3);
+    assert.equal(await poolFor('Shared Name Cake'), 0);
   });
 
   test('25. Branch A cannot see or act on Branch B\'s Special Orders', async () => {

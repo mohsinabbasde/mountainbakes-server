@@ -30,8 +30,9 @@ import { invalidate } from '../utils/cache';
  * NOT a demand, and nothing here touches `production_orders`: see migration 143
  * for why that separation is structural rather than a flag. There is also no
  * stock endpoint in this file, by design — the ordered quantity reaches
- * Production Stock through `approve_special_order` and through nothing else, so
- * there is no second, manual way to add the same units.
+ * Production Stock, and from there the ordering branch's stock, through
+ * `approve_special_order` and through nothing else (migration 144), so there is
+ * no second, manual way to add the same units.
  *
  * Every state change is an RPC that does its own check-and-set in one
  * transaction; the handlers below authorise, validate and translate.
@@ -336,8 +337,9 @@ router.put('/:id/verify', requireRole(...BRANCH_ROLES), validate(VerifySpecialOr
 });
 
 // PUT /api/special-orders/:id/approve — the authorised approval, and THE stock
-// addition: `approve_special_order` flips verified → approved and adds each
-// item's ordered quantity to Production Stock in the same transaction.
+// addition: `approve_special_order` flips verified → approved and, in the same
+// transaction, adds each item's ordered quantity to Production Stock and
+// delivers it to the ordering branch's stock.
 //
 // Safe to retry. The RPC only acts on a 'verified' order, so a repeat finds it
 // already 'approved', moves nothing, and is answered as the success it already
@@ -375,7 +377,7 @@ router.put('/:id/approve', requireRole(...PRODUCTION_ROLES), async (req: AuthReq
     await notify({
       type: 'production_reviewed',
       title: `Special Order ${result.orderNumber} Approved`,
-      message: 'Your verified Special Order has been approved.',
+      message: 'Your verified Special Order has been approved and added to your stock.',
       targetRole: 'branch_manager',
       branchId: result.branchId!,
       relatedId: id,
