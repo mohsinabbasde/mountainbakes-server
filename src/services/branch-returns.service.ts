@@ -2,6 +2,7 @@ import { randomUUID } from 'crypto';
 import { supabaseAdmin } from '../config/supabase';
 import type { ProductionReturn } from '../shared';
 import { rowToApi } from '../utils/case';
+import { getAttachmentsByIds } from './attachments.service';
 import { applyStockMovement, commitBranchReturn } from './stock.service';
 import { isBusinessDayClosed } from './daily-closing.service';
 
@@ -104,6 +105,32 @@ export class ReturnNotFoundError extends Error {
  */
 const OPEN_OR_CLOSED_STATUSES = ['pending', 'accepted', 'rejected', 'returned'];
 
+/**
+ * Shape a page of `production_returns` rows for the API: `business_date` becomes
+ * `date`, and `photo_attachment_id` becomes a signed `photo`.
+ *
+ * Shared by the branch list here and Production's queue
+ * (production-returns.routes.ts) so the two cannot disagree about what a return
+ * looks like. One attachment query and one signing call for the whole page,
+ * however many rows share a photo — every product of one submission does.
+ *
+ * WHO MAY SEE A PHOTO is decided by the caller's own row filter, not here: a
+ * branch only ever reaches this with its own branch's rows, and the URL minted
+ * for them dies in an hour.
+ */
+export async function toReturnsApi(data: unknown[]): Promise<ProductionReturn[]> {
+  const rows = rowToApi<Record<string, unknown>[]>(data ?? []);
+  const photos = await getAttachmentsByIds(
+    'branch_return',
+    rows.map((r) => r['photoAttachmentId'] as string | null),
+  );
+  return rows.map(({ businessDate, photoAttachmentId, ...rest }) => ({
+    ...rest,
+    date: businessDate,
+    photo: photos.get(photoAttachmentId as string) ?? null,
+  })) as unknown as ProductionReturn[];
+}
+
 /** Allowlist for `?sortBy=` — `date` is this API's own rename of `business_date` (see below). */
 const BRANCH_RETURN_SORTABLE_COLUMNS: Record<string, string> = {
   date: 'business_date',
@@ -155,11 +182,7 @@ export async function listBranchReturns(
   const { data, error, count } = await q;
   if (error) throw error;
 
-  const rows = rowToApi<Record<string, unknown>[]>(data ?? []);
-  return {
-    returns: rows.map(({ businessDate, ...rest }) => ({ ...rest, date: businessDate })) as ProductionReturn[],
-    total: count ?? 0,
-  };
+  return { returns: await toReturnsApi(data ?? []), total: count ?? 0 };
 }
 
 /**

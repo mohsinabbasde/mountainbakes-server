@@ -168,6 +168,15 @@ export const CreateBranchReturnSchema = z.object({
       });
     }),
   reason: z.string().max(500).optional().default(''),
+  // The return photo, uploaded first to POST /api/attachments (entity
+  // `branch_return`). One per return, not one per product.
+  //
+  // Optional HERE and required by the ROUTE (unless RETURN_PHOTO_REQUIRED=false).
+  // The schema cannot be the gate: a till that queued a return offline before
+  // this field existed would have it refused as malformed, with no way to edit
+  // the queued payload. The route's refusal names the photo instead, and the
+  // switch lets the API be deployed ahead of the clients that send one.
+  attachmentIds: z.array(z.string().uuid()).max(1, 'Only one photo per return').optional().default([]),
   // Sent by the mobile app only; see business-date.schemas.ts.
   businessDate: optionalBusinessDate,
 });

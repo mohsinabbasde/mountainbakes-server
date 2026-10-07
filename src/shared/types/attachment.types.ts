@@ -32,6 +32,11 @@ export const ATTACHMENT_ENTITIES = [
   // attaches when it records money sent to the company. Read by Finance from
   // the transfer and again from the RV- voucher it becomes.
   'cash_transfer',
+  // Branch returns (migration 148): the picture of the goods a branch is sending
+  // back. ONE photo per Save Return, shared by every product row that submission
+  // creates — each row points at it through `production_returns.photo_attachment_id`
+  // rather than through `entity_id`, which can only name one parent.
+  'branch_return',
 ] as const;
 
 export type AttachmentEntity = (typeof ATTACHMENT_ENTITIES)[number];
@@ -51,6 +56,7 @@ export const ATTACHMENT_ENTITY_LABELS: Record<AttachmentEntity, string> = {
   finance_ticket: 'Finance Help Desk query',
   finance_ticket_message: 'Help Desk reply',
   cash_transfer: 'Branch cash transfer',
+  branch_return: 'Branch return',
 };
 
 /**
@@ -145,3 +151,32 @@ export const ATTACHMENT_TARGET_MAX_BYTES = 300 * 1024;
 
 /** How many photos may hang off one document. */
 export const ATTACHMENT_MAX_PER_ENTITY = 5;
+
+// ---------------------------------------------------------------------------
+// Return photos — a smaller profile than the receipt one above.
+//
+// A receipt has to stay READABLE, which is what buys it 2000px. A return photo
+// only has to show WHICH goods came back and what state they were in, and there
+// is one on every return a branch raises, every evening — so it is sized for
+// storage first. 1280px identifies a tray of pastries comfortably; nobody reads
+// small print off it.
+// ---------------------------------------------------------------------------
+
+/** Longest edge of a stored return photo, in pixels. Never upscaled to reach it. */
+export const RETURN_PHOTO_MAX_DIMENSION = 1280;
+
+/** First-pass encode quality for a return photo (JPEG or WebP). */
+export const RETURN_PHOTO_QUALITY = 0.7;
+
+/** Byte budget the client compresses a return photo towards. */
+export const RETURN_PHOTO_TARGET_MAX_BYTES = 200 * 1024;
+
+/**
+ * The ceiling on a stored return photo, enforced by the API at upload. Five
+ * times the budget: a compressed 1280px frame cannot honestly reach it, so
+ * anything that does was not compressed.
+ */
+export const RETURN_PHOTO_MAX_BYTES = 1024 * 1024;
+
+/** The largest ORIGINAL a client will even try to process. */
+export const RETURN_PHOTO_MAX_ORIGINAL_BYTES = 20 * 1024 * 1024;

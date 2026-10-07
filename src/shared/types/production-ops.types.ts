@@ -1,3 +1,5 @@
+import type { Attachment } from './attachment.types';
+
 // Central Production department operations: the production stock pool, Branch
 // Return Stock, product returns, and production expenses. These are distinct from per-branch `stock`
 // (see stock.types.ts) — the production pool is a single, branch-agnostic pool
@@ -391,4 +393,13 @@ export interface ProductionReturn {
   reviewedBy: string | null;
   reviewedByName: string | null;
   reviewedAt: string | null;
+  /**
+   * The photo taken when the branch raised the return, or null — returns older
+   * than migration 148, and ones Production recorded itself, have none. Every
+   * product row of one submission carries the SAME photo.
+   *
+   * `photo.url` is a signed URL with an hour to live (see Attachment); it is
+   * re-minted on every read, so key any client-side cache on `photo.id`.
+   */
+  photo?: Attachment | null;
 }
