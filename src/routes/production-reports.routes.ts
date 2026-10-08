@@ -405,7 +405,8 @@ async function buildReport(
       const balances = await mapWithConcurrency(wanted, 8, (b) => getPreviousOrderBalance(b.successorId));
 
       const rows: (string | number)[][] = [];
-      const totals = { delivered: 0, share: 0, retQty: 0, returns: 0, discount: 0, collect: 0, received: 0, remaining: 0 };
+      const totals = { delivered: 0, share: 0, retQty: 0, returns: 0, discount: 0, collect: 0 };
+      const receivedById = new Map<string, number>();
       for (let i = 0; i < wanted.length; i++) {
         const bal = balances[i];
         // `previous` is the authoritative identity of the billed delivery — it is
@@ -419,8 +420,10 @@ async function buildReport(
         totals.returns += bal.returnsValue;
         totals.discount += bal.discountsValue;
         totals.collect += bal.amountToCollect;
-        totals.received += bal.paymentsReceivedValue;
-        totals.remaining += bal.remainingBalance;
+        // A day's deposits print on every slip of that day (see
+        // paymentsReceivedInWindow), so two rows can carry the same transfer.
+        // Each row shows what its slip shows; the TOTAL counts money once.
+        for (const p of bal.paymentItems) receivedById.set(p.transferId, p.amount);
         rows.push([
           wanted[i]!.billed.branch_name ?? '',
           bal.previous.demandNumber,
@@ -438,7 +441,12 @@ async function buildReport(
 
       let specialRowCount = 0;
       if (rows.length > 0) {
-        rows.push(['TOTAL', '', '', Math.round(totals.delivered), Math.round(totals.share), totals.retQty, Math.round(totals.returns), Math.round(totals.discount), Math.round(totals.collect), Math.round(totals.received), Math.round(totals.remaining)]);
+        const received = [...receivedById.values()].reduce((a, v) => a + v, 0);
+        // Derived from the two totals beside it rather than summed down the
+        // column: the rows' own Remaining each net off a full day's deposits,
+        // so adding them up would subtract a shared deposit more than once.
+        const remaining = Math.max(0, totals.collect - received);
+        rows.push(['TOTAL', '', '', Math.round(totals.delivered), Math.round(totals.share), totals.retQty, Math.round(totals.returns), Math.round(totals.discount), Math.round(totals.collect), Math.round(received), Math.round(remaining)]);
         specialRowCount++;
       }
       if (unbilled > 0) {
@@ -455,8 +463,9 @@ async function buildReport(
         // Money is written as plain numbers, not "Rs. 37,600" — a spreadsheet
         // that cannot sum its own money column is a picture of a report. Zero
         // prints as 0 rather than the slip's em dash for the same reason.
-        // Payment Received (approved cash transfers in the slip's window) and
-        // Remaining are appended AFTER Amount to Collect, which is unchanged.
+        // Payment Received (approved cash transfers in the slip's window, plus
+        // the rest of those days' deposits) and Remaining are appended AFTER
+        // Amount to Collect, which is unchanged.
         headers: ['Branch', 'Previous Order', 'Date', 'Delivered Value', 'Company Share', 'Less Returns Qty', 'Less Returns', 'Less Discount', 'Amount to Collect', 'Payment Received', 'Remaining'],
         rows,
         specialRowCount,
