@@ -53,3 +53,8 @@ skills-lock.json
 # than one lockfile, so an `npm install` run by mistake must not be committable.
 package-lock.json
 yarn.lock
+
+# Railway migration: generated credentials and database dumps never go in git
+infra/railway/.secrets.env
+infra/railway/work/
+*.dump
