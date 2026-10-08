@@ -40,7 +40,9 @@ export interface PreviousOrderBalance {
   amountToCollect: number;
   /**
    * Approved cash transfers (migration 118) the branch made in the same window
-   * the returns and discounts above are drawn from. DISPLAYED, NOT DEDUCTED:
+   * the returns and discounts above are drawn from, completed to whole days:
+   * every other deposit dated the same day as one of them is included, so
+   * several handovers in one day show as that day's full sum. DISPLAYED, NOT DEDUCTED:
    * `amountToCollect` is unchanged by this figure. The transfer is its own
    * transaction, already booked as an RV- receipt when Finance approved it;
    * netting it off here as well would count the same money twice, once as
@@ -237,8 +239,10 @@ export async function getPreviousOrderBalance(orderId: string): Promise<Previous
   const discountsValue = discountItems.reduce((a, d) => a + d.amount, 0);
 
   // Approved cash transfers in the SAME window as the returns and discounts,
-  // for the same reason: bounded by the two orders' timestamps, each handover
-  // lands on exactly one slip. Read-only — see the note on the interface.
+  // plus the rest of each of those days' deposits — a branch that hands money
+  // over several times in a day sees the day's whole sum here. Unlike returns
+  // and discounts this can therefore repeat across two slips of one day; it is
+  // read-only, so nothing is deducted twice. See the note on the interface.
   const { paymentItems, paymentsReceivedValue } = await paymentsReceivedInWindow(
     order.branch_id,
     prev.submitted_at,

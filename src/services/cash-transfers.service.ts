@@ -402,37 +402,31 @@ async function notifyBranch(transfer: CashTransfer, decision: 'approved' | 'reje
 // ---------------------------------------------------------------------------
 
 /**
- * Approved transfers a branch made in one billing window: after the previous
- * order was placed, up to and including this one — the SAME window
- * previous-balance.service.ts uses for returns and discounts, so each transfer
- * lands on exactly one slip. 'approved' only: a pending transfer is money
- * Finance has not yet confirmed, and a rejected one never arrived.
+ * Approved transfers a branch made in one billing window — after the previous
+ * order was placed, up to and including this one, the SAME window
+ * previous-balance.service.ts uses for returns and discounts — TOGETHER WITH
+ * every other approved transfer the branch dated the same day as one of them.
  *
- * Read-only and additive. The caller displays the sum; it does not subtract
- * it from anything.
+ * The second half is the rule a branch reads the slip by: money handed over in
+ * two or three trips on one day is one day's payment, and a slip that listed
+ * only the trip that happened to fall inside its window looked like the rest had
+ * gone missing. So a day's deposits always travel together — if one is on the
+ * slip, all of them are.
+ *
+ * What that costs, knowingly: on a day with two demands the same deposits print
+ * on both slips. That is safe only because this figure is DISPLAYED and never
+ * deducted. Anything that adds these up across slips must count each transfer
+ * once, by `transferId` — the Collections export's TOTAL row does.
+ *
+ * 'approved' only: a pending transfer is money Finance has not yet confirmed,
+ * and a rejected one never arrived.
  */
 export async function paymentsReceivedInWindow(
   branchId: string,
   afterTs: string,
   untilTs: string,
 ): Promise<{ paymentItems: PaymentReceivedItem[]; paymentsReceivedValue: number }> {
-  // A transfer deleted through the Help Desk left the ledger with its
-  // vouchers (migration 125) and must drop out of the slip's figure too.
-  const { data, error } = await withoutDeleted(
-    supabaseAdmin
-      .from('cash_transfers')
-      .select('id, transfer_no, voucher_no, business_date, amount, cash_amount, easypaisa_amount, bank_amount'),
-  )
-    .eq('branch_id', branchId)
-    .eq('status', 'approved')
-    // A fuel-only deposit (Total 0) is income, not a payment against the slip.
-    .gt('amount', 0)
-    .gt('created_at', afterTs)
-    .lte('created_at', untilTs)
-    .order('created_at', { ascending: true });
-  if (error) throw error;
-
-  const paymentItems: PaymentReceivedItem[] = ((data ?? []) as {
+  type Row = {
     id: string;
     transfer_no: string;
     voucher_no: string | null;
@@ -441,7 +435,41 @@ export async function paymentsReceivedInWindow(
     cash_amount: number | string;
     easypaisa_amount: number | string;
     bank_amount: number | string;
-  }[]).map((r) => ({
+    created_at: string;
+  };
+
+  // A transfer deleted through the Help Desk left the ledger with its
+  // vouchers (migration 125) and must drop out of the slip's figure too.
+  const approved = () =>
+    withoutDeleted(
+      supabaseAdmin
+        .from('cash_transfers')
+        .select('id, transfer_no, voucher_no, business_date, amount, cash_amount, easypaisa_amount, bank_amount, created_at'),
+    )
+      .eq('branch_id', branchId)
+      .eq('status', 'approved')
+      // A fuel-only deposit (Total 0) is income, not a payment against the slip.
+      .gt('amount', 0);
+
+  const { data, error } = await approved().gt('created_at', afterTs).lte('created_at', untilTs);
+  if (error) throw error;
+  const inWindow = (data ?? []) as Row[];
+
+  // The rest of each of those days. Nothing in the window means nothing to
+  // complete, so a slip with no payment stays a slip with no payment.
+  const days = [...new Set(inWindow.map((r) => r.business_date))];
+  let sameDay: Row[] = [];
+  if (days.length > 0) {
+    const { data: dayRows, error: dayErr } = await approved().in('business_date', days);
+    if (dayErr) throw dayErr;
+    sameDay = (dayRows ?? []) as Row[];
+  }
+
+  const byId = new Map<string, Row>();
+  for (const r of [...inWindow, ...sameDay]) byId.set(r.id, r);
+  const rows = [...byId.values()].sort((a, b) => a.created_at.localeCompare(b.created_at));
+
+  const paymentItems: PaymentReceivedItem[] = rows.map((r) => ({
     transferId: r.id,
     transferNo: r.transfer_no,
     voucherNo: r.voucher_no,
