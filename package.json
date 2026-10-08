@@ -16,6 +16,7 @@
     "purge:price-history": "tsx --env-file .env src/scripts/purge-price-history.ts",
     "purge:idempotency-keys": "tsx --env-file .env src/scripts/purge-idempotency-keys.ts",
     "purge:return-photos": "tsx --env-file .env src/scripts/purge-staged-return-photos.ts",
+    "files:copy": "tsx --env-file .env src/scripts/copy-storage-to-s3.ts",
     "verify:idempotency": "tsx --env-file .env src/scripts/verify-idempotency.ts",
     "verify:login-identity": "tsx src/scripts/verify-login-identity.ts",
     "backup:daily": "tsx --env-file .env src/scripts/backup.ts daily",

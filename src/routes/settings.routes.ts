@@ -7,16 +7,20 @@ import { validate } from '../middleware/validate';
 import { UpdateSettingsSchema, type AppSettings } from '../shared';
 import { invalidate } from '../utils/cache';
 import { getAppSettings, FIELD_TO_COLUMN } from '../services/settings.service';
+import { fileStore } from '../services/file-store';
 
 export const router = Router();
 
-const LOGO_BUCKET = 'branding';
+const LOGO_BUCKET = 'branding' as const;
 
 /**
  * Extension is derived from the sniffed mimetype, never from originalname —
  * that string is attacker-controlled and would otherwise land in a storage path.
  * The keys mirror the bucket's allowed_mime_types (migration 10); anything else
  * is rejected below, so the bucket never has to be the one to say no.
+ *
+ * The extensions also appear in LOGO_PATH_PATTERN (services/file-store.ts),
+ * which is what the public logo route will serve. Add one here, add it there.
  */
 const LOGO_EXTENSIONS: Record<string, string> = {
   'image/png': 'png',
@@ -87,17 +91,14 @@ router.post('/logo', requireRole('super_admin'), // eslint-disable-next-line @ty
     const previousPath: string | null = existing?.logo_path ?? null;
 
     const logoPath = `settings/logo-${Date.now()}.${extension}`;
-    const { error: uploadErr } = await supabaseAdmin.storage
-      .from(LOGO_BUCKET)
-      .upload(logoPath, req.file.buffer, { contentType: req.file.mimetype });
-    if (uploadErr) throw uploadErr;
+    await fileStore().upload(LOGO_BUCKET, logoPath, req.file.buffer, req.file.mimetype);
 
-    // `branding` is a PUBLIC bucket, so this URL is permanent and unauthenticated
-    // — which is required: logo_url is persisted and rendered on the login page
-    // and on printed receipts, where there is no session. A signed URL would
-    // expire and silently break both. See migration 10.
-    const { data: publicUrl } = supabaseAdmin.storage.from(LOGO_BUCKET).getPublicUrl(logoPath);
-    const logoUrl = publicUrl.publicUrl;
+    // This URL is permanent and unauthenticated — which is required: logo_url is
+    // persisted and rendered on the login page and on printed receipts, where
+    // there is no session. A signed URL would expire and silently break both.
+    // On Supabase that is the PUBLIC `branding` bucket (migration 10); on S3 it
+    // is this API's own /api/public/branding route.
+    const logoUrl = fileStore().publicUrl(LOGO_BUCKET, logoPath);
 
     const { error: writeErr } = await supabaseAdmin
       .from('settings')
@@ -112,9 +113,10 @@ router.post('/logo', requireRole('super_admin'), // eslint-disable-next-line @ty
     // it just leaves one orphan behind. Deleting any earlier would risk removing
     // the current logo if the upload or the row write then failed.
     if (previousPath && previousPath !== logoPath) {
-      const { error: removeErr } = await supabaseAdmin.storage.from(LOGO_BUCKET).remove([previousPath]);
-      if (removeErr) {
-        console.warn(`[settings] could not delete previous logo ${previousPath}:`, removeErr.message);
+      try {
+        await fileStore().remove(LOGO_BUCKET, [previousPath]);
+      } catch (removeErr) {
+        console.warn(`[settings] could not delete previous logo ${previousPath}:`, (removeErr as Error).message);
       }
     }
 
