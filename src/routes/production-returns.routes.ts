@@ -12,6 +12,7 @@ import {
 import { notify } from '../services/push.service';
 import { acceptReturnIntoReturnStock } from '../services/return-stock.service';
 import { applyStockMovement } from '../services/stock.service';
+import { toReturnsApi } from '../services/branch-returns.service';
 import { rowToApi } from '../utils/case';
 
 export const router = Router();
@@ -82,9 +83,9 @@ router.get('/', async (req: AuthRequest, res, next) => {
     // it as date. rowToApi only camelCases keys, so remap it here — same fix as
     // GET /api/production-orders. Without it every row's date is undefined and
     // the Return Date column renders formatDate's "—" placeholder on all of them.
-    const rows = rowToApi<Record<string, unknown>[]>(data ?? []);
-    const returns = rows.map(({ businessDate, ...rest }) => ({ ...rest, date: businessDate }));
-    res.json({ returns, total: count ?? 0 });
+    // `toReturnsApi` also turns each row's photo into a signed URL, so the
+    // queue shows what the branch photographed alongside what it claimed.
+    res.json({ returns: await toReturnsApi(data ?? []), total: count ?? 0 });
   } catch (err) {
     next(err);
   }

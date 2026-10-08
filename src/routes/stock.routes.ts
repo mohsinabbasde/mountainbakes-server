@@ -44,6 +44,7 @@ import {
   ReturnLockedError,
   ReturnNotFoundError,
 } from '../services/branch-returns.service';
+import { assertStagedAttachments, bindAttachments } from '../services/attachments.service';
 import { idempotent, persistIfCommitted } from '../middleware/idempotency';
 import { resolveClientBusinessDate } from '../utils/clientBusinessDate';
 import { requireInsideGeofence } from '../middleware/requireInsideGeofence';
@@ -231,12 +232,23 @@ router.post('/return', requireRole('super_admin', ...BRANCH_ROLES), idempotent('
       : ((req.body as { branchId?: string }).branchId ?? null);
     if (!branchId) { res.status(400).json({ error: 'Branch context required' }); return; }
 
-    const { items, reason, businessDate: claimedDate } = req.body as {
+    const { items, reason, businessDate: claimedDate, attachmentIds = [] } = req.body as {
       items: { productId: string; qty: number }[];
       reason: string;
       // The day the return was made, as captured on the device.
       businessDate?: string;
+      // The return photo, staged by POST /api/attachments. At most one.
+      attachmentIds?: string[];
     };
+
+    // A PHOTO IS REQUIRED. Refused here rather than by the schema so the answer
+    // is a sentence a till can show, and so RETURN_PHOTO_REQUIRED=false can hold
+    // the rule off while clients that predate it are still in the field (see
+    // CreateBranchReturnSchema). Checked before anything is read or written.
+    if (attachmentIds.length === 0 && process.env['RETURN_PHOTO_REQUIRED'] !== 'false') {
+      res.status(400).json({ error: 'A photo of the returned items is required.', code: 'photo_required' });
+      return;
+    }
 
     const businessDate = await resolveClientBusinessDate(claimedDate, req.user!.role);
 
@@ -277,6 +289,18 @@ router.post('/return', requireRole('super_admin', ...BRANCH_ROLES), idempotent('
       });
       return;
     }
+
+    // THE PHOTO IS PROVEN USABLE BEFORE ANY STOCK MOVES. It is bound last, once
+    // the rows it belongs to exist — but a photo that turns out to be someone
+    // else's, already used, or swept away must stop the return here, while
+    // stopping is still free. Discovering it at bind time would leave units off
+    // the branch balance for a return the caller was told had failed.
+    await assertStagedAttachments({
+      entity: 'branch_return',
+      attachmentIds,
+      actor: { uid: req.user!.uid },
+    });
+    const photoId = attachmentIds[0] ?? null;
 
     const committed: { id: string; productId: string; productName: string; qty: number }[] = [];
 
@@ -333,9 +357,32 @@ router.post('/return', requireRole('super_admin', ...BRANCH_ROLES), idempotent('
         business_date: businessDate,
         created_by: req.user!.uid,
         created_by_name: req.user!.email,
+        // One photo, cited by every product row of this submission.
+        photo_attachment_id: photoId,
       })),
     );
     if (insertErr) throw insertErr;
+
+    // 2b) Bind the photo, which is what makes it immutable and takes it out of
+    //     reach of the staged-photo cleanup. `entity_id` can name one parent, so
+    //     it names the first row; the rest reach it through the column above.
+    //
+    //     A failure here is logged, not thrown. The stock has moved and the rows
+    //     are written — the return HAPPENED — and answering 500 would have a
+    //     client retry it or clean up a photo the rows now cite. The pre-check
+    //     above leaves only a same-user double submit able to get here.
+    if (photoId) {
+      try {
+        await bindAttachments({
+          entity: 'branch_return',
+          entityId: committed[0].id,
+          attachmentIds: [photoId],
+          actor: { uid: req.user!.uid },
+        });
+      } catch (bindErr) {
+        console.error(`[stock.return] return ${committed[0].id} saved but photo ${photoId} did not bind:`, bindErr);
+      }
+    }
 
     // 3) Notify Production in real time — ONCE for the whole return. branchId
     // null: production_user has no branch claim, and the notifications RLS filters

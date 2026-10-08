@@ -4,6 +4,7 @@ import {
   ATTACHMENT_MAX_BYTES,
   ATTACHMENT_MAX_PER_ENTITY,
   ATTACHMENT_URL_TTL_SECONDS,
+  RETURN_PHOTO_MAX_BYTES,
   type Attachment,
   type AttachmentEntity,
 } from '../shared';
@@ -57,6 +58,17 @@ const SELECT =
 function clientError(message: string, status: number) {
   return Object.assign(new Error(message), { status });
 }
+
+/**
+ * Entities held to a tighter ceiling than ATTACHMENT_MAX_BYTES.
+ *
+ * A return photo is compressed to ~200 KB on the device; one arriving near the
+ * megabyte mark means that step did not run, and storing it anyway is exactly
+ * the storage growth the limit exists to stop.
+ */
+const MAX_BYTES_BY_ENTITY: Partial<Record<AttachmentEntity, number>> = {
+  branch_return: RETURN_PHOTO_MAX_BYTES,
+};
 
 /**
  * Mint short-lived URLs for a batch of rows.
@@ -130,7 +142,7 @@ export async function uploadAttachment(input: {
   if (!extension) {
     throw clientError('A photo must be a JPEG, PNG or WebP image', 400);
   }
-  if (input.buffer.length > ATTACHMENT_MAX_BYTES) {
+  if (input.buffer.length > (MAX_BYTES_BY_ENTITY[input.entity] ?? ATTACHMENT_MAX_BYTES)) {
     throw clientError('That photo is too large. Retake it and try again.', 413);
   }
 
@@ -314,4 +326,151 @@ export async function listAttachmentsAcross(
 /** The key `listAttachmentsAcross` returns its map under. */
 export function attachmentKey(entity: AttachmentEntity, entityId: string): string {
   return `${entity}:${entityId}`;
+}
+
+/**
+ * Confirm that every id is a photo this caller staged for `entity` and has not
+ * used yet — the same three predicates `bindAttachments` applies, checked
+ * WITHOUT writing.
+ *
+ * For a caller that must do something irreversible between "the photo is good"
+ * and "the photo is bound". A return moves stock before its rows exist, so
+ * finding out at bind time that the photo was never usable would leave units
+ * off the branch balance with nothing recorded against them.
+ */
+export async function assertStagedAttachments(input: {
+  entity: AttachmentEntity;
+  attachmentIds: string[];
+  actor: { uid: string };
+}): Promise<void> {
+  const ids = [...new Set(input.attachmentIds)];
+  if (ids.length === 0) return;
+
+  const { data, error } = await supabaseAdmin
+    .from('attachments')
+    .select('id')
+    .in('id', ids)
+    .eq('entity', input.entity)
+    .eq('uploaded_by', input.actor.uid)
+    .is('entity_id', null);
+  if (error) throw error;
+
+  if ((data ?? []).length !== ids.length) {
+    throw Object.assign(
+      new Error('The attached photo is no longer available. Take it again and resubmit.'),
+      // `details.code` is read by the mobile sync queue, which answers it by
+      // uploading the photo it still holds again rather than parking the return
+      // as a conflict. (`details` is the one extra field errorHandler passes on.)
+      { status: 409, details: { code: 'attachment_unavailable' } },
+    );
+  }
+}
+
+/**
+ * Photos by their own id, keyed by that id — for a parent that points AT its
+ * attachment (`production_returns.photo_attachment_id`) instead of being
+ * pointed at by `entity_id`.
+ *
+ * Only BOUND rows of the named entity are returned. That is the authorization:
+ * the caller has already decided the reader may see the parent rows, and this
+ * refuses to sign anything those rows could not legitimately cite — a staged
+ * upload, or another document's receipt whose id was written into the column.
+ */
+export async function getAttachmentsByIds(
+  entity: AttachmentEntity,
+  attachmentIds: (string | null | undefined)[],
+): Promise<Map<string, Attachment>> {
+  const ids = [...new Set(attachmentIds.filter((id): id is string => Boolean(id)))];
+  const byId = new Map<string, Attachment>();
+  if (ids.length === 0) return byId;
+
+  const { data, error } = await supabaseAdmin
+    .from('attachments')
+    .select(SELECT)
+    .eq('entity', entity)
+    .in('id', ids)
+    .not('entity_id', 'is', null);
+  if (error) throw error;
+
+  for (const a of await signRows(rowToApi<AttachmentRow[]>(data ?? []))) byId.set(a.id, a);
+  return byId;
+}
+
+/**
+ * Remove files and rows for STAGED attachments only.
+ *
+ * The row goes first. Its delete is guarded on `entity_id is null` in the same
+ * statement, so a photo that was bound a moment ago simply does not match and
+ * nothing is touched — and only the paths of rows that really went are then
+ * removed from the bucket. The reverse order could delete the file behind a row
+ * that was bound in between, leaving a return citing a photo that is gone.
+ *
+ * A file whose row is gone but whose removal failed is an invisible orphan; it
+ * is logged so it can be found, and costs one photo of storage.
+ */
+async function removeStaged(
+  filter: (q: ReturnType<ReturnType<typeof supabaseAdmin.from>['delete']>) => PromiseLike<{
+    data: { storage_path: string }[] | null;
+    error: { message: string } | null;
+  }>,
+): Promise<number> {
+  const { data, error } = await filter(supabaseAdmin.from('attachments').delete());
+  if (error) throw error;
+
+  const paths = (data ?? []).map((r) => r.storage_path);
+  if (paths.length === 0) return 0;
+
+  const { error: removeErr } = await supabaseAdmin.storage.from(BUCKET).remove(paths);
+  if (removeErr) {
+    console.warn(`[attachments] ${paths.length} staged file(s) lost their row but stayed in storage:`, removeErr.message, paths);
+  }
+  return paths.length;
+}
+
+/**
+ * Discard one photo the caller uploaded and never used — the cleanup a client
+ * runs when the document it was taken for was refused.
+ *
+ * Returns false when nothing matched: not this caller's, already bound, or
+ * already gone. All three mean "there is nothing for you to delete", and the
+ * caller is not told which.
+ */
+export async function discardStagedAttachment(input: {
+  id: string;
+  actor: { uid: string };
+}): Promise<boolean> {
+  const removed = await removeStaged((q) =>
+    q.eq('id', input.id).eq('uploaded_by', input.actor.uid).is('entity_id', null).select('storage_path'),
+  );
+  return removed > 0;
+}
+
+/**
+ * Sweep staged photos of one entity that nothing claimed within `olderThanDays`.
+ *
+ * Scoped to an entity and to an age, never "everything staged": a photo taken
+ * for an offline return may wait days in a phone's queue before its return is
+ * sent, and it is staged for all of them.
+ */
+export async function purgeStagedAttachments(input: {
+  entity: AttachmentEntity;
+  olderThanDays: number;
+  dryRun?: boolean;
+}): Promise<number> {
+  const cutoff = new Date(Date.now() - input.olderThanDays * 24 * 60 * 60 * 1000).toISOString();
+
+  if (input.dryRun) {
+    const { count, error } = await supabaseAdmin
+      .from('attachments')
+      .select('id', { count: 'exact', head: true })
+      .eq('entity', input.entity)
+      .is('entity_id', null)
+      .lt('created_at', cutoff);
+    if (error) throw error;
+    return count ?? 0;
+  }
+
+  return removeStaged((q) =>
+    q.eq('entity', input.entity).is('entity_id', null).lt('created_at', cutoff).select('storage_path'),
+  );
 }

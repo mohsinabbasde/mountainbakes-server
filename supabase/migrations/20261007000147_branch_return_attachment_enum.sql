@@ -1,0 +1,11 @@
+-- 147: the attachment entity for a branch RETURN photo.
+--
+-- Its own migration, and nothing else in it: Postgres will not let a value added
+-- to an enum be USED inside the transaction that added it (same constraint as
+-- migrations 69 and 142). Migration 148 is what reads it.
+--
+-- It needs no change to `attachments_read`: migration 87 made finance the
+-- default arm of that policy, so a new entity is closed at the RLS floor the
+-- moment it exists. A branch reads its own return photos through the API on the
+-- service-role key, as a signed URL, like every other photo it owns.
+alter type attachment_entity add value if not exists 'branch_return';

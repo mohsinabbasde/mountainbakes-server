@@ -10,7 +10,7 @@ import {
   type AttachmentEntity,
   type UserRole,
 } from '../shared';
-import { uploadAttachment } from '../services/attachments.service';
+import { discardStagedAttachment, uploadAttachment } from '../services/attachments.service';
 
 export const router = Router();
 
@@ -63,6 +63,9 @@ const ENTITY_ROLES: Record<AttachmentEntity, (role: UserRole) => boolean> = {
   // Finance only ever READS this photo — from the transfer and from the RV-
   // voucher it becomes — so it does not upload against this entity.
   cash_transfer: (r) => isBranchRole(r) || r === 'super_admin',
+  // Branch returns (migration 148): the same roles POST /api/stock/return
+  // admits. Production and Finance only ever READ this photo, off the return.
+  branch_return: (r) => isBranchRole(r) || r === 'super_admin',
 };
 
 router.use(authenticate);
@@ -124,3 +127,36 @@ router.post(
     }
   },
 );
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+/**
+ * DELETE /api/attachments/:id — discard a photo the caller uploaded and never
+ * used.
+ *
+ * For the case a form cannot avoid: the photo has to be uploaded before the
+ * document that cites it, and then the document is refused. Without this the
+ * file sits in the bucket for good.
+ *
+ * It can only ever remove the caller's OWN, still-STAGED upload. A bound photo
+ * is part of a document's audit trail and stays immutable (migration 67, kept
+ * by 148); the service's delete carries `entity_id is null` in the statement
+ * itself, so there is no window in which this could take one.
+ *
+ * 204 whether or not anything was removed. "Not yours", "already bound" and
+ * "already gone" are indistinguishable on purpose, and to a client cleaning up
+ * after itself they all mean the same thing: nothing left to do.
+ */
+router.delete('/:id', async (req: AuthRequest, res, next) => {
+  try {
+    const id = String(req.params['id'] ?? '');
+    if (!UUID.test(id)) {
+      res.status(400).json({ error: 'Invalid attachment id' });
+      return;
+    }
+    await discardStagedAttachment({ id, actor: { uid: req.user!.uid } });
+    res.status(204).end();
+  } catch (err) {
+    next(err);
+  }
+});
