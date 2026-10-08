@@ -45,6 +45,9 @@ import { router as attachmentsRouter } from './attachments.routes';
 import { router as dataRouter } from './data.routes';
 import { router as backupsRouter } from './backups.routes';
 import { router as restrictionsRouter } from './restrictions.routes';
+import { router as notificationsRouter } from './notifications.routes';
+import { router as publicBrandingRouter } from './public-branding.routes';
+import { PUBLIC_BRANDING_PATH } from '../services/file-store';
 
 export function setupRoutes(app: Express) {
   app.use('/api/auth', authRouter);
@@ -95,9 +98,15 @@ export function setupRoutes(app: Express) {
   app.use('/api/search', searchRouter);
   app.use('/api/support', supportRouter);
   app.use('/api/closing-notifications', closingNotificationsRouter);
+  // The in-app notification feed (the bell). Polled by every open tab, which is
+  // why app.ts exempts its GET from the app-wide rate limiter.
+  app.use('/api/notifications', notificationsRouter);
   app.use('/api/special-events', specialEventsRouter);
   app.use('/api/special-orders', specialOrdersRouter);
   app.use('/api/settings', settingsRouter);
+  // The logo, served without a session — the login page and printed receipts
+  // have none. Only answers when files are on S3 (FILE_STORAGE_DRIVER=s3).
+  app.use(PUBLIC_BRANDING_PATH, publicBrandingRouter);
   // Admin Settings → Restriction Rules (migration 136): the rules, the approval
   // requests that lift one once, the branch monitor and the audit trail, plus
   // the preflight the branch popups call. Enforcement itself lives inside the

@@ -4,6 +4,7 @@ import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
 import { setupRoutes } from './routes/index';
 import { errorHandler } from './middleware/errorHandler';
+import { supabaseAdmin } from './config/supabase';
 
 /** The configured Express application (no network binding — see ../server.ts). */
 export const app = express();
@@ -33,9 +34,35 @@ app.use(cors({
 }));
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
-app.use(rateLimit({ windowMs: 15 * 60 * 1000, max: 500 }));
+app.use(rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 500,
+  // The notification feed is polled on a timer by every open tab and carries
+  // its own per-user limiter (routes/notifications.routes.ts). Counted here it
+  // would spend this shared allowance on idle tabs.
+  skip: (req) => req.method === 'GET' && req.path === '/api/notifications',
+}));
 
-app.get('/health', (_req, res) => res.json({ status: 'ok', service: 'mountain-bakes-api' }));
+/**
+ * Liveness, plus whether the database answers.
+ *
+ * One HEAD read of the singleton `settings` row — no body, no count. Reports
+ * two words and nothing else: no host, no error text, nothing a stranger could
+ * learn the deployment from. 503 when the database does not answer, so an
+ * uptime monitor sees the outage that a static 200 would hide.
+ */
+app.get('/health', async (_req, res) => {
+  let database: 'connected' | 'unreachable' = 'unreachable';
+  try {
+    const { error } = await supabaseAdmin.from('settings').select('id', { head: true }).limit(1);
+    if (!error) database = 'connected';
+  } catch {
+    // Network-level failure — already 'unreachable'.
+  }
+  res
+    .status(database === 'connected' ? 200 : 503)
+    .json({ status: database === 'connected' ? 'ok' : 'degraded', service: 'mountain-bakes-api', database });
+});
 
 setupRoutes(app);
 // An unmatched route answers in the API's own {error} shape, not Express's HTML
