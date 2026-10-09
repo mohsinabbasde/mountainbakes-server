@@ -4,7 +4,9 @@ import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
 import { setupRoutes } from './routes/index';
 import { errorHandler } from './middleware/errorHandler';
-import { supabaseAdmin } from './config/supabase';
+import { dbFor } from './db';
+
+const db = dbFor('health');
 
 /** The configured Express application (no network binding — see ../server.ts). */
 export const app = express();
@@ -54,7 +56,7 @@ app.use(rateLimit({
 app.get('/health', async (_req, res) => {
   let database: 'connected' | 'unreachable' = 'unreachable';
   try {
-    const { error } = await supabaseAdmin.from('settings').select('id', { head: true }).limit(1);
+    const { error } = await db.from('settings').select('id', { head: true }).limit(1);
     if (!error) database = 'connected';
   } catch {
     // Network-level failure — already 'unreachable'.

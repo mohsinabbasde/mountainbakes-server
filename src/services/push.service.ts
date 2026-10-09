@@ -1,4 +1,6 @@
-import { supabaseAdmin } from '../config/supabase';
+import { dbFor } from '../db';
+
+const db = dbFor('push');
 
 /**
  * Notification helper.
@@ -98,7 +100,7 @@ export async function notify(input: NotifyInput): Promise<{ id: string }> {
   }
 
   // created_at / is_read come from column defaults — do not set them here.
-  const { data, error } = await supabaseAdmin
+  const { data, error } = await db
     .from('notifications')
     .insert({
       type: input.type,

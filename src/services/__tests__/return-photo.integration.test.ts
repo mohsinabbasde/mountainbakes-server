@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { PGlite } from '@electric-sql/pglite';
+import { usePglite } from '../../db/testing';
 
 /**
  * Return photos (migrations 147 + 148) and the attachment-service functions the
@@ -10,16 +11,17 @@ import { PGlite } from '@electric-sql/pglite';
  *
  * Runs migration 67 (attachments), the trigger split from 122, then 147 and 148
  * verbatim in pglite over stub tables. The service functions are the real ones:
- * `supabaseAdmin.from` is swapped for a small query builder that runs the same
- * predicates as SQL in that database, and `supabaseAdmin.storage` for an
- * in-memory bucket — so what is asserted is what the service asks Postgres for,
- * and what Postgres (including the immutability trigger) answers.
+ * their `db.from` calls run in that database through the real query layer
+ * (src/db), and `supabaseAdmin.storage` is swapped for an in-memory bucket — so
+ * what is asserted is what the service asks Postgres for, and what Postgres
+ * (including the immutability trigger) answers.
  *
  * Run: npx tsx --test src/services/__tests__/return-photo.integration.test.ts
  */
 
-// The service imports config/supabase, which refuses to load unconfigured.
-// Nothing here reaches a network: both halves of the client are replaced below.
+// The file store still imports config/supabase (for Storage), which refuses to
+// load unconfigured. Nothing here reaches a network: Storage is replaced below
+// and the database is pglite.
 process.env['SUPABASE_URL'] ??= 'http://localhost:54321';
 process.env['SUPABASE_SERVICE_ROLE_KEY'] ??= 'test-only';
 
@@ -59,96 +61,6 @@ let removedFromStorage: string[] = [];
 let uploadedToStorage: string[] = [];
 let me: string;
 let someoneElse: string;
-
-type Filter = { sql: string; params: unknown[] };
-
-/**
- * The slice of the PostgREST builder the attachment service uses, as SQL.
- * Deliberately no cleverer than that: an unsupported call throws, so a new
- * predicate in the service fails this test loudly instead of being ignored.
- */
-function fakeFrom(table: string) {
-  let op: 'select' | 'insert' | 'update' | 'delete' = 'select';
-  let columns = '*';
-  let returning: string | null = null;
-  let values: Record<string, unknown> = {};
-  let head = false;
-  let single = false;
-  let order = '';
-  const filters: Filter[] = [];
-  const params: unknown[] = [];
-  const p = (v: unknown) => `$${params.push(v)}`;
-
-  const builder = {
-    select(cols = '*', opts?: { count?: string; head?: boolean }) {
-      if (op === 'select') { columns = cols; head = Boolean(opts?.head); }
-      else returning = cols;
-      return builder;
-    },
-    insert(row: Record<string, unknown>) { op = 'insert'; values = row; return builder; },
-    update(row: Record<string, unknown>) { op = 'update'; values = row; return builder; },
-    delete() { op = 'delete'; return builder; },
-    eq(col: string, v: unknown) { filters.push({ sql: `${col} = ${p(v)}`, params: [] }); return builder; },
-    lt(col: string, v: unknown) { filters.push({ sql: `${col} < ${p(v)}`, params: [] }); return builder; },
-    in(col: string, vs: unknown[]) { filters.push({ sql: `${col} = any(${p(vs)})`, params: [] }); return builder; },
-    is(col: string, v: null) { assert.equal(v, null); filters.push({ sql: `${col} is null`, params: [] }); return builder; },
-    not(col: string, operator: string, v: null) {
-      assert.deepEqual([operator, v], ['is', null]);
-      filters.push({ sql: `${col} is not null`, params: [] });
-      return builder;
-    },
-    order(col: string, opts?: { ascending?: boolean }) {
-      order = ` order by ${col} ${opts?.ascending === false ? 'desc' : 'asc'}`;
-      return builder;
-    },
-    single() { single = true; return builder; },
-    then(resolve: (v: unknown) => unknown, reject?: (e: unknown) => unknown) {
-      return run().then(resolve, reject);
-    },
-  };
-
-  async function run() {
-    {
-      const where = filters.length ? ` where ${filters.map((f) => f.sql).join(' and ')}` : '';
-      try {
-        if (op === 'select') {
-          if (head) {
-            const r = await db.query<{ n: number }>(`select count(*)::int as n from ${table}${where}`, params);
-            return { data: null, count: r.rows[0]!.n, error: null };
-          }
-          const r = await db.query(`select ${columns} from ${table}${where}${order}`, params);
-          return { data: normalise(r.rows), error: null };
-        }
-        if (op === 'insert') {
-          const keys = Object.keys(values);
-          const r = await db.query(
-            `insert into ${table} (${keys.join(', ')}) values (${keys.map((k) => p(values[k])).join(', ')}) returning ${returning ?? '*'}`,
-            params,
-          );
-          const rows = normalise(r.rows);
-          return { data: single ? rows[0] : rows, error: null };
-        }
-        if (op === 'update') {
-          const set = Object.keys(values).map((k) => `${k} = ${p(values[k])}`).join(', ');
-          const r = await db.query(`update ${table} set ${set}${where} returning ${returning ?? '*'}`, params);
-          return { data: normalise(r.rows), error: null };
-        }
-        const r = await db.query(`delete from ${table}${where} returning ${returning ?? '*'}`, params);
-        return { data: normalise(r.rows), error: null };
-      } catch (err) {
-        return { data: null, error: err as Error };
-      }
-    }
-  }
-  return builder;
-}
-
-/** PostgREST returns timestamps as ISO strings; pglite hands back Dates. */
-function normalise(rows: unknown[]): Record<string, unknown>[] {
-  return (rows as Record<string, unknown>[]).map((row) =>
-    Object.fromEntries(Object.entries(row).map(([k, v]) => [k, v instanceof Date ? v.toISOString() : v])),
-  );
-}
 
 const fakeStorage = {
   from() {
@@ -196,11 +108,9 @@ before(async () => {
   await db.exec(migration('20261007000147_branch_return_attachment_enum.sql'));
   await db.exec(migration('20261007000148_return_photo.sql'));
 
+  await usePglite(db);
   const config = await import('../../config/supabase');
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const admin = config.supabaseAdmin as any;
-  admin.from = fakeFrom;
-  Object.defineProperty(admin, 'storage', { value: fakeStorage, configurable: true });
+  Object.defineProperty(config.supabaseAdmin, 'storage', { value: fakeStorage, configurable: true });
   svc = await import('../attachments.service');
 
   const users = await db.query<{ id: string }>(`insert into users default values returning id`);

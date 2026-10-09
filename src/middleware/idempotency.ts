@@ -1,7 +1,9 @@
 import { createHash } from 'node:crypto';
 import type { NextFunction, Response } from 'express';
-import { supabaseAdmin } from '../config/supabase';
+import { dbFor } from '../db';
 import type { AuthRequest } from './auth';
+
+const db = dbFor('idempotency');
 
 /**
  * Replay protection for `Idempotency-Key`.
@@ -111,7 +113,7 @@ export function idempotent(endpoint: string, options: IdempotencyOptions = {}) {
 
     let claim: ClaimResult;
     try {
-      const { data, error } = await supabaseAdmin.rpc('claim_idempotency_key', {
+      const { data, error } = await db.rpc('claim_idempotency_key', {
         p_user_id: userId,
         p_key: key,
         p_endpoint: endpoint,
@@ -176,13 +178,13 @@ export function idempotent(endpoint: string, options: IdempotencyOptions = {}) {
       const keep = persistOn(status, body);
 
       const record = keep
-        ? supabaseAdmin.rpc('complete_idempotency_key', {
+        ? db.rpc('complete_idempotency_key', {
             p_user_id: userId,
             p_key: key,
             p_status: status,
             p_body: body ?? null,
           })
-        : supabaseAdmin.rpc('release_idempotency_key', { p_user_id: userId, p_key: key });
+        : db.rpc('release_idempotency_key', { p_user_id: userId, p_key: key });
 
       void Promise.resolve(record)
         .then(({ error }) => {

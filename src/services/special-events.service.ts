@@ -1,4 +1,4 @@
-import { supabaseAdmin } from '../config/supabase';
+import { dbFor } from '../db';
 import {
   addDaysToDateStr,
   businessDateStr,
@@ -14,6 +14,8 @@ import {
   type SpecialEventView,
 } from '../shared';
 import { rowToApi } from '../utils/case';
+
+const db = dbFor('special-events');
 
 /**
  * Special Events — date resolution and the two maintenance jobs.
@@ -183,7 +185,7 @@ export async function getEventBranchIds(
 ): Promise<string[] | null> {
   if (appliesToAllBranches) return null;
 
-  const { data, error } = await supabaseAdmin
+  const { data, error } = await db
     .from(EVENT_BRANCHES)
     .select('branch_id')
     .eq('event_id', eventId);
@@ -194,7 +196,7 @@ export async function getEventBranchIds(
 
 /** Every active branch id — the participant list when appliesToAllBranches is true. */
 export async function getActiveBranchIds(): Promise<string[]> {
-  const { data, error } = await supabaseAdmin.from('branches').select('id').eq('is_active', true);
+  const { data, error } = await db.from('branches').select('id').eq('is_active', true);
   if (error) throw error;
   return (data ?? []).map((r) => (r as { id: string }).id);
 }
@@ -223,7 +225,7 @@ export async function assertBranchMayAccessEvent(
     throw Object.assign(new Error('No branch assigned to this account'), { status: 400 });
   }
 
-  const { data, error } = await supabaseAdmin
+  const { data, error } = await db
     .from(EVENTS)
     .select('id, applies_to_all_branches, is_active')
     .eq('id', eventId)
@@ -235,7 +237,7 @@ export async function assertBranchMayAccessEvent(
   if (!row.is_active) throw Object.assign(new Error('Event not found'), { status: 404 });
   if (row.applies_to_all_branches) return;
 
-  const { data: assignment, error: assignErr } = await supabaseAdmin
+  const { data: assignment, error: assignErr } = await db
     .from(EVENT_BRANCHES)
     .select('branch_id')
     .eq('event_id', eventId)
@@ -250,13 +252,13 @@ export async function assertBranchMayAccessEvent(
 
 /** Replace an event's branch assignment list. */
 export async function setEventBranches(eventId: string, branchIds: string[]): Promise<void> {
-  const { error: delErr } = await supabaseAdmin.from(EVENT_BRANCHES).delete().eq('event_id', eventId);
+  const { error: delErr } = await db.from(EVENT_BRANCHES).delete().eq('event_id', eventId);
   if (delErr) throw delErr;
 
   if (branchIds.length === 0) return;
 
   const unique = [...new Set(branchIds)];
-  const { error } = await supabaseAdmin
+  const { error } = await db
     .from(EVENT_BRANCHES)
     .insert(unique.map((branchId) => ({ event_id: eventId, branch_id: branchId })));
   if (error) throw error;
@@ -280,7 +282,7 @@ export async function getReadinessByEvent(eventIds: string[]): Promise<Map<strin
   const out = new Map<string, number>();
   if (eventIds.length === 0) return out;
 
-  const { data, error } = await supabaseAdmin
+  const { data, error } = await db
     .from(PRODUCTION_STATUS)
     .select('event_id, completion_percentage')
     .in('event_id', eventIds);
@@ -303,7 +305,7 @@ export async function getDemandSummaryByEvent(
   const out = new Map<string, { submitted: number; draft: number; totalItems: number; totalQty: number }>();
   if (eventIds.length === 0) return out;
 
-  const { data, error } = await supabaseAdmin
+  const { data, error } = await db
     .from(DEMANDS)
     .select('id, event_id, status')
     .in('event_id', eventIds);
@@ -315,7 +317,7 @@ export async function getDemandSummaryByEvent(
   // an event with no demands costs nothing here.
   const itemsByDemand = new Map<string, { count: number; qty: number }>();
   if (demands.length > 0) {
-    const { data: itemRows, error: itemErr } = await supabaseAdmin
+    const { data: itemRows, error: itemErr } = await db
       .from(DEMAND_ITEMS)
       .select('demand_id, qty, approved_qty')
       .in('demand_id', demands.map((d) => d.id));
@@ -375,7 +377,7 @@ export async function getParticipantCountByEvent(
   }
 
   if (scopedEvents.length > 0) {
-    const { data, error } = await supabaseAdmin
+    const { data, error } = await db
       .from(EVENT_BRANCHES)
       .select('event_id')
       .in('event_id', scopedEvents.map((e) => e.id));
@@ -405,7 +407,7 @@ export async function refreshEventEstimates(opts?: { year?: number }): Promise<{
   updated: number;
   unresolved: number;
 }> {
-  let query = supabaseAdmin
+  let query = db
     .from(EVENTS)
     // One string literal, not a concatenation: supabase-js infers the row type
     // from the select string at the type level, and a runtime-built string
@@ -464,7 +466,7 @@ export async function refreshEventEstimates(opts?: { year?: number }): Promise<{
     }
     if (resolved.estimatedDate === row.estimatedDate) continue;
 
-    const { error: updErr } = await supabaseAdmin
+    const { error: updErr } = await db
       .from(EVENTS)
       .update({
         estimated_date: resolved.estimatedDate,
@@ -514,7 +516,7 @@ export async function ensureEventYear(year: number): Promise<{
   // carries the admin's latest edits to the name, lead days, priority and colour.
   // Deliberately not restricted to years before `year`, so opening a past year
   // back-fills it just as readily as a future one.
-  const { data, error } = await supabaseAdmin
+  const { data, error } = await db
     .from(EVENTS)
     .select('*')
     .eq('is_recurring', true)
@@ -563,7 +565,7 @@ export async function ensureEventYear(year: number): Promise<{
       continue;
     }
 
-    const { error: updErr } = await supabaseAdmin
+    const { error: updErr } = await db
       .from(EVENTS)
       .update({
         estimated_date: target.estimatedDate,
@@ -596,7 +598,7 @@ export async function ensureEventYear(year: number): Promise<{
       if (present.has(occurrenceIndex)) continue;
 
       const target = dates[i]!;
-      const { data: inserted, error: insErr } = await supabaseAdmin
+      const { data: inserted, error: insErr } = await db
         .from(EVENTS)
         .insert({
           series_code: seriesCode,
@@ -745,7 +747,7 @@ export async function rollForwardRecurringEvents(opts?: { targetYear?: number })
 export async function refreshEventStatuses(): Promise<{ activated: number; completed: number }> {
   const today = businessDateStr();
 
-  const { data: activated, error: actErr } = await supabaseAdmin
+  const { data: activated, error: actErr } = await db
     .from(EVENTS)
     .update({ status: 'active' })
     .eq('status', 'upcoming')
@@ -755,7 +757,7 @@ export async function refreshEventStatuses(): Promise<{ activated: number; compl
     .select('id');
   if (actErr) throw actErr;
 
-  const { data: completed, error: compErr } = await supabaseAdmin
+  const { data: completed, error: compErr } = await db
     .from(EVENTS)
     .update({ status: 'completed' })
     .in('status', ['upcoming', 'active'])
@@ -769,7 +771,7 @@ export async function refreshEventStatuses(): Promise<{ activated: number; compl
 
 /** Stage rows for one event, in enum order. */
 export async function getProductionStages(eventId: string): Promise<Record<string, unknown>[]> {
-  const { data, error } = await supabaseAdmin
+  const { data, error } = await db
     .from(PRODUCTION_STATUS)
     .select('*')
     .eq('event_id', eventId);

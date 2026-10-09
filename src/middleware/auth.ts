@@ -1,6 +1,10 @@
 import { Request, Response, NextFunction } from 'express';
-import { supabaseAdmin } from '../config/supabase';
+import { dbFor } from '../db';
+import { resolveIdentity } from '../services/auth/auth.service';
+import { looksLikeOwnToken, ownAuthConfigured, verifyAccessToken } from '../services/auth/tokens';
 import { USER_ROLES, type UserRole } from '../shared';
+
+const db = dbFor('auth');
 
 /**
  * Revoked GoTrue sessions this process has already seen.
@@ -53,7 +57,7 @@ async function isRevoked(authSessionId: string | null): Promise<boolean> {
   const fresh = notRevokedUntil.get(authSessionId);
   if (fresh !== undefined && fresh > Date.now()) return false;
 
-  const { data, error } = await supabaseAdmin
+  const { data, error } = await db
     .from('login_sessions')
     .select('id')
     .eq('auth_session_id', authSessionId)
@@ -186,11 +190,53 @@ function googleEmailOf(user: { identities?: Array<{ provider?: string; identity_
 }
 
 /**
- * Verify the caller's Supabase access token (sent as `Authorization: Bearer <jwt>`)
- * and attach the resolved identity to `req.user`.
+ * Whether tokens issued by Supabase Auth are still accepted.
  *
- * Role / branch come from the user's `app_metadata` (server-controlled claims that
- * Supabase embeds in the JWT).
+ * True until it is switched off. While the web and mobile apps are being moved
+ * to the API's own sign-in, an app that has not been updated yet still holds a
+ * Supabase token, and it has to keep working. Set AUTH_ACCEPT_SUPABASE=false
+ * once no request arrives with one any more; from then on this file never
+ * touches Supabase.
+ */
+function acceptsSupabaseTokens(): boolean {
+  return (process.env.AUTH_ACCEPT_SUPABASE ?? 'true').trim().toLowerCase() !== 'false';
+}
+
+/** Requests that arrived with one of the API's own tokens rather than Supabase's. */
+const ownTokenRequests = new WeakSet<Request>();
+
+/**
+ * Whether this request was authenticated with the API's own token — that is,
+ * whether `req.user.authSessionId` names a row in `auth_sessions` rather than a
+ * Supabase session. Kept off `req.user` so the shape handlers and `/me` see is
+ * the one it has always been.
+ */
+export function signedInHere(req: Request): boolean {
+  return ownTokenRequests.has(req);
+}
+
+/**
+ * What a user who must choose a new password may still do before they have:
+ * change it, see who they are, sign out, and the background calls every screen
+ * makes whoever is signed in. Everything else waits.
+ */
+const PASSWORD_CHANGE_ALLOWED = ['/api/auth/', '/api/login-history/', '/api/notifications', '/api/public/'];
+
+/**
+ * Identify the caller from `Authorization: Bearer <token>` and attach them to
+ * `req.user`.
+ *
+ * Two kinds of token arrive while both sign-in paths are live, and each goes to
+ * its own verifier:
+ *
+ *   the API's own   signed here, checked here, and the person's role, branch
+ *                   and status read from `users` on every request
+ *   Supabase's      checked by asking Supabase, with role and branch taken
+ *                   from the token's `app_metadata` — as it always was
+ *
+ * Which is which is read off the token's `iss` claim before anything is
+ * verified. That peek decides only where the token is SENT; a token that lies
+ * about its issuer is simply rejected by the verifier it chose.
  */
 export async function authenticate(req: AuthRequest, res: Response, next: NextFunction) {
   const authHeader = req.headers.authorization;
@@ -200,6 +246,107 @@ export async function authenticate(req: AuthRequest, res: Response, next: NextFu
     res.status(401).json({ error: 'Unauthorized: No token provided' });
     return;
   }
+
+  if (looksLikeOwnToken(token)) {
+    await authenticateOwnToken(token, req, res, next);
+    return;
+  }
+  if (!acceptsSupabaseTokens()) {
+    res.status(401).json({ error: 'Unauthorized: Invalid or expired token' });
+    return;
+  }
+  await authenticateSupabaseToken(token, req, res, next);
+}
+
+async function authenticateOwnToken(token: string, req: AuthRequest, res: Response, next: NextFunction) {
+  const verified = ownAuthConfigured() ? verifyAccessToken(token) : null;
+  if (!verified) {
+    res.status(401).json({ error: 'Unauthorized: Invalid or expired token' });
+    return;
+  }
+
+  let identity: Awaited<ReturnType<typeof resolveIdentity>>;
+  try {
+    identity = await resolveIdentity(verified.userId, verified.sessionId);
+  } catch (err) {
+    // Unlike the revocation cache below, this cannot fail open: without the
+    // row there is no role to act under. The request fails; the session does not.
+    console.error('[auth] could not load the session', err instanceof Error ? err.message : err);
+    res.status(503).json({ error: 'Sign-in could not be checked just now. Please try again.' });
+    return;
+  }
+
+  if (!identity.ok) {
+    // An ended session answers with the code the clients already act on.
+    if (identity.reason === 'revoked') {
+      res.status(401).json({
+        error: 'This session was signed out by an administrator',
+        details: { code: 'session_revoked' },
+      });
+      return;
+    }
+    if (identity.reason === 'inactive') {
+      res.status(401).json({
+        error: 'This account has been deactivated. Please contact your administrator.',
+        details: { code: 'account_inactive' },
+      });
+      return;
+    }
+    res.status(401).json({ error: 'Unauthorized: Invalid or expired token' });
+    return;
+  }
+
+  const user = identity.user;
+  if (!VALID_ROLES.has(user.role as UserRole)) {
+    res.status(403).json({ error: 'Forbidden: Account has no role assigned' });
+    return;
+  }
+
+  // Login History marks its own row revoked as well as ending the session; a
+  // session it has marked is treated as ended even if the second half failed.
+  if (await isRevoked(verified.sessionId)) {
+    res.status(401).json({
+      error: 'This session was signed out by an administrator',
+      details: { code: 'session_revoked' },
+    });
+    return;
+  }
+
+  // Enforced here, not left to the screen that asks for the new password: a
+  // temporary password is a key to the change-password form and nothing else.
+  if (user.must_change_password === true && !PASSWORD_CHANGE_ALLOWED.some((prefix) => req.originalUrl.startsWith(prefix))) {
+    res.status(403).json({
+      error: 'You must choose a new password before continuing.',
+      details: { code: 'password_change_required' },
+    });
+    return;
+  }
+
+  ownTokenRequests.add(req);
+  req.user = {
+    uid: user.id,
+    email: user.email,
+    role: user.role as UserRole,
+    branchId: user.branch_id,
+    branchName: user.branch_name,
+    authSessionId: verified.sessionId,
+    authMethods: ['password'],
+    googleEmail: null,
+  };
+  next();
+}
+
+/**
+ * The path every request took before the API had its own sign-in, unchanged:
+ * verify the caller's Supabase access token and take role / branch from the
+ * user's `app_metadata` (server-controlled claims that Supabase embeds in the
+ * JWT).
+ */
+async function authenticateSupabaseToken(token: string, req: AuthRequest, res: Response, next: NextFunction) {
+  // Loaded here rather than imported: config/supabase.ts refuses to load
+  // without its env vars, and once this path is switched off they are gone.
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { supabaseAdmin } = require('../config/supabase') as typeof import('../config/supabase');
 
   const { data, error } = await supabaseAdmin.auth.getUser(token);
   if (error || !data.user) {

@@ -1,4 +1,4 @@
-import { supabaseAdmin } from '../config/supabase';
+import { dbFor } from '../db';
 import {
   businessDateStr,
   businessDaysAgoStr,
@@ -21,6 +21,8 @@ import { reverseGeocode } from './geocode.service';
 import { logAudit } from './audit.service';
 import { alertSuspiciousLogin, detectSuspicion } from './login-security.service';
 import { resumeVerdict } from './login-identity.service';
+
+const db = dbFor('login-history');
 
 /**
  * Login History & Active Sessions — opening, keeping, reading and ending
@@ -278,7 +280,7 @@ function toApi(row: unknown, revealEmail = false): LoginSession {
  */
 async function isAuthSessionRevoked(authSessionId: string | null): Promise<boolean> {
   if (!authSessionId) return false;
-  const { data, error } = await supabaseAdmin
+  const { data, error } = await db
     .from('login_sessions')
     .select('id')
     .eq('auth_session_id', authSessionId)
@@ -349,7 +351,7 @@ export async function startSession(params: {
   if (await isAuthSessionRevoked(params.authSessionId)) throw new SessionRevokedError();
 
   if (params.resumeSessionId) {
-    const { data, error } = await supabaseAdmin
+    const { data, error } = await db
       .from('login_sessions')
       .select('id, user_id, last_seen_at, ended_at, auth_session_id')
       .eq('id', params.resumeSessionId)
@@ -386,7 +388,7 @@ export async function startSession(params: {
       // otherwise fall to 'expired' in ten minutes, and the new session must
       // be recorded either way.
       const now = new Date().toISOString();
-      const { error: endError } = await supabaseAdmin
+      const { error: endError } = await db
         .from('login_sessions')
         .update({ ended_at: now, last_seen_at: now, end_reason: 'reauth' })
         .eq('id', existing.id)
@@ -427,7 +429,7 @@ export async function startSession(params: {
     device,
   });
 
-  const { data, error } = await supabaseAdmin
+  const { data, error } = await db
     .from('login_sessions')
     .insert({
       user_id: params.userId,
@@ -534,7 +536,7 @@ async function locationUpgrade(
   userId: string,
   position: GeoPosition,
 ): Promise<Record<string, unknown>> {
-  const { data } = await supabaseAdmin
+  const { data } = await db
     .from('login_sessions')
     .select('location_source, country, country_code, city, region')
     .eq('id', sessionId)
@@ -601,7 +603,7 @@ export async function touchSession(
   // session keeps the place it signed in from.
   const upgrade = position ? await locationUpgrade(sessionId, userId, position) : {};
 
-  const { data, error } = await supabaseAdmin
+  const { data, error } = await db
     .from('login_sessions')
     .update({ last_seen_at: new Date().toISOString(), ...upgrade })
     .eq('id', sessionId)
@@ -612,7 +614,7 @@ export async function touchSession(
   if (error) throw error;
   if (data) return { status: 'ok', session: toApi(data, true) };
 
-  const { data: closed } = await supabaseAdmin
+  const { data: closed } = await db
     .from('login_sessions')
     .select('revoked_at')
     .eq('id', sessionId)
@@ -637,7 +639,7 @@ export async function touchSession(
  */
 export async function endSession(sessionId: string, userId: string): Promise<void> {
   const now = new Date().toISOString();
-  const { error } = await supabaseAdmin
+  const { error } = await db
     .from('login_sessions')
     .update({ ended_at: now, last_seen_at: now, end_reason: 'logout' })
     .eq('id', sessionId)
@@ -758,7 +760,7 @@ export async function listSessions(opts: {
 }): Promise<LoginHistoryPage> {
   const { filters } = opts;
 
-  let q = supabaseAdmin
+  let q = db
     .from('login_sessions')
     // `count: 'exact'` rather than 'estimated': the numbers here are small enough
     // that an exact count is cheap, and an estimate that disagrees with the rows
@@ -882,7 +884,7 @@ export async function listActiveSessions(opts: {
   // hide exactly the second device somebody left signed in at home — which is
   // the thing this screen exists to surface. Each row carries its own `state`,
   // so the list distinguishes the two without excluding either.
-  let q = supabaseAdmin
+  let q = db
     .from('login_sessions')
     .select(COLUMNS)
     .is('ended_at', null)
@@ -957,7 +959,7 @@ export async function listActiveSessions(opts: {
  * decision only governs what the row looks like for a caller who may see it.
  */
 export async function getSession(sessionId: string, viewer: Viewer): Promise<LoginSession> {
-  const { data, error } = await supabaseAdmin
+  const { data, error } = await db
     .from('login_sessions')
     .select(COLUMNS)
     .eq('id', sessionId)
@@ -1045,7 +1047,7 @@ export interface LoginFilterOptions {
 const FACET_LIMIT = 60;
 
 export async function listFilterOptions(userId: string | null): Promise<LoginFilterOptions> {
-  let q = supabaseAdmin
+  let q = db
     .from('login_sessions')
     .select('country, city, browser')
     .order('login_at', { ascending: false })
@@ -1107,7 +1109,7 @@ export async function revokeSession(
   admin: Admin,
   reason: string | null,
 ): Promise<RevokeSessionResult> {
-  const { data, error } = await supabaseAdmin
+  const { data, error } = await db
     .from('login_sessions')
     .select('id, user_id, user_code, user_name, user_role, auth_session_id, ended_at, browser, os, country, city')
     .eq('id', sessionId)
@@ -1134,7 +1136,7 @@ export async function revokeSession(
 
   let authSessionsEnded = 0;
   if (row.auth_session_id) {
-    const { data: killed, error: rpcError } = await supabaseAdmin.rpc('revoke_auth_session', {
+    const { data: killed, error: rpcError } = await db.rpc('revoke_auth_session', {
       p_auth_session_id: row.auth_session_id,
     });
     // Logged, not thrown. If GoTrue refuses, marking our row revoked still ejects
@@ -1146,7 +1148,7 @@ export async function revokeSession(
   }
 
   const now = new Date().toISOString();
-  const { data: updated, error: updateError } = await supabaseAdmin
+  const { data: updated, error: updateError } = await db
     .from('login_sessions')
     .update({
       ended_at: now,
@@ -1215,7 +1217,7 @@ export async function revokeAllOtherSessions(
 ): Promise<RevokeSessionResult> {
   let keepAuthSessionId: string | null = keep.authSessionId;
   if (!keepAuthSessionId && keep.sessionId) {
-    const { data } = await supabaseAdmin
+    const { data } = await db
       .from('login_sessions')
       .select('auth_session_id, user_id')
       .eq('id', keep.sessionId)
@@ -1229,7 +1231,7 @@ export async function revokeAllOtherSessions(
   // filter built by string concatenation gets the check regardless of provenance.
   if (keepAuthSessionId && !UUID.test(keepAuthSessionId)) keepAuthSessionId = null;
 
-  const { data: killed, error: rpcError } = await supabaseAdmin.rpc('revoke_all_auth_sessions', {
+  const { data: killed, error: rpcError } = await db.rpc('revoke_all_auth_sessions', {
     p_user_id: targetUserId,
     p_keep_auth_session_id: keepAuthSessionId,
   });
@@ -1237,7 +1239,7 @@ export async function revokeAllOtherSessions(
   const authSessionsEnded = typeof killed === 'number' ? killed : 0;
 
   const now = new Date().toISOString();
-  let update = supabaseAdmin
+  let update = db
     .from('login_sessions')
     .update({
       ended_at: now,
@@ -1294,7 +1296,7 @@ export async function revokeAllOtherSessions(
 async function lookupUserForAudit(
   userId: string,
 ): Promise<{ user_name: string; user_role: string | null; user_code: string | null } | null> {
-  const { data } = await supabaseAdmin
+  const { data } = await db
     .from('users')
     .select('display_name, role, user_code')
     .eq('id', userId)

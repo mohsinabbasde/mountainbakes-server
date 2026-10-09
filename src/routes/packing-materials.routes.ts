@@ -1,10 +1,12 @@
 import { Router } from 'express';
-import { supabaseAdmin } from '../config/supabase';
+import { dbFor } from '../db';
 import { authenticate, type AuthRequest } from '../middleware/auth';
 import { requireRole } from '../middleware/requireRole';
 import { CreatePackingMaterialSchema, UpdatePackingMaterialSchema } from '../shared';
 import { rowToApi, apiToRow } from '../utils/case';
 import { getCached, setCached, invalidate } from '../utils/cache';
+
+const db = dbFor('packing-materials');
 
 export const router = Router();
 
@@ -31,7 +33,7 @@ router.get('/', async (req: AuthRequest, res, next) => {
       if (hit) { res.json(hit); return; }
     }
 
-    let query = supabaseAdmin
+    let query = db
       .from('packing_materials')
       .select('*')
       .order('material_code', { ascending: true });
@@ -57,7 +59,7 @@ router.get('/', async (req: AuthRequest, res, next) => {
 
 router.get('/:id', async (req, res, next) => {
   try {
-    const { data, error } = await supabaseAdmin
+    const { data, error } = await db
       .from('packing_materials')
       .select('*')
       .eq('id', req.params['id']!)
@@ -81,7 +83,7 @@ router.post('/', requireRole('super_admin'), async (req: AuthRequest, res, next)
 
     const { materialCode, materialName, category, description } = parsed.data;
 
-    const { data, error } = await supabaseAdmin
+    const { data, error } = await db
       .from('packing_materials')
       .insert({
         material_code: materialCode,
@@ -117,7 +119,7 @@ router.put('/:id', requireRole('super_admin'), async (req, res, next) => {
     // updated_at is maintained by the packing_materials_touch trigger.
     const updates = apiToRow(parsed.data);
 
-    const { data, error } = await supabaseAdmin
+    const { data, error } = await db
       .from('packing_materials')
       .update(updates)
       .eq('id', req.params['id']!)
@@ -148,7 +150,7 @@ router.put('/:id', requireRole('super_admin'), async (req, res, next) => {
  */
 router.delete('/:id', requireRole('super_admin'), async (req, res, next) => {
   try {
-    const { data, error } = await supabaseAdmin
+    const { data, error } = await db
       .from('packing_materials')
       .delete()
       .eq('id', req.params['id']!)

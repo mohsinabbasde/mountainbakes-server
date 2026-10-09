@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { supabaseAdmin } from '../config/supabase';
+import { dbFor } from '../db';
 import { authenticate, type AuthRequest } from '../middleware/auth';
 import { requireRole } from '../middleware/requireRole';
 import { validate } from '../middleware/validate';
@@ -13,6 +13,8 @@ import { rowToApi } from '../utils/case';
 import { genericExcel, genericCSV } from '../services/production-export.service';
 import { buildExpenseSheet } from '../services/expense-export.service';
 
+const db = dbFor('expenses');
+
 export const router = Router();
 
 router.use(authenticate);
@@ -22,7 +24,7 @@ router.get('/', async (req: AuthRequest, res, next) => {
   try {
     // The 7-day cutoff is a real indexed predicate now (expenses_branch_date_idx);
     // it used to fetch every expense for the branch and filter in memory.
-    let query = supabaseAdmin
+    let query = db
       .from('expenses')
       .select('*')
       .gte('business_date', businessDaysAgoStr(6)) // inclusive last 7 business days
@@ -78,7 +80,7 @@ router.get('/export', async (req: AuthRequest, res, next) => {
     const exportType = String(req.query['type'] || 'excel');
     const { fromStr, toStr } = exportRange(req.query['from'], req.query['to']);
 
-    let query = supabaseAdmin
+    let query = db
       .from('expenses')
       .select('*')
       .gte('business_date', fromStr)
@@ -154,7 +156,7 @@ router.post('/', requireRole('super_admin', ...BRANCH_ROLES), idempotent('expens
     const businessDate = await resolveClientBusinessDate(date, req.user!.role);
 
     // created_at comes from the column default — do not set it here.
-    const { data, error } = await supabaseAdmin
+    const { data, error } = await db
       .from('expenses')
       .insert({
         branch_id: branchId,

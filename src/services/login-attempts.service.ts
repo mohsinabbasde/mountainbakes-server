@@ -1,4 +1,4 @@
-import { supabaseAdmin } from '../config/supabase';
+import { dbFor } from '../db';
 import {
   businessDateStr,
   type LoginAttempt,
@@ -9,6 +9,8 @@ import {
 import { rowToApi } from '../utils/case';
 import { parseUserAgent } from '../utils/userAgent';
 import { lookupIp } from './geoip.service';
+
+const db = dbFor('login-attempts');
 
 /**
  * Failed sign-ins — recording them, and reading them back.
@@ -82,7 +84,7 @@ export async function recordAttempt(params: {
   const geo = await lookupIp(params.ipAddress);
   const device = parseUserAgent(params.userAgent);
 
-  const { error } = await supabaseAdmin.from('login_attempts').insert({
+  const { error } = await db.from('login_attempts').insert({
     email,
     reason: params.reason,
     ip_address: params.ipAddress,
@@ -140,7 +142,7 @@ export async function listAttempts(opts: {
   const sortCol = opts.sortBy ? ATTEMPT_SORT_COLUMNS[opts.sortBy] : 'attempted_at';
   const ascending = opts.sortDir === 'asc';
 
-  let q = supabaseAdmin
+  let q = db
     .from('login_attempts')
     .select(COLUMNS, { count: 'exact' })
     .order(sortCol, { ascending });
@@ -183,7 +185,7 @@ export async function listAttempts(opts: {
  */
 export async function countRecentFailures(email: string, hours = 24): Promise<number> {
   const since = new Date(Date.now() - hours * 60 * 60 * 1000).toISOString();
-  const { count, error } = await supabaseAdmin
+  const { count, error } = await db
     .from('login_attempts')
     .select('id', { count: 'exact', head: true })
     .eq('email', email.trim().toLowerCase())

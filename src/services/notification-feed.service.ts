@@ -1,6 +1,8 @@
-import { supabaseAdmin } from '../config/supabase';
+import { dbFor } from '../db';
 import type { Notification, UserRole } from '../shared';
 import { rowToApi } from '../utils/case';
+
+const db = dbFor('notification-feed');
 
 /**
  * The in-app notification feed, served by the API.
@@ -14,8 +16,8 @@ import { rowToApi } from '../utils/case';
  *   notification_reads_select_own  →  `.eq('user_id', uid)`
  *   notification_reads_insert_own  →  `user_id` is always the caller's own
  *
- * `supabaseAdmin` bypasses RLS, so these predicates are the WHOLE boundary on
- * this path. Changing one changes who can see whose notifications.
+ * The API's database connection bypasses RLS, so these predicates are the WHOLE
+ * boundary on this path. Changing one changes who can see whose notifications.
  */
 
 /** How many recent notifications the feed holds. Matches the bell's own cap. */
@@ -68,7 +70,7 @@ export interface NotificationFeed {
 }
 
 export async function getNotificationFeed(reader: FeedReader): Promise<NotificationFeed> {
-  const { data, error } = await supabaseAdmin
+  const { data, error } = await db
     .from('notifications')
     .select(SELECT)
     .or(visibilityFilter(reader))
@@ -81,7 +83,7 @@ export async function getNotificationFeed(reader: FeedReader): Promise<Notificat
 
   // Only the read rows for what is in the feed. A long-serving account has far
   // more read rows than the feed has entries, and the rest are of no use here.
-  const { data: reads, error: readsErr } = await supabaseAdmin
+  const { data: reads, error: readsErr } = await db
     .from('notification_reads')
     .select('notification_id')
     .eq('user_id', reader.uid)
@@ -105,7 +107,7 @@ export async function markNotificationsRead(reader: FeedReader, ids: string[]): 
   const wanted = [...new Set(ids)];
   if (wanted.length === 0) return [];
 
-  const { data: visible, error: visibleErr } = await supabaseAdmin
+  const { data: visible, error: visibleErr } = await db
     .from('notifications')
     .select('id')
     .in('id', wanted)
@@ -115,7 +117,7 @@ export async function markNotificationsRead(reader: FeedReader, ids: string[]): 
   const visibleIds = (visible ?? []).map((r) => r.id as string);
   if (visibleIds.length === 0) return [];
 
-  const { error } = await supabaseAdmin
+  const { error } = await db
     .from('notification_reads')
     .upsert(
       visibleIds.map((notification_id) => ({ notification_id, user_id: reader.uid })),

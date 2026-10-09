@@ -1,5 +1,5 @@
 import { Router, type Response } from 'express';
-import { supabaseAdmin } from '../config/supabase';
+import { dbFor } from '../db';
 import { authenticate, type AuthRequest } from '../middleware/auth';
 import { requireRole } from '../middleware/requireRole';
 import { validate } from '../middleware/validate';
@@ -48,6 +48,8 @@ import {
 import { getProductionBranchId } from '../utils/productionBranch';
 import { rowToApi } from '../utils/case';
 import { withoutDeleted } from '../utils/softDelete';
+
+const db = dbFor('support');
 
 export const router = Router();
 
@@ -200,7 +202,7 @@ async function resolveReference(
     // line amount per item; subtotal / discount / tax / grand total below), and
     // tax_rate + delivery_charges are what let it preview the recomputed total the
     // same way edit_sale_items will.
-    let q = supabaseAdmin
+    let q = db
       .from('orders')
       .select(`
         id, order_number, customer_name, customer_phone, branch_name, branch_id,
@@ -230,7 +232,7 @@ async function resolveReference(
     // Line items are editable in the Support Center: the admin can change a
     // line's product, qty, unit price or discount, and it applies live via
     // edit_sale_items.
-    const { data: items, error: itemsErr } = await supabaseAdmin
+    const { data: items, error: itemsErr } = await db
       .from('order_items')
       .select('product_id, product_name, category_id, category_name, unit_price, qty, discount')
       .eq('order_id', data.id)
@@ -315,7 +317,7 @@ async function resolveReference(
     // snapshot is frozen into the ticket as jsonb forever, so it should not carry
     // legacy ids, print flags or audit uuids. product_id/product_name join the
     // list because the correction editor addresses lines by product.
-    let q = supabaseAdmin
+    let q = db
       .from('production_orders')
       .select(`
         id, demand_number, branch_id, branch_name, business_date, submitted_time,
@@ -360,7 +362,7 @@ async function resolveReference(
     // order and a never-delivered one look identical. Migration 77's header has
     // the live evidence. Advisory here — correct_production_order recomputes it
     // under a row lock before moving anything.
-    const { count: movedCount, error: movedErr } = await supabaseAdmin
+    const { count: movedCount, error: movedErr } = await db
       .from('stock_history')
       .select('id', { count: 'exact', head: true })
       .eq('ref_id', data.id)
@@ -419,7 +421,7 @@ async function resolveReference(
     // EXP-###### still comes from the counter both tables once shared, so a
     // number that belonged to a production expense simply no longer resolves.
     if (role !== 'production_user') {
-      let q = supabaseAdmin
+      let q = db
         .from('expenses')
         .select('id, expense_number, description, amount, payment_method, branch_id, branch_name, business_date')
         .eq('expense_number', referenceId)
@@ -461,7 +463,7 @@ async function resolveReference(
     // Branch money only — the production counter never hands over a deposit.
     if (role !== 'production_user') {
       let q = withoutDeleted(
-        supabaseAdmin
+        db
           .from('cash_transfers')
           .select(`
             id, transfer_no, branch_id, branch_name, amount, payment_method, note,
@@ -528,7 +530,7 @@ async function resolveReference(
   }
 
   // --- STOCK (products.stock_code) ----------------------------------------
-  const { data: product, error: prodErr } = await supabaseAdmin
+  const { data: product, error: prodErr } = await db
     .from('products')
     .select('id, name, sku, stock_code, price')
     .eq('stock_code', referenceId)
@@ -645,7 +647,7 @@ async function resolveReference(
     );
     stockFigures = f;
   } else if (role === 'super_admin') {
-    const { data: rows } = await supabaseAdmin.from('stock').select('balance').eq('product_id', product.id);
+    const { data: rows } = await db.from('stock').select('balance').eq('product_id', product.id);
     const total = (rows ?? []).reduce((s, r) => s + Number(r.balance ?? 0), 0);
     fields.push({ label: 'Total Balance (all branches)', value: String(total) });
     // Not editable: an all-branches total has no single ledger to correct. The
@@ -722,7 +724,7 @@ router.get('/', async (req: AuthRequest, res, next) => {
     const sortCol = TICKET_SORT_COLUMNS[sortByRaw] ?? 'created_at';
     const ascending = req.query['sortDir'] === 'asc';
 
-    let query = supabaseAdmin
+    let query = db
       .from('support_tickets')
       .select('*', { count: 'exact' })
       .order(sortCol, { ascending });
@@ -780,13 +782,13 @@ router.get('/', async (req: AuthRequest, res, next) => {
 router.get('/stats', requireRole('super_admin'), async (_req, res, next) => {
   try {
     const [branchRes, productionRes] = await Promise.all([
-      supabaseAdmin
+      db
         .from('support_tickets')
         .select('*', { count: 'exact', head: true })
         .is('archived_at', null)
         .eq('status', 'open')
         .in('raised_by_role', BRANCH_ROLES),
-      supabaseAdmin
+      db
         .from('support_tickets')
         .select('*', { count: 'exact', head: true })
         .is('archived_at', null)
@@ -813,7 +815,7 @@ router.post('/', requireRole('branch_manager', 'production_user'), validate(Crea
       throw err;
     }
 
-    const { data, error } = await supabaseAdmin
+    const { data, error } = await db
       .from('support_tickets')
       .insert({
         reference_type: reference.type,
@@ -850,7 +852,7 @@ router.post('/', requireRole('branch_manager', 'production_user'), validate(Crea
 
 // Helper: load a ticket or 404.
 async function getTicket(id: string) {
-  const { data, error } = await supabaseAdmin.from('support_tickets').select('*').eq('id', id).maybeSingle();
+  const { data, error } = await db.from('support_tickets').select('*').eq('id', id).maybeSingle();
   if (error) throw error;
   return data;
 }
@@ -874,7 +876,7 @@ router.patch('/:id', requireRole('super_admin'), validate(EditSupportTicketSchem
     if (req.body.resolutionNote !== undefined) patch['resolution_note'] = req.body.resolutionNote;
     if (Object.keys(patch).length === 0) { res.status(400).json({ error: 'Nothing to update' }); return; }
 
-    const { data, error } = await supabaseAdmin
+    const { data, error } = await db
       .from('support_tickets')
       .update(patch)
       .eq('id', req.params.id)
@@ -892,7 +894,7 @@ router.patch('/:id', requireRole('super_admin'), validate(EditSupportTicketSchem
 router.patch('/:id/resolve', requireRole('super_admin'), validate(ResolveSupportTicketSchema), async (req: AuthRequest, res, next) => {
   try {
     const { status, resolutionNote } = req.body;
-    const { data, error } = await supabaseAdmin
+    const { data, error } = await db
       .from('support_tickets')
       .update({
         status,
@@ -1006,7 +1008,7 @@ async function amendCashDeposit(
   note: string,
 ): Promise<{ changes: CashDepositAmendment[] } | { status: number; error: string }> {
   const { data: live, error: liveErr } = await withoutDeleted(
-    supabaseAdmin
+    db
       .from('cash_transfers')
       .select('id, transfer_no, status, amount, note, cash_amount, easypaisa_amount, bank_amount, fuel_charges, business_date')
       .eq('id', snapshot.entityId),
@@ -1089,7 +1091,7 @@ async function amendCashDeposit(
   for (const { field, value } of pending) {
     const { data, error } =
       field === 'businessDate'
-        ? await supabaseAdmin.rpc('amend_cash_transfer_date', {
+        ? await db.rpc('amend_cash_transfer_date', {
             p_transfer_id: live.id,
             p_new_date: value,
             p_reason: reason,
@@ -1098,7 +1100,7 @@ async function amendCashDeposit(
             p_today: businessDateStr(),
             p_max_per_day: CASH_DEPOSITS_PER_DAY,
           })
-        : await supabaseAdmin.rpc('amend_finance_record', {
+        : await db.rpc('amend_finance_record', {
             p_reference_type: 'cash_transfer',
             p_reference_id: live.id,
             p_field: field,
@@ -1231,7 +1233,7 @@ router.patch('/:id/figures', requireRole('super_admin'), validate(ChangeFiguresS
 
       // Re-read the name rather than trusting the snapshot's — the history keeps a
       // name snapshot, and it should read as the name at correction time.
-      const { data: product, error: prodErr } = await supabaseAdmin
+      const { data: product, error: prodErr } = await db
         .from('products')
         .select('name')
         .eq('id', snapshot!.entityId)
@@ -1301,7 +1303,7 @@ router.patch('/:id/figures', requireRole('super_admin'), validate(ChangeFiguresS
 
       // Re-read the name rather than trusting the snapshot's — stock_history keeps
       // a name snapshot, and it should read as the name at correction time.
-      const { data: product, error: prodErr } = await supabaseAdmin
+      const { data: product, error: prodErr } = await db
         .from('products')
         .select('name')
         .eq('id', snapshot.entityId)
@@ -1347,7 +1349,7 @@ router.patch('/:id/figures', requireRole('super_admin'), validate(ChangeFiguresS
         patch[k] = k === 'amount' ? Number(v) : v;
       }
       if (Object.keys(patch).length > 0) {
-        const { error } = await supabaseAdmin.from(snapshot.entityTable).update(patch).eq('id', snapshot.entityId);
+        const { error } = await db.from(snapshot.entityTable).update(patch).eq('id', snapshot.entityId);
         if (error) throw error;
         applied = true;
       }
@@ -1374,7 +1376,7 @@ router.patch('/:id/figures', requireRole('super_admin'), validate(ChangeFiguresS
         : `${applied ? 'Figures updated' : 'Correction recorded (manual follow-up)'}: ${changeLines.join(', ')}`;
     const resolutionNote = [note, summary].filter(Boolean).join(' — ');
 
-    const { data, error } = await supabaseAdmin
+    const { data, error } = await db
       .from('support_tickets')
       .update({
         status: 'resolved',
@@ -1444,7 +1446,7 @@ router.patch('/:id/sale-items', requireRole('super_admin'), validate(EditSaleIte
       note: string;
     };
 
-    const { data: result, error } = await supabaseAdmin.rpc('edit_sale_items', {
+    const { data: result, error } = await db.rpc('edit_sale_items', {
       p_order_id: orderId,
       p_items: items,
       p_business_date: businessDateStr(),
@@ -1473,7 +1475,7 @@ router.patch('/:id/sale-items', requireRole('super_admin'), validate(EditSaleIte
     // stock and the recomputed totals are identical).
     let paymentChanged = false;
     if (paymentMethod) {
-      const { data: repaid, error: payErr } = await supabaseAdmin
+      const { data: repaid, error: payErr } = await db
         .from('orders')
         .update({ payment_method: paymentMethod })
         .eq('id', orderId)
@@ -1489,7 +1491,7 @@ router.patch('/:id/sale-items', requireRole('super_admin'), validate(EditSaleIte
       `Sale items updated (new total ${money(outcome.grandTotal)})`,
       paymentChanged ? `Payment method → ${paymentMethod}` : '',
     ].filter(Boolean).join(' — ');
-    const { data, error: updErr } = await supabaseAdmin
+    const { data, error: updErr } = await db
       .from('support_tickets')
       .update({
         status: 'resolved',
@@ -1579,7 +1581,7 @@ router.patch('/:id/demand-items', requireRole('super_admin'), validate(EditDeman
       return;
     }
 
-    const { data: result, error } = await supabaseAdmin.rpc('correct_production_order', {
+    const { data: result, error } = await db.rpc('correct_production_order', {
       p_order_id: orderId,
       p_lines: items,
       p_reason: reason || '',
@@ -1646,7 +1648,7 @@ router.patch('/:id/demand-items', requireRole('super_admin'), validate(EditDeman
       deltas.length ? `stock reconciled — ${moved}` : 'no stock movement (this demand had not delivered)',
     ].filter(Boolean).join(' — ');
 
-    const { data, error: updErr } = await supabaseAdmin
+    const { data, error: updErr } = await db
       .from('support_tickets')
       .update({
         status: 'resolved',
@@ -1738,7 +1740,7 @@ router.delete('/:id/demand', requireRole('super_admin'), validate(DeleteDemandSc
     // ledger entries and the query that authorised them all agree.
     const refId = `${orderId}:del:${ticket.id}`;
 
-    const { data: result, error } = await supabaseAdmin.rpc('delete_production_order', {
+    const { data: result, error } = await db.rpc('delete_production_order', {
       p_order_id: orderId,
       p_reason: reason,
       p_ref_id: refId,
@@ -1772,7 +1774,7 @@ router.delete('/:id/demand', requireRole('super_admin'), validate(DeleteDemandSc
       branchRev.length ? `stock reversed — ${reversed}` : 'no stock to reverse (this demand had not delivered)',
     ].filter(Boolean).join(' — ');
 
-    const { data, error: updErr } = await supabaseAdmin
+    const { data, error: updErr } = await db
       .from('support_tickets')
       .update({
         status: 'resolved',
@@ -1849,7 +1851,7 @@ router.delete('/:id/cash-deposit', requireRole('super_admin'), validate(DeleteCa
       return;
     }
 
-    const { data: removed, error } = await supabaseAdmin.rpc('soft_delete_finance_record', {
+    const { data: removed, error } = await db.rpc('soft_delete_finance_record', {
       p_reference_type: 'cash_transfer',
       p_reference_id: transferId,
       p_reason: [`Support query ${ticket.ticket_number}`, reason].join(' — '),
@@ -1901,7 +1903,7 @@ router.delete('/:id/cash-deposit', requireRole('super_admin'), validate(DeleteCa
         : 'nothing was booked in the ledger for it',
     ].filter(Boolean).join(' — ');
 
-    const { data, error: updErr } = await supabaseAdmin
+    const { data, error: updErr } = await db
       .from('support_tickets')
       .update({
         status: 'resolved',
@@ -1954,7 +1956,7 @@ router.delete('/:id/cash-deposit', requireRole('super_admin'), validate(DeleteCa
 // should not 500.
 router.delete('/:id', requireRole('super_admin'), async (req: AuthRequest, res, next) => {
   try {
-    const { data, error } = await supabaseAdmin
+    const { data, error } = await db
       .from('support_tickets')
       .update({
         archived_at: new Date().toISOString(),
@@ -1968,7 +1970,7 @@ router.delete('/:id', requireRole('super_admin'), async (req: AuthRequest, res, 
     if (error) throw error;
 
     if (!data) {
-      const { data: exists, error: exErr } = await supabaseAdmin
+      const { data: exists, error: exErr } = await db
         .from('support_tickets').select('id').eq('id', req.params.id).maybeSingle();
       if (exErr) throw exErr;
       if (!exists) { res.status(404).json({ error: 'Ticket not found' }); return; }

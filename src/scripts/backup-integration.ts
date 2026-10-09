@@ -107,8 +107,8 @@ async function main(): Promise<number> {
       }
     }
     try {
-      const { supabaseAdmin } = await import('../config/supabase');
-      await supabaseAdmin.from('backup_jobs').delete().eq('backup_id', job.backupId);
+      const { dbFor } = await import('../db');
+      await dbFor('scripts').from('backup_jobs').delete().eq('backup_id', job.backupId);
       console.log(`  cleaned backup_jobs row ${job.backupId}`);
     } catch (err) {
       console.warn(`  could not delete the ledger row: ${redactSecrets(String(err), cfg.secrets)}`);

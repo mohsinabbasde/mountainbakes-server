@@ -1,5 +1,7 @@
-import { supabaseAdmin } from '../config/supabase';
+import { dbFor } from '../db';
 import { getCached, setCached } from './cache';
+
+const db = dbFor('productionBranch');
 
 /** Slug of the sentinel branch that production-counter sales are booked to (migration 37). */
 const PRODUCTION_BRANCH_SLUG = 'production-counter';
@@ -21,7 +23,7 @@ export async function getProductionBranchId(): Promise<string> {
   const hit = getCached<string>(cacheKey);
   if (hit) return hit;
 
-  const { data, error } = await supabaseAdmin
+  const { data, error } = await db
     .from('branches')
     .select('id')
     .eq('slug', PRODUCTION_BRANCH_SLUG)

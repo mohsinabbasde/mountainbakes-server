@@ -91,8 +91,10 @@ function fmtBytes(n: number): string {
 async function main() {
   const args = new Set(process.argv.slice(2));
   const source = (process.env.SUPABASE_DB_URL || '').trim();
-  const target = (process.env.RAILWAY_DB_URL || process.env.DATABASE_URL || '').trim();
-  if (!target) throw new Error('RAILWAY_DB_URL (or DATABASE_URL) is required — the Railway Postgres public connection string');
+  // RAILWAY_DB_URL only, never DATABASE_URL: that one is the database the API is
+  // serving from, and this script wipes its target.
+  const target = (process.env.RAILWAY_DB_URL || '').trim();
+  if (!target) throw new Error('RAILWAY_DB_URL is required — the Railway Postgres public connection string');
 
   const targetEnv = pgConnectionEnv(target);
   // Railway's proxy speaks TLS but pgConnectionEnv's default of `require` is a

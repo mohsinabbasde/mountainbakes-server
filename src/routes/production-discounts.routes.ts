@@ -1,11 +1,13 @@
 import { Router } from 'express';
-import { supabaseAdmin } from '../config/supabase';
+import { dbFor } from '../db';
 import { authenticate, type AuthRequest } from '../middleware/auth';
 import { requireRole } from '../middleware/requireRole';
 import { validate } from '../middleware/validate';
 import { ReviewBranchDiscountSchema, businessDaysAgoStr } from '../shared';
 import { notify } from '../services/push.service';
 import { rowToApi } from '../utils/case';
+
+const db = dbFor('production-discounts');
 
 /**
  * Production → Discounts: the queue of money branches are claiming back.
@@ -81,7 +83,7 @@ router.get('/', async (req: AuthRequest, res, next) => {
     const sortCol = (sortByKey && BRANCH_DISCOUNT_SORTABLE_COLUMNS[sortByKey]) || 'created_at';
     const ascending = req.query['sortDir'] === 'asc';
 
-    let query = supabaseAdmin
+    let query = db
       .from('branch_discounts')
       .select('*', { count: 'exact' })
       .gte('business_date', from)
@@ -145,7 +147,7 @@ router.put('/:id/review', validate(ReviewBranchDiscountSchema), async (req: Auth
     // `reviewed_*` is stamped on all three, 'returned' included: a send-back is a
     // review and this is the record of who last looked. The branch's own PUT
     // clears the three again when it corrects the claim.
-    const { data: reviewed, error } = await supabaseAdmin
+    const { data: reviewed, error } = await db
       .from('branch_discounts')
       .update({
         status,

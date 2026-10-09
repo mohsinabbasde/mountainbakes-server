@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { supabaseAdmin } from '../config/supabase';
+import { dbFor } from '../db';
 import { authenticate, type AuthRequest } from '../middleware/auth';
 import { requireRole } from '../middleware/requireRole';
 import { validate } from '../middleware/validate';
@@ -28,6 +28,8 @@ import {
   type DailySaleActor,
 } from '../services/daily-sale.service';
 import { rowToApi } from '../utils/case';
+
+const db = dbFor('daily-sale');
 
 /**
  * Daily Sale Record — `/api/daily-sale-records`.
@@ -88,7 +90,7 @@ async function resolveScope(
   const requested = String(raw ?? '').trim();
   if (!requested) return { branchId: null, branchName: null };
 
-  const { data, error } = await supabaseAdmin
+  const { data, error } = await db
     .from('branches')
     .select('id, name')
     .eq('id', requested)
@@ -207,7 +209,7 @@ router.get('/audit', async (req: AuthRequest, res, next) => {
     const requested = Number(req.query['days'] ?? 30);
     const days = Number.isFinite(requested) ? Math.max(1, Math.min(365, Math.floor(requested))) : 30;
 
-    const { data, error } = await supabaseAdmin
+    const { data, error } = await db
       .from('daily_sale_record_audits')
       .select('*')
       .eq('branch_id', branchId)

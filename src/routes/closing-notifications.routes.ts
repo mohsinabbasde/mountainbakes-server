@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { supabaseAdmin } from '../config/supabase';
+import { dbFor } from '../db';
 import { authenticate, type AuthRequest } from '../middleware/auth';
 import { requireRole } from '../middleware/requireRole';
 import { validate } from '../middleware/validate';
@@ -12,6 +12,8 @@ import { rowToApi } from '../utils/case';
 import { dispatchClosingSummaries } from '../services/closing-notifications.service';
 import { getMessageProvider, getRetryPolicy } from '../services/messaging';
 
+const db = dbFor('closing-notifications');
+
 export const router = Router();
 
 router.use(authenticate);
@@ -23,7 +25,7 @@ router.use(authenticate);
 // GET /api/closing-notifications/recipients
 router.get('/recipients', requireRole('super_admin'), async (_req: AuthRequest, res, next) => {
   try {
-    const { data, error } = await supabaseAdmin
+    const { data, error } = await db
       .from('notification_recipients')
       .select('*, branch:branches(name)')
       .order('created_at', { ascending: true });
@@ -44,7 +46,7 @@ router.get('/recipients', requireRole('super_admin'), async (_req: AuthRequest, 
 router.post('/recipients', requireRole('super_admin'), validate(CreateRecipientSchema), async (req: AuthRequest, res, next) => {
   try {
     const { branchId, department, recipientName, mobileNumber, channel, active } = req.body;
-    const { data, error } = await supabaseAdmin
+    const { data, error } = await db
       .from('notification_recipients')
       .insert({
         branch_id: branchId ?? null,
@@ -73,7 +75,7 @@ router.patch('/recipients/:id', requireRole('super_admin'), validate(UpdateRecip
     if (req.body.active !== undefined) patch['active'] = req.body.active;
     if (Object.keys(patch).length === 0) { res.status(400).json({ error: 'Nothing to update' }); return; }
 
-    const { data, error } = await supabaseAdmin
+    const { data, error } = await db
       .from('notification_recipients')
       .update(patch)
       .eq('id', req.params.id)
@@ -90,7 +92,7 @@ router.patch('/recipients/:id', requireRole('super_admin'), validate(UpdateRecip
 // DELETE /api/closing-notifications/recipients/:id
 router.delete('/recipients/:id', requireRole('super_admin'), async (req: AuthRequest, res, next) => {
   try {
-    const { error } = await supabaseAdmin.from('notification_recipients').delete().eq('id', req.params.id);
+    const { error } = await db.from('notification_recipients').delete().eq('id', req.params.id);
     if (error) throw error;
     res.json({ success: true });
   } catch (err) {
@@ -107,7 +109,7 @@ router.delete('/recipients/:id', requireRole('super_admin'), async (req: AuthReq
 // GET /api/closing-notifications/reports?businessDate=&days=
 router.get('/reports', async (req: AuthRequest, res, next) => {
   try {
-    let query = supabaseAdmin
+    let query = db
       .from('daily_closing_reports')
       .select('*')
       .order('business_date', { ascending: false })
@@ -142,7 +144,7 @@ router.get('/logs', requireRole('super_admin'), async (req: AuthRequest, res, ne
     const limit = Math.min(Math.max(Number(req.query['limit'] ?? 20), 1), 200);
     const offset = Math.max(Number(req.query['offset'] ?? 0), 0);
 
-    let query = supabaseAdmin
+    let query = db
       .from('notification_logs')
       .select('*, recipient:notification_recipients(recipient_name, mobile_number)', { count: 'exact' })
       .order('created_at', { ascending: false })

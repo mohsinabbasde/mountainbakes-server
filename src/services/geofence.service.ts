@@ -1,4 +1,4 @@
-import { supabaseAdmin } from '../config/supabase';
+import { dbFor } from '../db';
 import {
   decodeGeoPosition,
   evaluateGeofence,
@@ -10,6 +10,8 @@ import {
 } from '../shared';
 import { getAppSettings } from './settings.service';
 import { getCached, setCached, invalidate } from '../utils/cache';
+
+const db = dbFor('geofence');
 
 /**
  * Server-side geofencing.
@@ -51,7 +53,7 @@ export async function getBranchGeofence(branchId: string): Promise<BranchGeofenc
   const hit = getCached<{ value: BranchGeofence | null }>(cacheKey);
   if (hit) return hit.value;
 
-  const { data, error } = await supabaseAdmin
+  const { data, error } = await db
     .from('branch_locations')
     .select('branch_id, branch_name, latitude, longitude, radius_km')
     .eq('branch_id', branchId)
@@ -171,7 +173,7 @@ export interface LogGeofenceInput {
  */
 export async function logGeofenceCheck(input: LogGeofenceInput): Promise<void> {
   try {
-    const { error } = await supabaseAdmin.from('geofence_logs').insert({
+    const { error } = await db.from('geofence_logs').insert({
       branch_id: input.branchId,
       branch_name: input.branchName,
       user_id: input.userId,

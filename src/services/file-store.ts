@@ -6,7 +6,6 @@ import {
 } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import type { Readable } from 'node:stream';
-import { supabaseAdmin } from '../config/supabase';
 import { getS3Client } from './backup/backupConfig';
 import type { S3Like } from './backup/s3BackupStorage';
 
@@ -46,7 +45,16 @@ export interface FileStore {
 // ── Supabase Storage ───────────────────────────────────────────────────────
 
 // `supabaseAdmin.storage` is read at call time, never captured: the integration
-// tests replace it on the client object after this module has loaded.
+// tests replace it on the client object after this module has loaded. And the
+// client itself is loaded at call time, never imported: config/supabase.ts
+// refuses to load without its env vars, and a server on the s3 driver has none.
+const supabaseAdmin = {
+  get storage() {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    return (require('../config/supabase') as typeof import('../config/supabase')).supabaseAdmin.storage;
+  },
+};
+
 const supabaseStore: FileStore = {
   async upload(bucket, path, body, contentType) {
     const { error } = await supabaseAdmin.storage.from(bucket).upload(path, body, { contentType });

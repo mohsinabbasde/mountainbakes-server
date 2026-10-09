@@ -231,9 +231,9 @@ function parse(out: string): Map<string, string> {
 async function main() {
   const structureOnly = process.argv.includes('--structure');
   const source = (process.env.SUPABASE_DB_URL || '').trim();
-  const target = (process.env.RAILWAY_DB_URL || process.env.DATABASE_URL || '').trim();
+  const target = (process.env.RAILWAY_DB_URL || '').trim();
   if (!source) throw new Error('SUPABASE_DB_URL is required');
-  if (!target) throw new Error('RAILWAY_DB_URL (or DATABASE_URL) is required');
+  if (!target) throw new Error('RAILWAY_DB_URL is required');
   const sourceEnv = pgConnectionEnv(source);
   const targetEnv = pgConnectionEnv(target);
   if (!new URL(target).searchParams.get('sslmode')) targetEnv.PGSSLMODE = 'prefer';

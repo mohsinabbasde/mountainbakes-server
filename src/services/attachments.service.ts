@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { supabaseAdmin } from '../config/supabase';
+import { dbFor, type QueryBuilder } from '../db';
 import {
   ATTACHMENT_MAX_BYTES,
   ATTACHMENT_MAX_PER_ENTITY,
@@ -10,6 +10,8 @@ import {
 } from '../shared';
 import { rowToApi } from '../utils/case';
 import { fileStore } from './file-store';
+
+const db = dbFor('attachments');
 
 /**
  * Photo attachments — upload, bind, and read-time URL signing.
@@ -143,7 +145,7 @@ export async function uploadAttachment(input: {
 
   await fileStore().upload(BUCKET, storagePath, input.buffer, input.mimeType);
 
-  const { data, error } = await supabaseAdmin
+  const { data, error } = await db
     .from('attachments')
     .insert({
       entity: input.entity,
@@ -206,7 +208,7 @@ export async function bindAttachments(input: {
     throw clientError(`At most ${ATTACHMENT_MAX_PER_ENTITY} photos may be attached`, 400);
   }
 
-  const { data, error } = await supabaseAdmin
+  const { data, error } = await db
     .from('attachments')
     .update({ entity_id: input.entityId, bound_at: new Date().toISOString() })
     .in('id', ids)
@@ -254,7 +256,7 @@ export async function listAttachmentsFor(
   const byParent = new Map<string, Attachment[]>();
   if (ids.length === 0) return byParent;
 
-  const { data, error } = await supabaseAdmin
+  const { data, error } = await db
     .from('attachments')
     .select(SELECT)
     .eq('entity', entity)
@@ -335,7 +337,7 @@ export async function assertStagedAttachments(input: {
   const ids = [...new Set(input.attachmentIds)];
   if (ids.length === 0) return;
 
-  const { data, error } = await supabaseAdmin
+  const { data, error } = await db
     .from('attachments')
     .select('id')
     .in('id', ids)
@@ -373,7 +375,7 @@ export async function getAttachmentsByIds(
   const byId = new Map<string, Attachment>();
   if (ids.length === 0) return byId;
 
-  const { data, error } = await supabaseAdmin
+  const { data, error } = await db
     .from('attachments')
     .select(SELECT)
     .eq('entity', entity)
@@ -398,12 +400,12 @@ export async function getAttachmentsByIds(
  * is logged so it can be found, and costs one photo of storage.
  */
 async function removeStaged(
-  filter: (q: ReturnType<ReturnType<typeof supabaseAdmin.from>['delete']>) => PromiseLike<{
+  filter: (q: QueryBuilder) => PromiseLike<{
     data: { storage_path: string }[] | null;
     error: { message: string } | null;
   }>,
 ): Promise<number> {
-  const { data, error } = await filter(supabaseAdmin.from('attachments').delete());
+  const { data, error } = await filter(db.from('attachments').delete());
   if (error) throw error;
 
   const paths = (data ?? []).map((r) => r.storage_path);
@@ -450,7 +452,7 @@ export async function purgeStagedAttachments(input: {
   const cutoff = new Date(Date.now() - input.olderThanDays * 24 * 60 * 60 * 1000).toISOString();
 
   if (input.dryRun) {
-    const { count, error } = await supabaseAdmin
+    const { count, error } = await db
       .from('attachments')
       .select('id', { count: 'exact', head: true })
       .eq('entity', input.entity)

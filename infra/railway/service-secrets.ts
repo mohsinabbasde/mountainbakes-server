@@ -77,8 +77,8 @@ function psqlStdin(env: Record<string, string>, sql: string): Promise<void> {
 
 async function main() {
   const rotate = process.argv.includes('--rotate');
-  const target = (process.env.RAILWAY_DB_URL || process.env.DATABASE_URL || '').trim();
-  if (!target) throw new Error('RAILWAY_DB_URL (or DATABASE_URL) is required');
+  const target = (process.env.RAILWAY_DB_URL || '').trim();
+  if (!target) throw new Error('RAILWAY_DB_URL is required');
   const targetEnv = pgConnectionEnv(target);
   if (!new URL(target).searchParams.get('sslmode')) targetEnv.PGSSLMODE = 'prefer';
   if (/supabase/i.test(targetEnv.PGHOST)) throw new Error('The target host is Supabase. Refusing.');

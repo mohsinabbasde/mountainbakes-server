@@ -5,6 +5,8 @@ import { join } from 'node:path';
 import type { AddressInfo } from 'node:net';
 import type { Server } from 'node:http';
 import { PGlite } from '@electric-sql/pglite';
+import { dbFor } from '../../db';
+import { usePglite } from '../../db/testing';
 import { CreateProductionOrderSchema, CreateSpecialOrderSchema, VerifySpecialOrderSchema } from '../../shared';
 
 /**
@@ -13,9 +15,9 @@ import { CreateProductionOrderSchema, CreateSpecialOrderSchema, VerifySpecialOrd
  * pglite runs migrations 142–145 (and 84's idempotency functions, and
  * migration 89's `apply_production_stock_movement`, lifted verbatim) over stub
  * tables. The Express router from special-orders.routes.ts is mounted on a local
- * server with `supabaseAdmin` pointed at that database, so every assertion below
- * goes through the same middleware, schema, RPC and ledger write production
- * does. Nothing here recomputes stock: the tests set an order up and read the
+ * server whose database calls run in that database through the real query
+ * layer (src/db), so every assertion below goes through the same middleware,
+ * schema, SQL, RPC and ledger write production does. Nothing here recomputes stock: the tests set an order up and read the
  * ledger back.
  *
  * Offline creation and sync-after-reconnect are the mobile queue's half of the
@@ -41,6 +43,10 @@ const STUBS = `
     ('production_order_demand', 'production_order_verification', 'production_order_special_item');
   create type stock_movement_type as enum ('sale', 'production', 'return', 'adjustment');
   create table counters (id text primary key, count bigint not null);
+  -- Read on the way into every request, by the session-revocation check and
+  -- the business-day check. Left empty: nothing revoked, no day closed.
+  create table login_sessions (id uuid primary key default gen_random_uuid(), auth_session_id uuid, revoked_at timestamptz);
+  create table business_day_closures (business_date date primary key, status text not null);
   create table branches (id uuid primary key default gen_random_uuid(), name text);
   create table users (id uuid primary key default gen_random_uuid());
   create table products (
@@ -119,118 +125,8 @@ const ACTORS: Record<string, Actor> = {
   finance: { id: '10000000-0000-4000-8000-000000000005', email: 'fin@mb.test', role: 'finance_manager', branchId: null, branchName: null },
 };
 
-// ── A PostgREST-shaped façade over pglite ────────────────────────────────────
-// Only what these routes use. An unknown table answers empty, which is what the
-// auth middleware's revocation lookup and the business-day check need to read
-// as "nothing revoked, nothing closed".
-const normalise = (value: unknown, key = ''): unknown => {
-  if (value instanceof Date) return key.endsWith('_date') ? value.toISOString().slice(0, 10) : value.toISOString();
-  if (Array.isArray(value)) return value.map((v) => normalise(v));
-  if (value && typeof value === 'object') {
-    return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, normalise(v, k)]));
-  }
-  return value;
-};
-
-class Query implements PromiseLike<{ data: unknown; error: unknown; count?: number }> {
-  private op: 'select' | 'insert' | 'update' = 'select';
-  private cols = '*';
-  private where: string[] = [];
-  private params: unknown[] = [];
-  private payload: Record<string, unknown>[] = [];
-  private mode: 'many' | 'maybe' | 'single' = 'many';
-  private orderBy: string[] = [];
-  private max: number | null = null;
-
-  constructor(private readonly table: string) {}
-
-  private p(v: unknown): string { this.params.push(v); return `$${this.params.length}`; }
-
-  select(cols = '*') { if (this.op === 'select') this.cols = cols; return this; }
-  insert(rows: Record<string, unknown> | Record<string, unknown>[]) { this.op = 'insert'; this.payload = Array.isArray(rows) ? rows : [rows]; return this; }
-  update(row: Record<string, unknown>) { this.op = 'update'; this.payload = [row]; return this; }
-  eq(col: string, v: unknown) { this.where.push(`${col}::text = ${this.p(String(v))}`); return this; }
-  in(col: string, vs: unknown[]) { this.where.push(`${col}::text = any(${this.p(vs.map(String))}::text[])`); return this; }
-  is(col: string, _v: null) { this.where.push(`${col} is null`); return this; }
-  not(col: string, _op: string, _v: null) { this.where.push(`${col} is not null`); return this; }
-  gt(col: string, v: unknown) { this.where.push(`${col} > ${this.p(v)}`); return this; }
-  gte(col: string, v: unknown) { this.where.push(`${col}::text >= ${this.p(String(v))}`); return this; }
-  lte(col: string, v: unknown) { this.where.push(`${col}::text <= ${this.p(String(v))}`); return this; }
-  /** `status.in.(a,b),business_date.gte.2026-01-01` — the one shape the list uses. */
-  or(expr: string) {
-    const parts = expr.split(/,(?![^(]*\))/).map((part) => {
-      const [col, op, ...rest] = part.split('.');
-      const value = rest.join('.');
-      if (op === 'in') return `${col}::text = any(${this.p(value.replace(/^\(|\)$/g, '').split(','))}::text[])`;
-      if (op === 'gte') return `${col}::text >= ${this.p(value)}`;
-      throw new Error(`fake PostgREST: unsupported or() term "${part}"`);
-    });
-    this.where.push(`(${parts.join(' or ')})`);
-    return this;
-  }
-  order(col: string, opts: { ascending?: boolean; referencedTable?: string } = {}) {
-    if (!opts.referencedTable) this.orderBy.push(`${col} ${opts.ascending === false ? 'desc' : 'asc'}`);
-    return this;
-  }
-  limit(n: number) { this.max = n; return this; }
-  maybeSingle() { this.mode = 'maybe'; return this; }
-  single() { this.mode = 'single'; return this; }
-
-  private async run(): Promise<{ data: unknown; error: unknown }> {
-    const exists = await db.query<{ t: string | null }>(`select to_regclass($1)::text as t`, [this.table]);
-    if (!exists.rows[0]?.t) return { data: this.mode === 'many' ? [] : null, error: null };
-
-    const where = this.where.length ? ` where ${this.where.join(' and ')}` : '';
-    let sql: string;
-    if (this.op === 'insert') {
-      const keys = Object.keys(this.payload[0]!);
-      const tuples = this.payload.map((row) => `(${keys.map((k) => this.p(row[k])).join(', ')})`);
-      sql = `insert into ${this.table} (${keys.join(', ')}) values ${tuples.join(', ')} returning *`;
-    } else if (this.op === 'update') {
-      // SET parameters are numbered after the WHERE ones already collected.
-      const sets = Object.entries(this.payload[0]!).map(([k, v]) => `${k} = ${this.p(v)}`);
-      sql = `update ${this.table} set ${sets.join(', ')}${where} returning *`;
-    } else {
-      const embed = this.cols.includes('special_order_items(')
-        ? `, (select coalesce(json_agg(i order by i.line_no), '[]'::json)
-               from special_order_items i where i.special_order_id = ${this.table}.id) as items`
-        : '';
-      sql = `select *${embed} from ${this.table}${where}` +
-        (this.orderBy.length ? ` order by ${this.orderBy.join(', ')}` : '') +
-        (this.max !== null ? ` limit ${this.max}` : '');
-    }
-
-    try {
-      const rows = normalise((await db.query(sql, this.params)).rows) as unknown[];
-      if (this.mode === 'many') return { data: rows, error: null };
-      if (this.mode === 'single' && rows.length !== 1) return { data: null, error: new Error('expected one row') };
-      return { data: rows[0] ?? null, error: null };
-    } catch (error) {
-      return { data: null, error };
-    }
-  }
-
-  then<A, B>(ok?: ((v: { data: unknown; error: unknown }) => A | PromiseLike<A>) | null, fail?: ((e: unknown) => B | PromiseLike<B>) | null) {
-    return this.run().then(ok, fail);
-  }
-}
-
-async function rpc(fn: string, args: Record<string, unknown> = {}) {
-  const keys = Object.keys(args);
-  const params = keys.map((k) => {
-    const v = args[k];
-    return v !== null && typeof v === 'object' ? JSON.stringify(v) : v;
-  });
-  const list = keys
-    .map((k, i) => `${k} => $${i + 1}${args[k] !== null && typeof args[k] === 'object' ? '::jsonb' : ''}`)
-    .join(', ');
-  try {
-    const { rows } = await db.query<{ r: unknown }>(`select public.${fn}(${list}) as r`, params);
-    return { data: normalise(rows[0]?.r ?? null), error: null };
-  } catch (error) {
-    return { data: null, error };
-  }
-}
+/** A database function called directly, the way a route calls it. */
+const rpc = (fn: string, args: Record<string, unknown> = {}) => dbFor('special-orders').rpc(fn, args);
 
 // ── HTTP helpers ─────────────────────────────────────────────────────────────
 async function call(as: string, method: string, path: string, body?: unknown, headers: Record<string, string> = {}) {
@@ -326,10 +222,8 @@ before(async () => {
   await db.query(`insert into branches (id, name) values ($1, 'DHA Branch'), ($2, 'Gulshan Branch')`, [BRANCH_A, BRANCH_B]);
   for (const a of Object.values(ACTORS)) await db.query(`insert into users (id) values ($1)`, [a.id]);
 
+  await usePglite(db);
   const { supabaseAdmin } = await import('../../config/supabase');
-  const admin = supabaseAdmin as unknown as Record<string, unknown>;
-  admin['from'] = (table: string) => new Query(table);
-  admin['rpc'] = rpc;
   (supabaseAdmin.auth as unknown as Record<string, unknown>)['getUser'] = async (token: string) => {
     const a = ACTORS[token];
     if (!a) return { data: { user: null }, error: new Error('bad token') };

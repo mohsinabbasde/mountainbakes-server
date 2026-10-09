@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { supabaseAdmin } from '../config/supabase';
+import { dbFor } from '../db';
 import { authenticate, type AuthRequest } from '../middleware/auth';
 import { validate } from '../middleware/validate';
 import { requireRole } from '../middleware/requireRole';
@@ -29,6 +29,8 @@ import {
   SESSION_SORT_COLUMNS,
   type SessionSortKey,
 } from '../services/login-history.service';
+
+const db = dbFor('login-history');
 
 /** Not on `LoginHistoryQuerySchema` (the shared, mirrored schema) on purpose —
  * see `SESSION_SORT_COLUMNS`. An unrecognized value silently falls back to the
@@ -92,7 +94,7 @@ router.post('/start', validate(StartLoginSessionSchema), async (req: AuthRequest
     // people who know staff by name and quote them by code. One extra read, on a
     // new session only — a resumed session returns from `startSession` before
     // this matters.
-    const { data: profile } = await supabaseAdmin
+    const { data: profile } = await db
       .from('users')
       .select('display_name, user_code')
       .eq('id', user.uid)
@@ -136,7 +138,7 @@ router.post('/start', validate(StartLoginSessionSchema), async (req: AuthRequest
     // existed since the core migration with nothing ever writing it, and this is
     // the first thing in a position to. A failure here must not fail the session
     // record, which is the column that actually matters.
-    void supabaseAdmin
+    void db
       .from('users')
       .update({ last_login_at: session.loginAt })
       .eq('id', user.uid)

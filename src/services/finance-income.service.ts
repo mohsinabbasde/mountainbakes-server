@@ -1,4 +1,4 @@
-import { supabaseAdmin } from '../config/supabase';
+import { dbFor } from '../db';
 import {
   businessDateStr,
   SYSTEM_LEDGER_HEAD_CODES,
@@ -20,6 +20,8 @@ import {
 import { postEntry } from './finance-ledger.service';
 import { rowToApi } from '../utils/case';
 import { withoutDeleted } from '../utils/softDelete';
+
+const db = dbFor('finance-income');
 
 /**
  * Branch income → Finance.
@@ -71,7 +73,7 @@ export async function importBranchIncome(opts: {
   const businessDate = opts.businessDate ?? businessDateStr();
   const settings = await getFinanceSettings();
 
-  let branchQuery = supabaseAdmin.from('branches').select('id, name').eq('is_active', true).order('name');
+  let branchQuery = db.from('branches').select('id, name').eq('is_active', true).order('name');
   if (opts.branchId) branchQuery = branchQuery.eq('id', opts.branchId);
 
   const [{ data: branches, error: branchErr }, { data: existingRows, error: existErr }] = await Promise.all([
@@ -82,7 +84,7 @@ export async function importBranchIncome(opts: {
     // deleted row in place — both of which lose the day silently. The partial
     // unique index in migration 94 is the other half: it lets the fresh insert
     // land beside the deleted row instead of colliding with it.
-    withoutDeleted(supabaseAdmin.from(TABLE).select('*').eq('business_date', businessDate)),
+    withoutDeleted(db.from(TABLE).select('*').eq('business_date', businessDate)),
   ]);
   if (branchErr) throw branchErr;
   if (existErr) throw existErr;
@@ -153,12 +155,12 @@ export async function importBranchIncome(opts: {
 
     if (prior) {
       const { error } = await withoutDeleted(
-        supabaseAdmin.from(TABLE).update(row).eq('id', prior['id'] as string),
+        db.from(TABLE).update(row).eq('id', prior['id'] as string),
       );
       if (error) throw error;
       result.refreshed += 1;
     } else {
-      const { error } = await supabaseAdmin.from(TABLE).insert(row);
+      const { error } = await db.from(TABLE).insert(row);
       // A concurrent import (the scheduler and a manual click racing) loses on
       // the unique index rather than writing a duplicate day.
       if (error && error.code !== '23505') throw error;
@@ -204,7 +206,7 @@ export async function listIncomeApprovals(q: {
   const ascending = q.sortDir === 'asc';
 
   let query = withoutDeleted(
-    supabaseAdmin
+    db
       .from(TABLE)
       .select('*', { count: 'exact' })
       .order(sortCol, { ascending })
@@ -247,7 +249,7 @@ export async function listIncomeApprovals(q: {
 
 export async function getIncomeApproval(id: string): Promise<FinanceIncomeApproval | null> {
   const { data, error } = await withoutDeleted(
-    supabaseAdmin.from(TABLE).select('*').eq('id', id),
+    db.from(TABLE).select('*').eq('id', id),
   ).maybeSingle();
   if (error) throw error;
   if (!data) return null;
@@ -303,7 +305,7 @@ export async function verifyIncome(
   }
 
   const { data, error } = await withoutDeleted(
-    supabaseAdmin
+    db
       .from(TABLE)
       .update({
         status: 'pending_approval',
@@ -422,7 +424,7 @@ export async function approveIncome(
   }
 
   const { data, error } = await withoutDeleted(
-    supabaseAdmin
+    db
       .from(TABLE)
       .update({
         status: 'approved',
@@ -459,7 +461,7 @@ export async function rejectIncome(
   }
 
   const { data, error } = await withoutDeleted(
-    supabaseAdmin
+    db
       .from(TABLE)
       .update({
         status: 'rejected',

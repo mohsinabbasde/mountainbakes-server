@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { supabaseAdmin } from '../config/supabase';
+import { dbFor } from '../db';
 import { authenticate, type AuthRequest } from '../middleware/auth';
 import { requireRole } from '../middleware/requireRole';
 import { validate } from '../middleware/validate';
@@ -10,6 +10,8 @@ import { getCached, setCached, invalidate } from '../utils/cache';
 import { applyPriceChange } from '../services/price.service';
 import { resolveAdminName } from '../services/audit.service';
 import { rowToApi, apiToRow } from '../utils/case';
+
+const db = dbFor('products');
 
 /** 'YYYY-MM-DD' → 'DD-MM-YYYY' for human-facing messages. */
 function dmy(d: string): string {
@@ -27,7 +29,7 @@ router.get('/categories', authenticate, async (_req, res, next) => {
     if (cachedCategories) { res.json({ categories: cachedCategories }); return; }
 
     // Sorting moves into Postgres; it was an in-memory sort of the whole collection.
-    const { data, error } = await supabaseAdmin
+    const { data, error } = await db
       .from('categories')
       .select('*')
       .eq('is_active', true)
@@ -47,7 +49,7 @@ router.post('/categories', authenticate, requireRole('super_admin'), validate(Cr
     const { name, sortOrder } = req.body;
 
     // created_at comes from the column default — do not set it here.
-    const { data, error } = await supabaseAdmin
+    const { data, error } = await db
       .from('categories')
       .insert({ name, slug: slugify(name), sort_order: sortOrder ?? 0, is_active: true })
       .select('id')
@@ -75,7 +77,7 @@ router.put('/categories/:id', authenticate, requireRole('super_admin'), validate
     const updates = apiToRow(req.body);
     if (typeof req.body.name === 'string') updates['slug'] = slugify(req.body.name);
 
-    const { data, error } = await supabaseAdmin
+    const { data, error } = await db
       .from('categories')
       .update(updates)
       .eq('id', req.params['id']!)
@@ -103,7 +105,7 @@ router.put('/categories/:id', authenticate, requireRole('super_admin'), validate
 
 router.delete('/categories/:id', authenticate, requireRole('super_admin'), async (req, res, next) => {
   try {
-    const { data, error } = await supabaseAdmin
+    const { data, error } = await db
       .from('categories')
       .update({ is_active: false })
       .eq('id', req.params['id']!)
@@ -159,7 +161,7 @@ router.get('/', authenticate, async (req, res, next) => {
       if (hit) { res.json(hit); return; }
     }
 
-    let query = supabaseAdmin.from('products').select('*').order('name', { ascending: true });
+    let query = db.from('products').select('*').order('name', { ascending: true });
     if (!includeSpecial) query = query.eq('is_special', false);
     if (categoryId) query = query.eq('category_id', categoryId);
     if (isActive !== undefined) query = query.eq('is_active', isActive === 'true');
@@ -179,7 +181,7 @@ router.get('/', authenticate, async (req, res, next) => {
     let rows = (data ?? []) as Record<string, unknown>[];
 
     if (sellableBranchId) {
-      const { data: held, error: heldErr } = await supabaseAdmin
+      const { data: held, error: heldErr } = await db
         .from('stock')
         .select('product_id')
         .eq('branch_id', sellableBranchId)
@@ -187,7 +189,7 @@ router.get('/', authenticate, async (req, res, next) => {
       if (heldErr) throw heldErr;
       const heldIds = (held ?? []).map((h) => h.product_id as string);
       if (heldIds.length > 0) {
-        const { data: specials, error: specialErr } = await supabaseAdmin
+        const { data: specials, error: specialErr } = await db
           .from('products')
           .select('*')
           .eq('is_special', true)
@@ -220,7 +222,7 @@ router.get('/', authenticate, async (req, res, next) => {
 
 router.get('/:id', authenticate, async (req, res, next) => {
   try {
-    const { data, error } = await supabaseAdmin
+    const { data, error } = await db
       .from('products')
       .select('*')
       .eq('id', req.params['id']!)
@@ -292,7 +294,7 @@ router.post('/', authenticate, requireRole('super_admin'), async (req: AuthReque
 
     // category_name is a denormalised cache of categories.name, so the category
     // must be read before the insert.
-    const { data: category, error: catErr } = await supabaseAdmin
+    const { data: category, error: catErr } = await db
       .from('categories')
       .select('name')
       .eq('id', categoryId)
@@ -300,7 +302,7 @@ router.post('/', authenticate, requireRole('super_admin'), async (req: AuthReque
     if (catErr) throw catErr;
     if (!category) { res.status(400).json({ error: 'Category not found' }); return; }
 
-    const { data, error } = await supabaseAdmin
+    const { data, error } = await db
       .from('products')
       .insert({
         name,
@@ -350,7 +352,7 @@ router.put('/:id', authenticate, requireRole('super_admin'), async (req: AuthReq
 
     // Keep the denormalised category_name in step when the category changes.
     if (parsed.data.categoryId) {
-      const { data: category, error: catErr } = await supabaseAdmin
+      const { data: category, error: catErr } = await db
         .from('categories')
         .select('name')
         .eq('id', parsed.data.categoryId)
@@ -359,7 +361,7 @@ router.put('/:id', authenticate, requireRole('super_admin'), async (req: AuthReq
       if (category) updates['category_name'] = category.name;
     }
 
-    const { data, error } = await supabaseAdmin
+    const { data, error } = await db
       .from('products')
       .update(updates)
       .eq('id', req.params['id']!)
@@ -377,7 +379,7 @@ router.put('/:id', authenticate, requireRole('super_admin'), async (req: AuthReq
 
 router.delete('/:id', authenticate, requireRole('super_admin'), async (req, res, next) => {
   try {
-    const { data, error } = await supabaseAdmin
+    const { data, error } = await db
       .from('products')
       .update({ is_active: false })
       .eq('id', req.params['id']!)

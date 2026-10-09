@@ -1,4 +1,5 @@
 import { supabaseAdmin } from '../config/supabase';
+import { dbFor } from '../db';
 import { getS3Client } from '../services/backup/backupConfig';
 import {
   createS3FileStore,
@@ -8,6 +9,8 @@ import {
   s3ObjectSize,
   type FileBucket,
 } from '../services/file-store';
+
+const db = dbFor('scripts');
 
 /**
  * Copy every stored file from Supabase Storage to S3, so FILE_STORAGE_DRIVER
@@ -96,7 +99,7 @@ async function main() {
   // Keyset over (created_at, id) would be tidier, but rows are append-only and
   // nothing here deletes, so a stable order plus an offset cannot skip a row.
   for (let from = 0; ; from += PAGE) {
-    const { data, error } = await supabaseAdmin
+    const { data, error } = await db
       .from('attachments')
       .select('storage_path, size_bytes, mime_type')
       .order('created_at', { ascending: true })
@@ -114,7 +117,7 @@ async function main() {
     if (rows.length < PAGE) break;
   }
 
-  const { data: settings, error: settingsErr } = await supabaseAdmin
+  const { data: settings, error: settingsErr } = await db
     .from('settings')
     .select('logo_path, logo_url')
     .maybeSingle();
@@ -133,7 +136,7 @@ async function main() {
     if (settings?.logo_url === logoUrl) {
       console.log('[files:copy] settings.logo_url already points at S3');
     } else {
-      const { error } = await supabaseAdmin.from('settings').update({ logo_url: logoUrl }).eq('id', true);
+      const { error } = await db.from('settings').update({ logo_url: logoUrl }).eq('id', true);
       if (error) throw error;
       console.log(`[files:copy] settings.logo_url → ${logoUrl}`);
       console.log(`[files:copy] (S3 object ${s3Key(cfg, 'branding', logoPath)}; restart the API to drop its cached settings)`);

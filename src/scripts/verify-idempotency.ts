@@ -1,5 +1,7 @@
 import 'dotenv/config';
-import { supabaseAdmin } from '../config/supabase';
+import { dbFor } from '../db';
+
+const db = dbFor('scripts');
 
 /**
  * Exercise migration 84's replay protection against the LINKED database and
@@ -44,7 +46,7 @@ async function claim(
   endpoint = 'verify.script',
   user = USER,
 ): Promise<Claim> {
-  const { data, error } = await supabaseAdmin.rpc('claim_idempotency_key', {
+  const { data, error } = await db.rpc('claim_idempotency_key', {
     p_user_id: user,
     p_key: key,
     p_endpoint: endpoint,
@@ -85,7 +87,7 @@ async function run(): Promise<void> {
   );
 
   const body = { id: 'order-1', orderNumber: 'ORD-000123', grandTotal: 1450.5 };
-  const { error: completeErr } = await supabaseAdmin.rpc('complete_idempotency_key', {
+  const { error: completeErr } = await db.rpc('complete_idempotency_key', {
     p_user_id: USER, p_key: 'verify-first-01', p_status: 201, p_body: body,
   });
   if (completeErr) throw completeErr;
@@ -101,16 +103,16 @@ async function run(): Promise<void> {
     (await claim('verify-first-01', 'fp-a', 'other.endpoint')).outcome === 'mismatch');
 
   await claim('verify-release-01');
-  await supabaseAdmin.rpc('release_idempotency_key', { p_user_id: USER, p_key: 'verify-release-01' });
+  await db.rpc('release_idempotency_key', { p_user_id: USER, p_key: 'verify-release-01' });
   check('a released key can be claimed again', (await claim('verify-release-01')).outcome === 'claimed');
 
-  await supabaseAdmin.rpc('release_idempotency_key', { p_user_id: USER, p_key: 'verify-first-01' });
+  await db.rpc('release_idempotency_key', { p_user_id: USER, p_key: 'verify-first-01' });
   check('a COMPLETED key survives a release', (await claim('verify-first-01')).outcome === 'replay');
 
   // Backdate a claim past the window: a repeat must read as stale, which is what
   // sends it to a person instead of being re-run.
   await claim('verify-stale-01');
-  const { error: ageErr } = await supabaseAdmin
+  const { error: ageErr } = await db
     .from('idempotency_keys')
     .update({ created_at: new Date(Date.now() - (STALE_SECONDS + 300) * 1000).toISOString() })
     .eq('user_id', USER)
@@ -123,7 +125,7 @@ async function run(): Promise<void> {
   check('the same key under another user is its own claim',
     (await claim('verify-first-01', 'fp-a', 'verify.script', OTHER)).outcome === 'claimed');
 
-  const { data: purged, error: purgeErr } = await supabaseAdmin.rpc('purge_idempotency_keys', {
+  const { data: purged, error: purgeErr } = await db.rpc('purge_idempotency_keys', {
     p_older_than_days: 30,
   });
   if (purgeErr) throw purgeErr;
@@ -132,10 +134,10 @@ async function run(): Promise<void> {
 
 async function cleanup(): Promise<void> {
   for (const user of [USER, OTHER]) {
-    const { error } = await supabaseAdmin.from('idempotency_keys').delete().eq('user_id', user);
+    const { error } = await db.from('idempotency_keys').delete().eq('user_id', user);
     if (error) throw error;
   }
-  const { count, error } = await supabaseAdmin
+  const { count, error } = await db
     .from('idempotency_keys')
     .select('*', { count: 'exact', head: true })
     .in('user_id', [USER, OTHER]);

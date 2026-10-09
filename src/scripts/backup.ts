@@ -1,6 +1,6 @@
 import 'dotenv/config';
 import type { BackupJob, BackupType } from '../shared';
-import { supabaseAdmin } from '../config/supabase';
+import { dbFor } from '../db';
 import {
   BACKUP_SCHEDULE,
   BackupError,
@@ -15,6 +15,8 @@ import {
   redactSecrets,
   type BackupDeps,
 } from '../services/backup';
+
+const db = dbFor('scripts');
 
 /**
  * Mountain Bakes — database backup CLI (pg_dump → S3).
@@ -132,7 +134,7 @@ async function cmdStatus(): Promise<number> {
   const health = computeHealth({ latest, latestVerified, recentFailures: failures });
   let dbOk = 'Connected';
   try {
-    const { error } = await supabaseAdmin.rpc('backup_database_info');
+    const { error } = await db.rpc('backup_database_info');
     if (error) dbOk = `ERROR: ${error.message}`;
   } catch (err) {
     dbOk = `ERROR: ${redactSecrets(String(err), deps.config.secrets)}`;

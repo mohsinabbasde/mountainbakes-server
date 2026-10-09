@@ -1,4 +1,4 @@
-import { supabaseAdmin } from '../config/supabase';
+import { dbFor } from '../db';
 import {
   businessDateStr,
   EDITABLE_DOC_STATUSES,
@@ -16,6 +16,8 @@ import { bindAttachments, listAttachments, listAttachmentsFor } from './attachme
 import { postEntry } from './finance-ledger.service';
 import { getBranchShareSplits, getLedgerHeadByCode, round2 } from './finance-settings.service';
 import { rejectDocument } from './finance-documents.service';
+
+const db = dbFor('finance-branch-share');
 
 /**
  * Branch Share Payments — actually paying a branch its already-recorded
@@ -49,7 +51,7 @@ export interface BranchShareQuery {
 
 export async function listBranchSharePayments(q: BranchShareQuery): Promise<BranchSharePayment[]> {
   let query = withoutDeleted(
-    supabaseAdmin
+    db
       .from('branch_share_payments')
       .select('*')
       .order('business_date', { ascending: false })
@@ -103,7 +105,7 @@ export async function listBranchSharePayments(q: BranchShareQuery): Promise<Bran
  */
 export async function getBranchShareBalances(branchId?: string): Promise<BranchShareBalance[]> {
   let entriesQuery = withoutDeleted(
-    supabaseAdmin
+    db
       .from('ledger_entries')
       .select('branch_id, branch_name, debit, credit, source_type')
       .in('source_type', ['branch_share', 'branch_share_payout'])
@@ -112,7 +114,7 @@ export async function getBranchShareBalances(branchId?: string): Promise<BranchS
   );
   if (branchId) entriesQuery = entriesQuery.eq('branch_id', branchId);
 
-  let branchQuery = supabaseAdmin.from('branches').select('id, name').eq('is_active', true).order('name');
+  let branchQuery = db.from('branches').select('id, name').eq('is_active', true).order('name');
   if (branchId) branchQuery = branchQuery.eq('id', branchId);
 
   const [{ data: entries, error: entryErr }, { data: branches, error: branchErr }] = await Promise.all([
@@ -161,7 +163,7 @@ export async function getBranchShareBalances(branchId?: string): Promise<BranchS
 
 export async function getBranchSharePayment(id: string): Promise<BranchSharePayment | null> {
   const { data, error } = await withoutDeleted(
-    supabaseAdmin.from('branch_share_payments').select('*').eq('id', id),
+    db.from('branch_share_payments').select('*').eq('id', id),
   ).maybeSingle();
   if (error) throw error;
   if (!data) return null;
@@ -172,7 +174,7 @@ export async function getBranchSharePayment(id: string): Promise<BranchSharePaym
 }
 
 async function requireBranch(branchId: string): Promise<{ id: string; name: string }> {
-  const { data, error } = await supabaseAdmin.from('branches').select('id, name').eq('id', branchId).maybeSingle();
+  const { data, error } = await db.from('branches').select('id, name').eq('id', branchId).maybeSingle();
   if (error) throw error;
   if (!data) throw Object.assign(new Error('Branch not found'), { status: 400 });
   return { id: data.id as string, name: data.name as string };
@@ -184,7 +186,7 @@ export async function createBranchSharePayment(
 ): Promise<BranchSharePayment> {
   const branch = await requireBranch(input.branchId);
 
-  const { data, error } = await supabaseAdmin
+  const { data, error } = await db
     .from('branch_share_payments')
     .insert({
       branch_id: branch.id,
@@ -239,7 +241,7 @@ export async function updateBranchSharePayment(
   }
 
   const { data, error } = await withoutDeleted(
-    supabaseAdmin.from('branch_share_payments').update(row).eq('id', id).in('status', EDITABLE_DOC_STATUSES),
+    db.from('branch_share_payments').update(row).eq('id', id).in('status', EDITABLE_DOC_STATUSES),
   )
     .select('*')
     .single();
@@ -249,7 +251,7 @@ export async function updateBranchSharePayment(
 
 export async function submitBranchSharePayment(id: string): Promise<BranchSharePayment> {
   const { data, error } = await withoutDeleted(
-    supabaseAdmin
+    db
       .from('branch_share_payments')
       .update({ status: 'pending_approval', rejection_reason: null })
       .eq('id', id)
@@ -283,7 +285,7 @@ export async function approveBranchSharePayment(
   }
 
   const { data: claimed, error: claimErr } = await withoutDeleted(
-    supabaseAdmin
+    db
       .from('branch_share_payments')
       .update({
         status: 'approved',
@@ -345,7 +347,7 @@ export async function approveBranchSharePayment(
   }
 
   const { error: postedErr } = await withoutDeleted(
-    supabaseAdmin
+    db
       .from('branch_share_payments')
       .update({ status: 'posted', ledger_entry_id: ledgerEntryId, bonus_ledger_entry_id: bonusLedgerEntryId })
       .eq('id', id),

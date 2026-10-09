@@ -1,9 +1,11 @@
-import { supabaseAdmin } from '../../config/supabase';
+import { dbFor } from '../../db';
 import { getBackupSystemConfig, getS3Client, type BackupSystemConfig, type ConfigOptions } from './backupConfig';
 import { SupabaseBackupRepository } from './backupRepository';
 import { BackupStorage } from './s3BackupStorage';
 import { alertBackupFailure } from './backupAlerts';
 import type { BackupDeps, DatabaseInfo } from './backupService';
+
+const db = dbFor('backup');
 
 /**
  * Wire the real collaborators. Called by the CLI and the admin API; the unit
@@ -12,7 +14,7 @@ import type { BackupDeps, DatabaseInfo } from './backupService';
 
 export async function fetchDatabaseInfo(): Promise<DatabaseInfo> {
   try {
-    const { data, error } = await supabaseAdmin.rpc('backup_database_info');
+    const { data, error } = await db.rpc('backup_database_info');
     if (error) throw error;
     const d = (data ?? {}) as Record<string, unknown>;
     return {

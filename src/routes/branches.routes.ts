@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { supabaseAdmin } from '../config/supabase';
+import { dbFor } from '../db';
 import { authenticate, type AuthRequest } from '../middleware/auth';
 import { requireRole } from '../middleware/requireRole';
 import { validate } from '../middleware/validate';
@@ -9,6 +9,8 @@ import { notify } from '../services/push.service';
 import { logFinanceAudit } from '../services/finance-audit.service';
 import { getCached, setCached, invalidate } from '../utils/cache';
 import { rowToApi, apiToRow } from '../utils/case';
+
+const db = dbFor('branches');
 
 export const router = Router();
 
@@ -49,7 +51,7 @@ router.get('/', authenticate, async (req, res, next) => {
     const hit = getCached<Branch[]>(cacheKey);
     if (hit) { res.json({ branches: hit }); return; }
 
-    let query = supabaseAdmin.from('branches').select('*').order('name', { ascending: true });
+    let query = db.from('branches').select('*').order('name', { ascending: true });
     if (!includeInactive) query = query.eq('is_active', true);
 
     const { data, error } = await query;
@@ -68,7 +70,7 @@ router.get('/:id', authenticate, async (req, res, next) => {
   try {
     // maybeSingle() returns null instead of erroring when there is no match, so a
     // missing branch stays a clean 404 rather than a 500.
-    const { data, error } = await supabaseAdmin
+    const { data, error } = await db
       .from('branches')
       .select('*')
       .eq('id', req.params['id']!)
@@ -88,7 +90,7 @@ router.post('/', authenticate, requireRole('super_admin'), validate(CreateBranch
     const { name, location, phone, address, city, dailyBudget, weeklyBudget, monthlyBudget, companySharePct } = req.body;
 
     // created_at / updated_at come from column defaults — do not set them here.
-    const { data, error } = await supabaseAdmin
+    const { data, error } = await db
       .from('branches')
       .insert({
         name,
@@ -162,7 +164,7 @@ router.put('/:id', authenticate, requireRole('super_admin'), validate(UpdateBran
 
     // A Postgres UPDATE against a missing row just reports 0 rows affected rather
     // than erroring. Select the id back so a bad :id is still a 404.
-    const { data, error } = await supabaseAdmin
+    const { data, error } = await db
       .from('branches')
       .update(updates)
       .eq('id', req.params['id']!)
@@ -213,7 +215,7 @@ router.put('/:id', authenticate, requireRole('super_admin'), validate(UpdateBran
 
 /** The branch's stored override, or null when it inherits. */
 async function readCompanySharePct(branchId: string): Promise<number | null> {
-  const { data, error } = await supabaseAdmin
+  const { data, error } = await db
     .from('branches')
     .select('company_share_pct')
     .eq('id', branchId)
@@ -228,7 +230,7 @@ async function readCompanySharePct(branchId: string): Promise<number | null> {
 // DELETE /api/branches/:id — admin only (soft delete)
 router.delete('/:id', authenticate, requireRole('super_admin'), async (req, res, next) => {
   try {
-    const { data, error } = await supabaseAdmin
+    const { data, error } = await db
       .from('branches')
       .update({ is_active: false })
       .eq('id', req.params['id']!)

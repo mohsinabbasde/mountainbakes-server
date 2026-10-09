@@ -1,4 +1,4 @@
-import { supabaseAdmin } from '../config/supabase';
+import { dbFor } from '../db';
 import {
   businessDateStr,
   SALES_ANALYTICS_MAX_DAYS,
@@ -9,6 +9,8 @@ import {
   type SalesAnalyticsPaymentMethod,
   type SalesAnalyticsProduct,
 } from '../shared';
+
+const db = dbFor('sales-analytics');
 
 /**
  * Daily Sales analytics.
@@ -156,7 +158,7 @@ async function callAnalytics(
   branchId: string | null,
   topLimit: number,
 ): Promise<AnalyticsRow> {
-  const { data, error } = await supabaseAdmin.rpc('sales_analytics', {
+  const { data, error } = await db.rpc('sales_analytics', {
     p_from: window.from,
     p_to: window.effectiveTo,
     p_branch_id: branchId,

@@ -1,4 +1,4 @@
-import { supabaseAdmin } from '../config/supabase';
+import { dbFor } from '../db';
 import {
   businessDateStr,
   businessDaysAgoStr,
@@ -15,6 +15,8 @@ import { sortRows } from '../utils/sortRows';
 import { withoutDeleted } from '../utils/softDelete';
 import { getDayClosing } from './finance-ledger.service';
 import { getLedgerHeadByCode, round2 } from './finance-settings.service';
+
+const db = dbFor('finance-reports');
 
 /**
  * The ten finance reports.
@@ -189,7 +191,7 @@ async function fetchEntries(
   extra?: { type?: 'income' | 'expense'; headIds?: string[] },
 ): Promise<{ entries: LedgerEntry[]; capped: boolean }> {
   let query = withoutDeleted(
-    supabaseAdmin
+    db
       .from('ledger_entries')
       .select('*')
       .gte('entry_date', from)
@@ -516,7 +518,7 @@ async function shareReport(
   const isCompany = q.type === 'company_share';
 
   let query = withoutDeleted(
-    supabaseAdmin
+    db
       .from('finance_income_approvals')
       .select('*')
       .eq('status', 'approved')
@@ -585,7 +587,7 @@ async function salaryReport(
   by: string,
 ): Promise<FinanceReport> {
   let query = withoutDeleted(
-    supabaseAdmin
+    db
       .from('salary_payments')
       .select('*')
       .neq('status', 'rejected')
@@ -669,7 +671,7 @@ async function partnerExpenseReport(
   by: string,
 ): Promise<FinanceReport> {
   let query = withoutDeleted(
-    supabaseAdmin
+    db
       .from('partner_expenses')
       .select('*')
       .neq('status', 'rejected')

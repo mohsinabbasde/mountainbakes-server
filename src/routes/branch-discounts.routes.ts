@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { supabaseAdmin } from '../config/supabase';
+import { dbFor } from '../db';
 import { authenticate, type AuthRequest } from '../middleware/auth';
 import { requireRole } from '../middleware/requireRole';
 import { validate } from '../middleware/validate';
@@ -13,6 +13,8 @@ import {
 } from '../shared';
 import { notify } from '../services/push.service';
 import { rowToApi } from '../utils/case';
+
+const db = dbFor('branch-discounts');
 
 /**
  * Branch → discount claims. The raising half of the feature; Production's review
@@ -112,7 +114,7 @@ router.get('/', async (req: AuthRequest, res, next) => {
     const sortCol = (sortByKey && BRANCH_DISCOUNT_SORTABLE_COLUMNS[sortByKey]) || 'created_at';
     const ascending = req.query['sortDir'] === 'asc';
 
-    let query = supabaseAdmin
+    let query = db
       .from('branch_discounts')
       .select('*', { count: 'exact' })
       .eq('branch_id', branchId)
@@ -161,7 +163,7 @@ router.post('/', validate(CreateBranchDiscountSchema), async (req: AuthRequest, 
     // is the authorisation, not the lookup: without it a branch could quote
     // another shop's demand number and raise a claim against a delivery it never
     // received, which the review board would render as though it were theirs.
-    const { data: order, error: ordErr } = await supabaseAdmin
+    const { data: order, error: ordErr } = await db
       .from('production_orders')
       .select('id, demand_number, branch_id')
       .eq('id', productionOrderId)
@@ -170,7 +172,7 @@ router.post('/', validate(CreateBranchDiscountSchema), async (req: AuthRequest, 
     if (ordErr) throw ordErr;
     if (!order) { res.status(400).json({ error: 'Demand not found for this branch' }); return; }
 
-    const { data: branch, error: brErr } = await supabaseAdmin
+    const { data: branch, error: brErr } = await db
       .from('branches')
       .select('name')
       .eq('id', branchId)
@@ -178,7 +180,7 @@ router.post('/', validate(CreateBranchDiscountSchema), async (req: AuthRequest, 
     if (brErr) throw brErr;
     if (!branch) { res.status(400).json({ error: 'Branch not found' }); return; }
 
-    const { data: created, error: insErr } = await supabaseAdmin
+    const { data: created, error: insErr } = await db
       .from('branch_discounts')
       .insert({
         branch_id: branchId,
@@ -228,7 +230,7 @@ router.put('/:id', validate(ReviseBranchDiscountSchema), async (req: AuthRequest
     const branchId = scopeBranch(req);
     const { amount, reason } = req.body as { amount: number; reason: string };
 
-    let q = supabaseAdmin
+    let q = db
       .from('branch_discounts')
       .update({
         amount,
@@ -271,7 +273,7 @@ router.delete('/:id', async (req: AuthRequest, res, next) => {
   try {
     const branchId = scopeBranch(req);
 
-    let q = supabaseAdmin
+    let q = db
       .from('branch_discounts')
       .delete()
       .eq('id', req.params['id']!)

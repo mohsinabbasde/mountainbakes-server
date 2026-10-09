@@ -1,0 +1,7359 @@
+{
+ "foreignKeys": [
+  {
+   "columns": [
+    "uploaded_by"
+   ],
+   "name": "attachments_uploaded_by_fkey",
+   "refColumns": [
+    "id"
+   ],
+   "refTable": "users",
+   "table": "attachments"
+  },
+  {
+   "columns": [
+    "admin_id"
+   ],
+   "name": "audit_logs_admin_id_fkey",
+   "refColumns": [
+    "id"
+   ],
+   "refTable": "users",
+   "table": "audit_logs"
+  },
+  {
+   "columns": [
+    "target_user_id"
+   ],
+   "name": "audit_logs_target_user_id_fkey",
+   "refColumns": [
+    "id"
+   ],
+   "refTable": "users",
+   "table": "audit_logs"
+  },
+  {
+   "columns": [
+    "session_id"
+   ],
+   "name": "auth_refresh_tokens_session_id_fkey",
+   "refColumns": [
+    "id"
+   ],
+   "refTable": "auth_sessions",
+   "table": "auth_refresh_tokens"
+  },
+  {
+   "columns": [
+    "user_id"
+   ],
+   "name": "auth_sessions_user_id_fkey",
+   "refColumns": [
+    "id"
+   ],
+   "refTable": "users",
+   "table": "auth_sessions"
+  },
+  {
+   "columns": [
+    "triggered_by"
+   ],
+   "name": "backup_jobs_triggered_by_fkey",
+   "refColumns": [
+    "id"
+   ],
+   "refTable": "users",
+   "table": "backup_jobs"
+  },
+  {
+   "columns": [
+    "backup_job_id"
+   ],
+   "name": "backup_restore_tests_backup_job_id_fkey",
+   "refColumns": [
+    "id"
+   ],
+   "refTable": "backup_jobs",
+   "table": "backup_restore_tests"
+  },
+  {
+   "columns": [
+    "branch_id"
+   ],
+   "name": "branch_discounts_branch_id_fkey",
+   "refColumns": [
+    "id"
+   ],
+   "refTable": "branches",
+   "table": "branch_discounts"
+  },
+  {
+   "columns": [
+    "created_by"
+   ],
+   "name": "branch_discounts_created_by_fkey",
+   "refColumns": [
+    "id"
+   ],
+   "refTable": "users",
+   "table": "branch_discounts"
+  },
+  {
+   "columns": [
+    "production_order_id"
+   ],
+   "name": "branch_discounts_production_order_id_fkey",
+   "refColumns": [
+    "id"
+   ],
+   "refTable": "production_orders",
+   "table": "branch_discounts"
+  },
+  {
+   "columns": [
+    "reviewed_by"
+   ],
+   "name": "branch_discounts_reviewed_by_fkey",
+   "refColumns": [
+    "id"
+   ],
+   "refTable": "users",
+   "table": "branch_discounts"
+  },
+  {
+   "columns": [
+    "branch_id"
+   ],
+   "name": "branch_locations_branch_id_fkey",
+   "refColumns": [
+    "id"
+   ],
+   "refTable": "branches",
+   "table": "branch_locations"
+  },
+  {
+   "columns": [
+    "created_by"
+   ],
+   "name": "branch_locations_created_by_fkey",
+   "refColumns": [
+    "id"
+   ],
+   "refTable": "users",
+   "table": "branch_locations"
+  },
+  {
+   "columns": [
+    "approved_by"
+   ],
+   "name": "branch_share_payments_approved_by_fkey",
+   "refColumns": [
+    "id"
+   ],
+   "refTable": "users",
+   "table": "branch_share_payments"
+  },
+  {
+   "columns": [
+    "bonus_ledger_entry_id"
+   ],
+   "name": "branch_share_payments_bonus_ledger_entry_id_fkey",
+   "refColumns": [
+    "id"
+   ],
+   "refTable": "ledger_entries",
+   "table": "branch_share_payments"
+  },
+  {
+   "columns": [
+    "branch_id"
+   ],
+   "name": "branch_share_payments_branch_id_fkey",
+   "refColumns": [
+    "id"
+   ],
+   "refTable": "branches",
+   "table": "branch_share_payments"
+  },
+  {
+   "columns": [
+    "deleted_by"
+   ],
+   "name": "branch_share_payments_deleted_by_fkey",
+   "refColumns": [
+    "id"
+   ],
+   "refTable": "users",
+   "table": "branch_share_payments"
+  },
+  {
+   "columns": [
+    "ledger_entry_id"
+   ],
+   "name": "branch_share_payments_ledger_entry_id_fkey",
+   "refColumns": [
+    "id"
+   ],
+   "refTable": "ledger_entries",
+   "table": "branch_share_payments"
+  },
+  {
+   "columns": [
+    "requested_by"
+   ],
+   "name": "branch_share_payments_requested_by_fkey",
+   "refColumns": [
+    "id"
+   ],
+   "refTable": "users",
+   "table": "branch_share_payments"
+  },
+  {
+   "columns": [
+    "manager_id"
+   ],
+   "name": "branches_manager_fk",
+   "refColumns": [
+    "id"
+   ],
+   "refTable": "users",
+   "table": "branches"
+  },
+  {
+   "columns": [
+    "approved_by"
+   ],
+   "name": "cash_transfers_approved_by_fkey",
+   "refColumns": [
+    "id"
+   ],
+   "refTable": "users",
+   "table": "cash_transfers"
+  },
+  {
+   "columns": [
+    "branch_id"
+   ],
+   "name": "cash_transfers_branch_id_fkey",
+   "refColumns": [
+    "id"
+   ],
+   "refTable": "branches",
+   "table": "cash_transfers"
+  },
+  {
+   "columns": [
+    "created_by"
+   ],
+   "name": "cash_transfers_created_by_fkey",
+   "refColumns": [
+    "id"
+   ],
+   "refTable": "users",
+   "table": "cash_transfers"
+  },
+  {
+   "columns": [
+    "deleted_by"
+   ],
+   "name": "cash_transfers_deleted_by_fkey",
+   "refColumns": [
+    "id"
+   ],
+   "refTable": "users",
+   "table": "cash_transfers"
+  },
+  {
+   "columns": [
+    "ledger_entry_id"
+   ],
+   "name": "cash_transfers_ledger_entry_id_fkey",
+   "refColumns": [
+    "id"
+   ],
+   "refTable": "ledger_entries",
+   "table": "cash_transfers"
+  },
+  {
+   "columns": [
+    "updated_by"
+   ],
+   "name": "cash_transfers_updated_by_fkey",
+   "refColumns": [
+    "id"
+   ],
+   "refTable": "users",
+   "table": "cash_transfers"
+  },
+  {
+   "columns": [
+    "branch_id"
+   ],
+   "name": "customers_branch_id_fkey",
+   "refColumns": [
+    "id"
+   ],
+   "refTable": "branches",
+   "table": "customers"
+  },
+  {
+   "columns": [
+    "branch_id"
+   ],
+   "name": "daily_closing_reports_branch_id_fkey",
+   "refColumns": [
+    "id"
+   ],
+   "refTable": "branches",
+   "table": "daily_closing_reports"
+  },
+  {
+   "columns": [
+    "actor_id"
+   ],
+   "name": "daily_sale_record_audits_actor_id_fkey",
+   "refColumns": [
+    "id"
+   ],
+   "refTable": "users",
+   "table": "daily_sale_record_audits"
+  },
+  {
+   "columns": [
+    "branch_id"
+   ],
+   "name": "daily_sale_record_audits_branch_id_fkey",
+   "refColumns": [
+    "id"
+   ],
+   "refTable": "branches",
+   "table": "daily_sale_record_audits"
+  },
+  {
+   "columns": [
+    "record_id"
+   ],
+   "name": "daily_sale_record_audits_record_id_fkey",
+   "refColumns": [
+    "id"
+   ],
+   "refTable": "daily_sale_records",
+   "table": "daily_sale_record_audits"
+  },
+  {
+   "columns": [
+    "branch_id"
+   ],
+   "name": "daily_sale_records_branch_id_fkey",
+   "refColumns": [
+    "id"
+   ],
+   "refTable": "branches",
+   "table": "daily_sale_records"
+  },
+  {
+   "columns": [
+    "created_by"
+   ],
+   "name": "daily_sale_records_created_by_fkey",
+   "refColumns": [
+    "id"
+   ],
+   "refTable": "users",
+   "table": "daily_sale_records"
+  },
+  {
+   "columns": [
+    "fed_by"
+   ],
+   "name": "daily_sale_records_fed_by_fkey",
+   "refColumns": [
+    "id"
+   ],
+   "refTable": "users",
+   "table": "daily_sale_records"
+  },
+  {
+   "columns": [
+    "locked_by"
+   ],
+   "name": "daily_sale_records_locked_by_fkey",
+   "refColumns": [
+    "id"
+   ],
+   "refTable": "users",
+   "table": "daily_sale_records"
+  },
+  {
+   "columns": [
+    "verified_by"
+   ],
+   "name": "daily_sale_records_verified_by_fkey",
+   "refColumns": [
+    "id"
+   ],
+   "refTable": "users",
+   "table": "daily_sale_records"
+  },
+  {
+   "columns": [
+    "approved_by"
+   ],
+   "name": "employee_advances_approved_by_fkey",
+   "refColumns": [
+    "id"
+   ],
+   "refTable": "users",
+   "table": "employee_advances"
+  },
+  {
+   "columns": [
+    "created_by"
+   ],
+   "name": "employee_advances_created_by_fkey",
+   "refColumns": [
+    "id"
+   ],
+   "refTable": "users",
+   "table": "employee_advances"
+  },
+  {
+   "columns": [
+    "deleted_by"
+   ],
+   "name": "employee_advances_deleted_by_fkey",
+   "refColumns": [
+    "id"
+   ],
+   "refTable": "users",
+   "table": "employee_advances"
+  },
+  {
+   "columns": [
+    "employee_id"
+   ],
+   "name": "employee_advances_employee_id_fkey",
+   "refColumns": [
+    "id"
+   ],
+   "refTable": "finance_employees",
+   "table": "employee_advances"
+  },
+  {
+   "columns": [
+    "ledger_entry_id"
+   ],
+   "name": "employee_advances_ledger_entry_id_fkey",
+   "refColumns": [
+    "id"
+   ],
+   "refTable": "ledger_entries",
+   "table": "employee_advances"
+  },
+  {
+   "columns": [
+    "recovered_by_salary_id"
+   ],
+   "name": "employee_advances_recovered_by_salary_id_fkey",
+   "refColumns": [
+    "id"
+   ],
+   "refTable": "salary_payments",
+   "table": "employee_advances"
+  },
+  {
+   "columns": [
+    "demand_id"
+   ],
+   "name": "event_branch_demand_items_demand_id_fkey",
+   "refColumns": [
+    "id"
+   ],
+   "refTable": "event_branch_demands",
+   "table": "event_branch_demand_items"
+  },
+  {
+   "columns": [
+    "product_id"
+   ],
+   "name": "event_branch_demand_items_product_id_fkey",
+   "refColumns": [
+    "id"
+   ],
+   "refTable": "products",
+   "table": "event_branch_demand_items"
+  },
+  {
+   "columns": [
+    "branch_id"
+   ],
+   "name": "event_branch_demands_branch_id_fkey",
+   "refColumns": [
+    "id"
+   ],
+   "refTable": "branches",
+   "table": "event_branch_demands"
+  },
+  {
+   "columns": [
+    "event_id"
+   ],
+   "name": "event_branch_demands_event_id_fkey",
+   "refColumns": [
+    "id"
+   ],
+   "refTable": "special_events",
+   "table": "event_branch_demands"
+  },
+  {
+   "columns": [
+    "reviewed_by"
+   ],
+   "name": "event_branch_demands_reviewed_by_fkey",
+   "refColumns": [
+    "id"
+   ],
+   "refTable": "users",
+   "table": "event_branch_demands"
+  },
+  {
+   "columns": [
+    "submitted_by"
+   ],
+   "name": "event_branch_demands_submitted_by_fkey",
+   "refColumns": [
+    "id"
+   ],
+   "refTable": "users",
+   "table": "event_branch_demands"
+  },
+  {
+   "columns": [
+    "branch_id"
+   ],
+   "name": "event_branches_branch_id_fkey",
+   "refColumns": [
+    "id"
+   ],
+   "refTable": "branches",
+   "table": "event_branches"
+  },
+  {
+   "columns": [
+    "event_id"
+   ],
+   "name": "event_branches_event_id_fkey",
+   "refColumns": [
+    "id"
+   ],
+   "refTable": "special_events",
+   "table": "event_branches"
+  },
+  {
+   "columns": [
+    "branch_id"
+   ],
+   "name": "event_notifications_branch_id_fkey",
+   "refColumns": [
+    "id"
+   ],
+   "refTable": "branches",
+   "table": "event_notifications"
+  },
+  {
+   "columns": [
+    "event_id"
+   ],
+   "name": "event_notifications_event_id_fkey",
+   "refColumns": [
+    "id"
+   ],
+   "refTable": "special_events",
+   "table": "event_notifications"
+  },
+  {
+   "columns": [
+    "in_app_notification_id"
+   ],
+   "name": "event_notifications_in_app_notification_id_fkey",
+   "refColumns": [
+    "id"
+   ],
+   "refTable": "notifications",
+   "table": "event_notifications"
+  },
+  {
+   "columns": [
+    "event_id"
+   ],
+   "name": "event_production_status_event_id_fkey",
+   "refColumns": [
+    "id"
+   ],
+   "refTable": "special_events",
+   "table": "event_production_status"
+  },
+  {
+   "columns": [
+    "updated_by"
+   ],
+   "name": "event_production_status_updated_by_fkey",
+   "refColumns": [
+    "id"
+   ],
+   "refTable": "users",
+   "table": "event_production_status"
+  },
+  {
+   "columns": [
+    "branch_id"
+   ],
+   "name": "expenses_branch_id_fkey",
+   "refColumns": [
+    "id"
+   ],
+   "refTable": "branches",
+   "table": "expenses"
+  },
+  {
+   "columns": [
+    "created_by"
+   ],
+   "name": "expenses_created_by_fkey",
+   "refColumns": [
+    "id"
+   ],
+   "refTable": "users",
+   "table": "expenses"
+  },
+  {
+   "columns": [
+    "admin_id"
+   ],
+   "name": "finance_amendments_admin_id_fkey",
+   "refColumns": [
+    "id"
+   ],
+   "refTable": "users",
+   "table": "finance_amendments"
+  },
+  {
+   "columns": [
+    "ticket_id"
+   ],
+   "name": "finance_amendments_ticket_id_fkey",
+   "refColumns": [
+    "id"
+   ],
+   "refTable": "finance_tickets",
+   "table": "finance_amendments"
+  },
+  {
+   "columns": [
+    "actor_id"
+   ],
+   "name": "finance_audit_logs_actor_id_fkey",
+   "refColumns": [
+    "id"
+   ],
+   "refTable": "users",
+   "table": "finance_audit_logs"
+  },
+  {
+   "columns": [
+    "closed_by"
+   ],
+   "name": "finance_day_closings_closed_by_fkey",
+   "refColumns": [
+    "id"
+   ],
+   "refTable": "users",
+   "table": "finance_day_closings"
+  },
+  {
+   "columns": [
+    "branch_id"
+   ],
+   "name": "finance_employees_branch_id_fkey",
+   "refColumns": [
+    "id"
+   ],
+   "refTable": "branches",
+   "table": "finance_employees"
+  },
+  {
+   "columns": [
+    "approved_by"
+   ],
+   "name": "finance_income_approvals_approved_by_fkey",
+   "refColumns": [
+    "id"
+   ],
+   "refTable": "users",
+   "table": "finance_income_approvals"
+  },
+  {
+   "columns": [
+    "branch_id"
+   ],
+   "name": "finance_income_approvals_branch_id_fkey",
+   "refColumns": [
+    "id"
+   ],
+   "refTable": "branches",
+   "table": "finance_income_approvals"
+  },
+  {
+   "columns": [
+    "deleted_by"
+   ],
+   "name": "finance_income_approvals_deleted_by_fkey",
+   "refColumns": [
+    "id"
+   ],
+   "refTable": "users",
+   "table": "finance_income_approvals"
+  },
+  {
+   "columns": [
+    "verified_by"
+   ],
+   "name": "finance_income_approvals_verified_by_fkey",
+   "refColumns": [
+    "id"
+   ],
+   "refTable": "users",
+   "table": "finance_income_approvals"
+  },
+  {
+   "columns": [
+    "branch_id"
+   ],
+   "name": "finance_queries_branch_id_fkey",
+   "refColumns": [
+    "id"
+   ],
+   "refTable": "branches",
+   "table": "finance_queries"
+  },
+  {
+   "columns": [
+    "created_by"
+   ],
+   "name": "finance_queries_created_by_fkey",
+   "refColumns": [
+    "id"
+   ],
+   "refTable": "users",
+   "table": "finance_queries"
+  },
+  {
+   "columns": [
+    "updated_by"
+   ],
+   "name": "finance_queries_updated_by_fkey",
+   "refColumns": [
+    "id"
+   ],
+   "refTable": "users",
+   "table": "finance_queries"
+  },
+  {
+   "columns": [
+    "author_id"
+   ],
+   "name": "finance_ticket_messages_author_id_fkey",
+   "refColumns": [
+    "id"
+   ],
+   "refTable": "users",
+   "table": "finance_ticket_messages"
+  },
+  {
+   "columns": [
+    "ticket_id"
+   ],
+   "name": "finance_ticket_messages_ticket_id_fkey",
+   "refColumns": [
+    "id"
+   ],
+   "refTable": "finance_tickets",
+   "table": "finance_ticket_messages"
+  },
+  {
+   "columns": [
+    "changed_by"
+   ],
+   "name": "finance_ticket_versions_changed_by_fkey",
+   "refColumns": [
+    "id"
+   ],
+   "refTable": "users",
+   "table": "finance_ticket_versions"
+  },
+  {
+   "columns": [
+    "ticket_id"
+   ],
+   "name": "finance_ticket_versions_ticket_id_fkey",
+   "refColumns": [
+    "id"
+   ],
+   "refTable": "finance_tickets",
+   "table": "finance_ticket_versions"
+  },
+  {
+   "columns": [
+    "amended_by"
+   ],
+   "name": "finance_tickets_amended_by_fkey",
+   "refColumns": [
+    "id"
+   ],
+   "refTable": "users",
+   "table": "finance_tickets"
+  },
+  {
+   "columns": [
+    "assigned_to"
+   ],
+   "name": "finance_tickets_assigned_to_fkey",
+   "refColumns": [
+    "id"
+   ],
+   "refTable": "users",
+   "table": "finance_tickets"
+  },
+  {
+   "columns": [
+    "branch_id"
+   ],
+   "name": "finance_tickets_branch_id_fkey",
+   "refColumns": [
+    "id"
+   ],
+   "refTable": "branches",
+   "table": "finance_tickets"
+  },
+  {
+   "columns": [
+    "deleted_by"
+   ],
+   "name": "finance_tickets_deleted_by_fkey",
+   "refColumns": [
+    "id"
+   ],
+   "refTable": "users",
+   "table": "finance_tickets"
+  },
+  {
+   "columns": [
+    "raised_by"
+   ],
+   "name": "finance_tickets_raised_by_fkey",
+   "refColumns": [
+    "id"
+   ],
+   "refTable": "users",
+   "table": "finance_tickets"
+  },
+  {
+   "columns": [
+    "recreated_as_id"
+   ],
+   "name": "finance_tickets_recreated_as_id_fkey",
+   "refColumns": [
+    "id"
+   ],
+   "refTable": "finance_tickets",
+   "table": "finance_tickets"
+  },
+  {
+   "columns": [
+    "recreated_from_id"
+   ],
+   "name": "finance_tickets_recreated_from_id_fkey",
+   "refColumns": [
+    "id"
+   ],
+   "refTable": "finance_tickets",
+   "table": "finance_tickets"
+  },
+  {
+   "columns": [
+    "reopened_by"
+   ],
+   "name": "finance_tickets_reopened_by_fkey",
+   "refColumns": [
+    "id"
+   ],
+   "refTable": "users",
+   "table": "finance_tickets"
+  },
+  {
+   "columns": [
+    "resolved_by"
+   ],
+   "name": "finance_tickets_resolved_by_fkey",
+   "refColumns": [
+    "id"
+   ],
+   "refTable": "users",
+   "table": "finance_tickets"
+  },
+  {
+   "columns": [
+    "responded_by"
+   ],
+   "name": "finance_tickets_responded_by_fkey",
+   "refColumns": [
+    "id"
+   ],
+   "refTable": "users",
+   "table": "finance_tickets"
+  },
+  {
+   "columns": [
+    "restored_by"
+   ],
+   "name": "finance_tickets_restored_by_fkey",
+   "refColumns": [
+    "id"
+   ],
+   "refTable": "users",
+   "table": "finance_tickets"
+  },
+  {
+   "columns": [
+    "approved_by"
+   ],
+   "name": "finance_transactions_approved_by_fkey",
+   "refColumns": [
+    "id"
+   ],
+   "refTable": "users",
+   "table": "finance_transactions"
+  },
+  {
+   "columns": [
+    "branch_id"
+   ],
+   "name": "finance_transactions_branch_id_fkey",
+   "refColumns": [
+    "id"
+   ],
+   "refTable": "branches",
+   "table": "finance_transactions"
+  },
+  {
+   "columns": [
+    "created_by"
+   ],
+   "name": "finance_transactions_created_by_fkey",
+   "refColumns": [
+    "id"
+   ],
+   "refTable": "users",
+   "table": "finance_transactions"
+  },
+  {
+   "columns": [
+    "deleted_by"
+   ],
+   "name": "finance_transactions_deleted_by_fkey",
+   "refColumns": [
+    "id"
+   ],
+   "refTable": "users",
+   "table": "finance_transactions"
+  },
+  {
+   "columns": [
+    "ledger_entry_id"
+   ],
+   "name": "finance_transactions_ledger_entry_id_fkey",
+   "refColumns": [
+    "id"
+   ],
+   "refTable": "ledger_entries",
+   "table": "finance_transactions"
+  },
+  {
+   "columns": [
+    "ledger_head_id"
+   ],
+   "name": "finance_transactions_ledger_head_id_fkey",
+   "refColumns": [
+    "id"
+   ],
+   "refTable": "ledger_heads",
+   "table": "finance_transactions"
+  },
+  {
+   "columns": [
+    "branch_id"
+   ],
+   "name": "geofence_logs_branch_id_fkey",
+   "refColumns": [
+    "id"
+   ],
+   "refTable": "branches",
+   "table": "geofence_logs"
+  },
+  {
+   "columns": [
+    "user_id"
+   ],
+   "name": "geofence_logs_user_id_fkey",
+   "refColumns": [
+    "id"
+   ],
+   "refTable": "users",
+   "table": "geofence_logs"
+  },
+  {
+   "columns": [
+    "approved_by"
+   ],
+   "name": "ledger_entries_approved_by_fkey",
+   "refColumns": [
+    "id"
+   ],
+   "refTable": "users",
+   "table": "ledger_entries"
+  },
+  {
+   "columns": [
+    "branch_id"
+   ],
+   "name": "ledger_entries_branch_id_fkey",
+   "refColumns": [
+    "id"
+   ],
+   "refTable": "branches",
+   "table": "ledger_entries"
+  },
+  {
+   "columns": [
+    "created_by"
+   ],
+   "name": "ledger_entries_created_by_fkey",
+   "refColumns": [
+    "id"
+   ],
+   "refTable": "users",
+   "table": "ledger_entries"
+  },
+  {
+   "columns": [
+    "deleted_by"
+   ],
+   "name": "ledger_entries_deleted_by_fkey",
+   "refColumns": [
+    "id"
+   ],
+   "refTable": "users",
+   "table": "ledger_entries"
+  },
+  {
+   "columns": [
+    "ledger_head_id"
+   ],
+   "name": "ledger_entries_ledger_head_id_fkey",
+   "refColumns": [
+    "id"
+   ],
+   "refTable": "ledger_heads",
+   "table": "ledger_entries"
+  },
+  {
+   "columns": [
+    "reversed_by_entry_id"
+   ],
+   "name": "ledger_entries_reversed_by_entry_id_fkey",
+   "refColumns": [
+    "id"
+   ],
+   "refTable": "ledger_entries",
+   "table": "ledger_entries"
+  },
+  {
+   "columns": [
+    "reverses_entry_id"
+   ],
+   "name": "ledger_entries_reverses_entry_id_fkey",
+   "refColumns": [
+    "id"
+   ],
+   "refTable": "ledger_entries",
+   "table": "ledger_entries"
+  },
+  {
+   "columns": [
+    "updated_by"
+   ],
+   "name": "ledger_entries_updated_by_fkey",
+   "refColumns": [
+    "id"
+   ],
+   "refTable": "users",
+   "table": "ledger_entries"
+  },
+  {
+   "columns": [
+    "created_by"
+   ],
+   "name": "ledger_heads_created_by_fkey",
+   "refColumns": [
+    "id"
+   ],
+   "refTable": "users",
+   "table": "ledger_heads"
+  },
+  {
+   "columns": [
+    "branch_id"
+   ],
+   "name": "login_sessions_branch_id_fkey",
+   "refColumns": [
+    "id"
+   ],
+   "refTable": "branches",
+   "table": "login_sessions"
+  },
+  {
+   "columns": [
+    "revoked_by"
+   ],
+   "name": "login_sessions_revoked_by_fkey",
+   "refColumns": [
+    "id"
+   ],
+   "refTable": "users",
+   "table": "login_sessions"
+  },
+  {
+   "columns": [
+    "user_id"
+   ],
+   "name": "login_sessions_user_id_fkey",
+   "refColumns": [
+    "id"
+   ],
+   "refTable": "users",
+   "table": "login_sessions"
+  },
+  {
+   "columns": [
+    "event_notification_id"
+   ],
+   "name": "notification_logs_event_notification_id_fkey",
+   "refColumns": [
+    "id"
+   ],
+   "refTable": "event_notifications",
+   "table": "notification_logs"
+  },
+  {
+   "columns": [
+    "order_id"
+   ],
+   "name": "notification_logs_order_id_fkey",
+   "refColumns": [
+    "id"
+   ],
+   "refTable": "orders",
+   "table": "notification_logs"
+  },
+  {
+   "columns": [
+    "recipient_id"
+   ],
+   "name": "notification_logs_recipient_id_fkey",
+   "refColumns": [
+    "id"
+   ],
+   "refTable": "notification_recipients",
+   "table": "notification_logs"
+  },
+  {
+   "columns": [
+    "report_id"
+   ],
+   "name": "notification_logs_report_id_fkey",
+   "refColumns": [
+    "id"
+   ],
+   "refTable": "daily_closing_reports",
+   "table": "notification_logs"
+  },
+  {
+   "columns": [
+    "notification_id"
+   ],
+   "name": "notification_reads_notification_id_fkey",
+   "refColumns": [
+    "id"
+   ],
+   "refTable": "notifications",
+   "table": "notification_reads"
+  },
+  {
+   "columns": [
+    "user_id"
+   ],
+   "name": "notification_reads_user_id_fkey",
+   "refColumns": [
+    "id"
+   ],
+   "refTable": "users",
+   "table": "notification_reads"
+  },
+  {
+   "columns": [
+    "branch_id"
+   ],
+   "name": "notification_recipients_branch_id_fkey",
+   "refColumns": [
+    "id"
+   ],
+   "refTable": "branches",
+   "table": "notification_recipients"
+  },
+  {
+   "columns": [
+    "branch_id"
+   ],
+   "name": "notifications_branch_id_fkey",
+   "refColumns": [
+    "id"
+   ],
+   "refTable": "branches",
+   "table": "notifications"
+  },
+  {
+   "columns": [
+    "target_user_id"
+   ],
+   "name": "notifications_target_user_id_fkey",
+   "refColumns": [
+    "id"
+   ],
+   "refTable": "users",
+   "table": "notifications"
+  },
+  {
+   "columns": [
+    "category_id"
+   ],
+   "name": "order_items_category_id_fkey",
+   "refColumns": [
+    "id"
+   ],
+   "refTable": "categories",
+   "table": "order_items"
+  },
+  {
+   "columns": [
+    "order_id"
+   ],
+   "name": "order_items_order_id_fkey",
+   "refColumns": [
+    "id"
+   ],
+   "refTable": "orders",
+   "table": "order_items"
+  },
+  {
+   "columns": [
+    "product_id"
+   ],
+   "name": "order_items_product_id_fkey",
+   "refColumns": [
+    "id"
+   ],
+   "refTable": "products",
+   "table": "order_items"
+  },
+  {
+   "columns": [
+    "branch_id"
+   ],
+   "name": "orders_branch_id_fkey",
+   "refColumns": [
+    "id"
+   ],
+   "refTable": "branches",
+   "table": "orders"
+  },
+  {
+   "columns": [
+    "created_by"
+   ],
+   "name": "orders_created_by_fkey",
+   "refColumns": [
+    "id"
+   ],
+   "refTable": "users",
+   "table": "orders"
+  },
+  {
+   "columns": [
+    "customer_id"
+   ],
+   "name": "orders_customer_id_fkey",
+   "refColumns": [
+    "id"
+   ],
+   "refTable": "customers",
+   "table": "orders"
+  },
+  {
+   "columns": [
+    "created_by"
+   ],
+   "name": "packing_materials_created_by_fkey",
+   "refColumns": [
+    "id"
+   ],
+   "refTable": "users",
+   "table": "packing_materials"
+  },
+  {
+   "columns": [
+    "approved_by"
+   ],
+   "name": "partner_expenses_approved_by_fkey",
+   "refColumns": [
+    "id"
+   ],
+   "refTable": "users",
+   "table": "partner_expenses"
+  },
+  {
+   "columns": [
+    "deleted_by"
+   ],
+   "name": "partner_expenses_deleted_by_fkey",
+   "refColumns": [
+    "id"
+   ],
+   "refTable": "users",
+   "table": "partner_expenses"
+  },
+  {
+   "columns": [
+    "ledger_entry_id"
+   ],
+   "name": "partner_expenses_ledger_entry_id_fkey",
+   "refColumns": [
+    "id"
+   ],
+   "refTable": "ledger_entries",
+   "table": "partner_expenses"
+  },
+  {
+   "columns": [
+    "ledger_head_id"
+   ],
+   "name": "partner_expenses_ledger_head_id_fkey",
+   "refColumns": [
+    "id"
+   ],
+   "refTable": "ledger_heads",
+   "table": "partner_expenses"
+  },
+  {
+   "columns": [
+    "partner_id"
+   ],
+   "name": "partner_expenses_partner_id_fkey",
+   "refColumns": [
+    "id"
+   ],
+   "refTable": "finance_partners",
+   "table": "partner_expenses"
+  },
+  {
+   "columns": [
+    "requested_by"
+   ],
+   "name": "partner_expenses_requested_by_fkey",
+   "refColumns": [
+    "id"
+   ],
+   "refTable": "users",
+   "table": "partner_expenses"
+  },
+  {
+   "columns": [
+    "user_id"
+   ],
+   "name": "password_reset_tokens_user_id_fkey",
+   "refColumns": [
+    "id"
+   ],
+   "refTable": "users",
+   "table": "password_reset_tokens"
+  },
+  {
+   "columns": [
+    "branch_id"
+   ],
+   "name": "payment_method_settings_branch_id_fkey",
+   "refColumns": [
+    "id"
+   ],
+   "refTable": "branches",
+   "table": "payment_method_settings"
+  },
+  {
+   "columns": [
+    "updated_by"
+   ],
+   "name": "payment_method_settings_updated_by_fkey",
+   "refColumns": [
+    "id"
+   ],
+   "refTable": "users",
+   "table": "payment_method_settings"
+  },
+  {
+   "columns": [
+    "changed_by"
+   ],
+   "name": "product_price_history_changed_by_fkey",
+   "refColumns": [
+    "id"
+   ],
+   "refTable": "users",
+   "table": "product_price_history"
+  },
+  {
+   "columns": [
+    "product_id"
+   ],
+   "name": "product_price_history_product_id_fkey",
+   "refColumns": [
+    "id"
+   ],
+   "refTable": "products",
+   "table": "product_price_history"
+  },
+  {
+   "columns": [
+    "branch_id"
+   ],
+   "name": "production_balances_branch_id_fkey",
+   "refColumns": [
+    "id"
+   ],
+   "refTable": "branches",
+   "table": "production_balances"
+  },
+  {
+   "columns": [
+    "product_id"
+   ],
+   "name": "production_balances_product_id_fkey",
+   "refColumns": [
+    "id"
+   ],
+   "refTable": "products",
+   "table": "production_balances"
+  },
+  {
+   "columns": [
+    "product_id"
+   ],
+   "name": "production_order_items_product_id_fkey",
+   "refColumns": [
+    "id"
+   ],
+   "refTable": "products",
+   "table": "production_order_items"
+  },
+  {
+   "columns": [
+    "production_order_id"
+   ],
+   "name": "production_order_items_production_order_id_fkey",
+   "refColumns": [
+    "id"
+   ],
+   "refTable": "production_orders",
+   "table": "production_order_items"
+  },
+  {
+   "columns": [
+    "packing_material_id"
+   ],
+   "name": "production_order_packing_items_packing_material_id_fkey",
+   "refColumns": [
+    "id"
+   ],
+   "refTable": "packing_materials",
+   "table": "production_order_packing_items"
+  },
+  {
+   "columns": [
+    "production_order_id"
+   ],
+   "name": "production_order_packing_items_production_order_id_fkey",
+   "refColumns": [
+    "id"
+   ],
+   "refTable": "production_orders",
+   "table": "production_order_packing_items"
+  },
+  {
+   "columns": [
+    "approved_by"
+   ],
+   "name": "production_orders_approved_by_fkey",
+   "refColumns": [
+    "id"
+   ],
+   "refTable": "users",
+   "table": "production_orders"
+  },
+  {
+   "columns": [
+    "branch_id"
+   ],
+   "name": "production_orders_branch_id_fkey",
+   "refColumns": [
+    "id"
+   ],
+   "refTable": "branches",
+   "table": "production_orders"
+  },
+  {
+   "columns": [
+    "cancelled_by"
+   ],
+   "name": "production_orders_cancelled_by_fkey",
+   "refColumns": [
+    "id"
+   ],
+   "refTable": "users",
+   "table": "production_orders"
+  },
+  {
+   "columns": [
+    "created_by"
+   ],
+   "name": "production_orders_created_by_fkey",
+   "refColumns": [
+    "id"
+   ],
+   "refTable": "users",
+   "table": "production_orders"
+  },
+  {
+   "columns": [
+    "verified_by"
+   ],
+   "name": "production_orders_verified_by_fkey",
+   "refColumns": [
+    "id"
+   ],
+   "refTable": "users",
+   "table": "production_orders"
+  },
+  {
+   "columns": [
+    "branch_id"
+   ],
+   "name": "production_returns_branch_id_fkey",
+   "refColumns": [
+    "id"
+   ],
+   "refTable": "branches",
+   "table": "production_returns"
+  },
+  {
+   "columns": [
+    "created_by"
+   ],
+   "name": "production_returns_created_by_fkey",
+   "refColumns": [
+    "id"
+   ],
+   "refTable": "users",
+   "table": "production_returns"
+  },
+  {
+   "columns": [
+    "photo_attachment_id"
+   ],
+   "name": "production_returns_photo_attachment_id_fkey",
+   "refColumns": [
+    "id"
+   ],
+   "refTable": "attachments",
+   "table": "production_returns"
+  },
+  {
+   "columns": [
+    "product_id"
+   ],
+   "name": "production_returns_product_id_fkey",
+   "refColumns": [
+    "id"
+   ],
+   "refTable": "products",
+   "table": "production_returns"
+  },
+  {
+   "columns": [
+    "reviewed_by"
+   ],
+   "name": "production_returns_reviewed_by_fkey",
+   "refColumns": [
+    "id"
+   ],
+   "refTable": "users",
+   "table": "production_returns"
+  },
+  {
+   "columns": [
+    "product_id"
+   ],
+   "name": "production_stock_product_id_fkey",
+   "refColumns": [
+    "id"
+   ],
+   "refTable": "products",
+   "table": "production_stock"
+  },
+  {
+   "columns": [
+    "branch_id"
+   ],
+   "name": "production_stock_history_branch_id_fkey",
+   "refColumns": [
+    "id"
+   ],
+   "refTable": "branches",
+   "table": "production_stock_history"
+  },
+  {
+   "columns": [
+    "created_by"
+   ],
+   "name": "production_stock_history_created_by_fkey",
+   "refColumns": [
+    "id"
+   ],
+   "refTable": "users",
+   "table": "production_stock_history"
+  },
+  {
+   "columns": [
+    "product_id"
+   ],
+   "name": "production_stock_history_product_id_fkey",
+   "refColumns": [
+    "id"
+   ],
+   "refTable": "products",
+   "table": "production_stock_history"
+  },
+  {
+   "columns": [
+    "production_order_id"
+   ],
+   "name": "production_stock_history_production_order_id_fkey",
+   "refColumns": [
+    "id"
+   ],
+   "refTable": "production_orders",
+   "table": "production_stock_history"
+  },
+  {
+   "columns": [
+    "category_id"
+   ],
+   "name": "products_category_id_fkey",
+   "refColumns": [
+    "id"
+   ],
+   "refTable": "categories",
+   "table": "products"
+  },
+  {
+   "columns": [
+    "user_id"
+   ],
+   "name": "push_subscriptions_user_id_fkey",
+   "refColumns": [
+    "id"
+   ],
+   "refTable": "users",
+   "table": "push_subscriptions"
+  },
+  {
+   "columns": [
+    "branch_id"
+   ],
+   "name": "restriction_events_branch_id_fkey",
+   "refColumns": [
+    "id"
+   ],
+   "refTable": "branches",
+   "table": "restriction_events"
+  },
+  {
+   "columns": [
+    "user_id"
+   ],
+   "name": "restriction_events_user_id_fkey",
+   "refColumns": [
+    "id"
+   ],
+   "refTable": "users",
+   "table": "restriction_events"
+  },
+  {
+   "columns": [
+    "branch_id"
+   ],
+   "name": "restriction_requests_branch_id_fkey",
+   "refColumns": [
+    "id"
+   ],
+   "refTable": "branches",
+   "table": "restriction_requests"
+  },
+  {
+   "columns": [
+    "decided_by"
+   ],
+   "name": "restriction_requests_decided_by_fkey",
+   "refColumns": [
+    "id"
+   ],
+   "refTable": "users",
+   "table": "restriction_requests"
+  },
+  {
+   "columns": [
+    "requested_by"
+   ],
+   "name": "restriction_requests_requested_by_fkey",
+   "refColumns": [
+    "id"
+   ],
+   "refTable": "users",
+   "table": "restriction_requests"
+  },
+  {
+   "columns": [
+    "updated_by"
+   ],
+   "name": "restriction_rules_updated_by_fkey",
+   "refColumns": [
+    "id"
+   ],
+   "refTable": "users",
+   "table": "restriction_rules"
+  },
+  {
+   "columns": [
+    "product_id"
+   ],
+   "name": "return_stock_product_id_fkey",
+   "refColumns": [
+    "id"
+   ],
+   "refTable": "products",
+   "table": "return_stock"
+  },
+  {
+   "columns": [
+    "branch_id"
+   ],
+   "name": "return_stock_history_branch_id_fkey",
+   "refColumns": [
+    "id"
+   ],
+   "refTable": "branches",
+   "table": "return_stock_history"
+  },
+  {
+   "columns": [
+    "created_by"
+   ],
+   "name": "return_stock_history_created_by_fkey",
+   "refColumns": [
+    "id"
+   ],
+   "refTable": "users",
+   "table": "return_stock_history"
+  },
+  {
+   "columns": [
+    "product_id"
+   ],
+   "name": "return_stock_history_product_id_fkey",
+   "refColumns": [
+    "id"
+   ],
+   "refTable": "products",
+   "table": "return_stock_history"
+  },
+  {
+   "columns": [
+    "production_return_id"
+   ],
+   "name": "return_stock_history_production_return_id_fkey",
+   "refColumns": [
+    "id"
+   ],
+   "refTable": "production_returns",
+   "table": "return_stock_history"
+  },
+  {
+   "columns": [
+    "approved_by"
+   ],
+   "name": "salary_payments_approved_by_fkey",
+   "refColumns": [
+    "id"
+   ],
+   "refTable": "users",
+   "table": "salary_payments"
+  },
+  {
+   "columns": [
+    "created_by"
+   ],
+   "name": "salary_payments_created_by_fkey",
+   "refColumns": [
+    "id"
+   ],
+   "refTable": "users",
+   "table": "salary_payments"
+  },
+  {
+   "columns": [
+    "deleted_by"
+   ],
+   "name": "salary_payments_deleted_by_fkey",
+   "refColumns": [
+    "id"
+   ],
+   "refTable": "users",
+   "table": "salary_payments"
+  },
+  {
+   "columns": [
+    "employee_id"
+   ],
+   "name": "salary_payments_employee_id_fkey",
+   "refColumns": [
+    "id"
+   ],
+   "refTable": "finance_employees",
+   "table": "salary_payments"
+  },
+  {
+   "columns": [
+    "ledger_entry_id"
+   ],
+   "name": "salary_payments_ledger_entry_id_fkey",
+   "refColumns": [
+    "id"
+   ],
+   "refTable": "ledger_entries",
+   "table": "salary_payments"
+  },
+  {
+   "columns": [
+    "changed_by"
+   ],
+   "name": "salary_revisions_changed_by_fkey",
+   "refColumns": [
+    "id"
+   ],
+   "refTable": "users",
+   "table": "salary_revisions"
+  },
+  {
+   "columns": [
+    "employee_id"
+   ],
+   "name": "salary_revisions_employee_id_fkey",
+   "refColumns": [
+    "id"
+   ],
+   "refTable": "finance_employees",
+   "table": "salary_revisions"
+  },
+  {
+   "columns": [
+    "updated_by"
+   ],
+   "name": "settings_updated_by_fkey",
+   "refColumns": [
+    "id"
+   ],
+   "refTable": "users",
+   "table": "settings"
+  },
+  {
+   "columns": [
+    "created_by"
+   ],
+   "name": "special_events_created_by_fkey",
+   "refColumns": [
+    "id"
+   ],
+   "refTable": "users",
+   "table": "special_events"
+  },
+  {
+   "columns": [
+    "product_id"
+   ],
+   "name": "special_order_items_product_id_fkey",
+   "refColumns": [
+    "id"
+   ],
+   "refTable": "products",
+   "table": "special_order_items"
+  },
+  {
+   "columns": [
+    "special_order_id"
+   ],
+   "name": "special_order_items_special_order_id_fkey",
+   "refColumns": [
+    "id"
+   ],
+   "refTable": "special_orders",
+   "table": "special_order_items"
+  },
+  {
+   "columns": [
+    "stock_movement_id"
+   ],
+   "name": "special_order_items_stock_movement_id_fkey",
+   "refColumns": [
+    "id"
+   ],
+   "refTable": "production_stock_history",
+   "table": "special_order_items"
+  },
+  {
+   "columns": [
+    "approved_by"
+   ],
+   "name": "special_orders_approved_by_fkey",
+   "refColumns": [
+    "id"
+   ],
+   "refTable": "users",
+   "table": "special_orders"
+  },
+  {
+   "columns": [
+    "branch_id"
+   ],
+   "name": "special_orders_branch_id_fkey",
+   "refColumns": [
+    "id"
+   ],
+   "refTable": "branches",
+   "table": "special_orders"
+  },
+  {
+   "columns": [
+    "created_by"
+   ],
+   "name": "special_orders_created_by_fkey",
+   "refColumns": [
+    "id"
+   ],
+   "refTable": "users",
+   "table": "special_orders"
+  },
+  {
+   "columns": [
+    "prepared_by"
+   ],
+   "name": "special_orders_prepared_by_fkey",
+   "refColumns": [
+    "id"
+   ],
+   "refTable": "users",
+   "table": "special_orders"
+  },
+  {
+   "columns": [
+    "verified_by"
+   ],
+   "name": "special_orders_verified_by_fkey",
+   "refColumns": [
+    "id"
+   ],
+   "refTable": "users",
+   "table": "special_orders"
+  },
+  {
+   "columns": [
+    "branch_id"
+   ],
+   "name": "stock_branch_id_fkey",
+   "refColumns": [
+    "id"
+   ],
+   "refTable": "branches",
+   "table": "stock"
+  },
+  {
+   "columns": [
+    "product_id"
+   ],
+   "name": "stock_product_id_fkey",
+   "refColumns": [
+    "id"
+   ],
+   "refTable": "products",
+   "table": "stock"
+  },
+  {
+   "columns": [
+    "branch_id"
+   ],
+   "name": "stock_audit_log_branch_id_fkey",
+   "refColumns": [
+    "id"
+   ],
+   "refTable": "branches",
+   "table": "stock_audit_log"
+  },
+  {
+   "columns": [
+    "product_id"
+   ],
+   "name": "stock_audit_log_product_id_fkey",
+   "refColumns": [
+    "id"
+   ],
+   "refTable": "products",
+   "table": "stock_audit_log"
+  },
+  {
+   "columns": [
+    "user_id"
+   ],
+   "name": "stock_audit_log_user_id_fkey",
+   "refColumns": [
+    "id"
+   ],
+   "refTable": "users",
+   "table": "stock_audit_log"
+  },
+  {
+   "columns": [
+    "branch_id"
+   ],
+   "name": "stock_history_branch_id_fkey",
+   "refColumns": [
+    "id"
+   ],
+   "refTable": "branches",
+   "table": "stock_history"
+  },
+  {
+   "columns": [
+    "product_id"
+   ],
+   "name": "stock_history_product_id_fkey",
+   "refColumns": [
+    "id"
+   ],
+   "refTable": "products",
+   "table": "stock_history"
+  },
+  {
+   "columns": [
+    "branch_id"
+   ],
+   "name": "support_tickets_branch_id_fkey",
+   "refColumns": [
+    "id"
+   ],
+   "refTable": "branches",
+   "table": "support_tickets"
+  },
+  {
+   "columns": [
+    "raised_by"
+   ],
+   "name": "support_tickets_raised_by_fkey",
+   "refColumns": [
+    "id"
+   ],
+   "refTable": "users",
+   "table": "support_tickets"
+  },
+  {
+   "columns": [
+    "resolved_by"
+   ],
+   "name": "support_tickets_resolved_by_fkey",
+   "refColumns": [
+    "id"
+   ],
+   "refTable": "users",
+   "table": "support_tickets"
+  },
+  {
+   "columns": [
+    "user_id"
+   ],
+   "name": "user_credentials_user_id_fkey",
+   "refColumns": [
+    "id"
+   ],
+   "refTable": "users",
+   "table": "user_credentials"
+  },
+  {
+   "columns": [
+    "branch_id"
+   ],
+   "name": "users_branch_id_fkey",
+   "refColumns": [
+    "id"
+   ],
+   "refTable": "branches",
+   "table": "users"
+  },
+  {
+   "columns": [
+    "password_reset_by"
+   ],
+   "name": "users_password_reset_by_fkey",
+   "refColumns": [
+    "id"
+   ],
+   "refTable": "users",
+   "table": "users"
+  }
+ ],
+ "functions": {
+  "accept_production_return": [
+   {
+    "args": [
+     {
+      "hasDefault": false,
+      "name": "p_return_id",
+      "type": "uuid"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_disposition",
+      "type": "public.production_return_disposition"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_disposition_note",
+      "type": "text"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_reviewed_by",
+      "type": "uuid"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_reviewed_by_name",
+      "type": "text"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_business_date",
+      "type": "date"
+     }
+    ],
+    "name": "accept_production_return",
+    "returnType": "jsonb",
+    "returns": "scalar",
+    "returnsSet": false,
+    "volatility": "v"
+   }
+  ],
+  "activate_due_prices": [
+   {
+    "args": [
+     {
+      "hasDefault": false,
+      "name": "p_today",
+      "type": "date"
+     }
+    ],
+    "name": "activate_due_prices",
+    "returnType": "integer",
+    "returns": "scalar",
+    "returnsSet": false,
+    "volatility": "v"
+   }
+  ],
+  "amend_cash_transfer_date": [
+   {
+    "args": [
+     {
+      "hasDefault": false,
+      "name": "p_transfer_id",
+      "type": "uuid"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_new_date",
+      "type": "date"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_reason",
+      "type": "text"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_actor_id",
+      "type": "uuid"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_actor_name",
+      "type": "text"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_today",
+      "type": "date"
+     },
+     {
+      "hasDefault": true,
+      "name": "p_max_per_day",
+      "type": "integer"
+     }
+    ],
+    "name": "amend_cash_transfer_date",
+    "returnType": "jsonb",
+    "returns": "scalar",
+    "returnsSet": false,
+    "volatility": "v"
+   }
+  ],
+  "amend_daily_sale_record": [
+   {
+    "args": [
+     {
+      "hasDefault": false,
+      "name": "p_id",
+      "type": "uuid"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_field",
+      "type": "text"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_amount",
+      "type": "numeric"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_reason",
+      "type": "text"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_actor_id",
+      "type": "uuid"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_actor_name",
+      "type": "text"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_actor_role",
+      "type": "text"
+     }
+    ],
+    "name": "amend_daily_sale_record",
+    "returnType": "uuid",
+    "returns": "scalar",
+    "returnsSet": false,
+    "volatility": "v"
+   }
+  ],
+  "amend_finance_record": [
+   {
+    "args": [
+     {
+      "hasDefault": false,
+      "name": "p_reference_type",
+      "type": "text"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_reference_id",
+      "type": "uuid"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_field",
+      "type": "text"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_new_value",
+      "type": "text"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_reason",
+      "type": "text"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_actor_id",
+      "type": "uuid"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_actor_name",
+      "type": "text"
+     },
+     {
+      "hasDefault": true,
+      "name": "p_entry_date",
+      "type": "date"
+     }
+    ],
+    "name": "amend_finance_record",
+    "returnType": "jsonb",
+    "returns": "scalar",
+    "returnsSet": false,
+    "volatility": "v"
+   }
+  ],
+  "amend_finance_record_fields": [
+   {
+    "args": [
+     {
+      "hasDefault": false,
+      "name": "p_reference_type",
+      "type": "text"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_reference_id",
+      "type": "uuid"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_edits",
+      "type": "jsonb"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_reason",
+      "type": "text"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_actor_id",
+      "type": "uuid"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_actor_name",
+      "type": "text"
+     },
+     {
+      "hasDefault": true,
+      "name": "p_entry_date",
+      "type": "date"
+     }
+    ],
+    "name": "amend_finance_record_fields",
+    "returnType": "jsonb",
+    "returns": "scalar",
+    "returnsSet": false,
+    "volatility": "v"
+   }
+  ],
+  "apply_price_change": [
+   {
+    "args": [
+     {
+      "hasDefault": false,
+      "name": "p_product_id",
+      "type": "uuid"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_new_price",
+      "type": "numeric"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_effective_date",
+      "type": "date"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_reason",
+      "type": "text"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_source",
+      "type": "public.price_change_source"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_changed_by",
+      "type": "uuid"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_changed_by_name",
+      "type": "text"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_batch_id",
+      "type": "uuid"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_today",
+      "type": "date"
+     }
+    ],
+    "name": "apply_price_change",
+    "returnType": "record",
+    "returns": "composite",
+    "returnsSet": true,
+    "volatility": "v"
+   }
+  ],
+  "apply_production_stock_adjustment": [
+   {
+    "args": [
+     {
+      "hasDefault": false,
+      "name": "p_product_id",
+      "type": "uuid"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_product_name",
+      "type": "text"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_delta",
+      "type": "numeric"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_reason",
+      "type": "text"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_ref_id",
+      "type": "text"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_business_date",
+      "type": "date"
+     },
+     {
+      "hasDefault": true,
+      "name": "p_created_by",
+      "type": "uuid"
+     },
+     {
+      "hasDefault": true,
+      "name": "p_created_by_name",
+      "type": "text"
+     },
+     {
+      "hasDefault": true,
+      "name": "p_remarks",
+      "type": "text"
+     },
+     {
+      "hasDefault": true,
+      "name": "p_metadata",
+      "type": "jsonb"
+     }
+    ],
+    "name": "apply_production_stock_adjustment",
+    "returnType": "jsonb",
+    "returns": "scalar",
+    "returnsSet": false,
+    "volatility": "v"
+   }
+  ],
+  "apply_production_stock_correction": [
+   {
+    "args": [
+     {
+      "hasDefault": false,
+      "name": "p_product_id",
+      "type": "uuid"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_product_name",
+      "type": "text"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_targets",
+      "type": "jsonb"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_ticket_id",
+      "type": "text"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_business_date",
+      "type": "date"
+     }
+    ],
+    "name": "apply_production_stock_correction",
+    "returnType": "jsonb",
+    "returns": "scalar",
+    "returnsSet": false,
+    "volatility": "v"
+   }
+  ],
+  "apply_production_stock_movement": [
+   {
+    "args": [
+     {
+      "hasDefault": false,
+      "name": "p_product_id",
+      "type": "uuid"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_product_name",
+      "type": "text"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_delta",
+      "type": "numeric"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_type",
+      "type": "public.production_stock_movement_type"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_ref_id",
+      "type": "text"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_business_date",
+      "type": "date"
+     },
+     {
+      "hasDefault": true,
+      "name": "p_branch_id",
+      "type": "uuid"
+     },
+     {
+      "hasDefault": true,
+      "name": "p_created_by",
+      "type": "uuid"
+     },
+     {
+      "hasDefault": true,
+      "name": "p_created_by_name",
+      "type": "text"
+     },
+     {
+      "hasDefault": true,
+      "name": "p_reason",
+      "type": "text"
+     },
+     {
+      "hasDefault": true,
+      "name": "p_production_order_id",
+      "type": "uuid"
+     },
+     {
+      "hasDefault": true,
+      "name": "p_remarks",
+      "type": "text"
+     }
+    ],
+    "name": "apply_production_stock_movement",
+    "returnType": "numeric",
+    "returns": "scalar",
+    "returnsSet": false,
+    "volatility": "v"
+   }
+  ],
+  "apply_return_stock_movement": [
+   {
+    "args": [
+     {
+      "hasDefault": false,
+      "name": "p_product_id",
+      "type": "uuid"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_product_name",
+      "type": "text"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_delta",
+      "type": "numeric"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_type",
+      "type": "public.return_stock_movement_type"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_ref_id",
+      "type": "text"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_business_date",
+      "type": "date"
+     },
+     {
+      "hasDefault": true,
+      "name": "p_branch_id",
+      "type": "uuid"
+     },
+     {
+      "hasDefault": true,
+      "name": "p_production_return_id",
+      "type": "uuid"
+     },
+     {
+      "hasDefault": true,
+      "name": "p_created_by",
+      "type": "uuid"
+     },
+     {
+      "hasDefault": true,
+      "name": "p_created_by_name",
+      "type": "text"
+     },
+     {
+      "hasDefault": true,
+      "name": "p_reason",
+      "type": "text"
+     },
+     {
+      "hasDefault": true,
+      "name": "p_remarks",
+      "type": "text"
+     }
+    ],
+    "name": "apply_return_stock_movement",
+    "returnType": "numeric",
+    "returns": "scalar",
+    "returnsSet": false,
+    "volatility": "v"
+   }
+  ],
+  "apply_stock_correction": [
+   {
+    "args": [
+     {
+      "hasDefault": false,
+      "name": "p_branch_id",
+      "type": "uuid"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_product_id",
+      "type": "uuid"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_product_name",
+      "type": "text"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_targets",
+      "type": "jsonb"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_ticket_id",
+      "type": "text"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_business_date",
+      "type": "date"
+     }
+    ],
+    "name": "apply_stock_correction",
+    "returnType": "jsonb",
+    "returns": "scalar",
+    "returnsSet": false,
+    "volatility": "v"
+   }
+  ],
+  "apply_stock_movement": [
+   {
+    "args": [
+     {
+      "hasDefault": false,
+      "name": "p_branch_id",
+      "type": "uuid"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_product_id",
+      "type": "uuid"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_product_name",
+      "type": "text"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_delta",
+      "type": "numeric"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_type",
+      "type": "public.stock_movement_type"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_ref_id",
+      "type": "text"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_business_date",
+      "type": "date"
+     }
+    ],
+    "name": "apply_stock_movement",
+    "returnType": "numeric",
+    "returns": "scalar",
+    "returnsSet": false,
+    "volatility": "v"
+   }
+  ],
+  "approve_cash_transfer": [
+   {
+    "args": [
+     {
+      "hasDefault": false,
+      "name": "p_id",
+      "type": "uuid"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_actor_id",
+      "type": "uuid"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_actor_name",
+      "type": "text"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_today",
+      "type": "date"
+     },
+     {
+      "hasDefault": true,
+      "name": "p_note",
+      "type": "text"
+     }
+    ],
+    "name": "approve_cash_transfer",
+    "returnType": "public.cash_transfers",
+    "returns": "composite",
+    "returnsSet": false,
+    "volatility": "v"
+   }
+  ],
+  "approve_special_order": [
+   {
+    "args": [
+     {
+      "hasDefault": false,
+      "name": "p_order_id",
+      "type": "uuid"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_by",
+      "type": "uuid"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_by_name",
+      "type": "text"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_business_date",
+      "type": "date"
+     }
+    ],
+    "name": "approve_special_order",
+    "returnType": "jsonb",
+    "returns": "scalar",
+    "returnsSet": false,
+    "volatility": "v"
+   }
+  ],
+  "backup_database_info": [
+   {
+    "args": [],
+    "name": "backup_database_info",
+    "returnType": "jsonb",
+    "returns": "scalar",
+    "returnsSet": false,
+    "volatility": "s"
+   }
+  ],
+  "claim_backup_job": [
+   {
+    "args": [
+     {
+      "hasDefault": false,
+      "name": "p_backup_id",
+      "type": "text"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_backup_type",
+      "type": "text"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_trigger",
+      "type": "text"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_triggered_by",
+      "type": "uuid"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_triggered_by_name",
+      "type": "text"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_s3_bucket",
+      "type": "text"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_environment",
+      "type": "text"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_stale_ms",
+      "type": "integer"
+     }
+    ],
+    "name": "claim_backup_job",
+    "returnType": "text",
+    "returns": "scalar",
+    "returnsSet": false,
+    "volatility": "v"
+   }
+  ],
+  "claim_business_day_closure": [
+   {
+    "args": [
+     {
+      "hasDefault": false,
+      "name": "p_business_date",
+      "type": "date"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_trigger",
+      "type": "public.closure_trigger"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_closed_by",
+      "type": "text"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_auto_stock_closing",
+      "type": "boolean"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_stale_ms",
+      "type": "integer"
+     }
+    ],
+    "name": "claim_business_day_closure",
+    "returnType": "text",
+    "returns": "scalar",
+    "returnsSet": false,
+    "volatility": "v"
+   }
+  ],
+  "claim_idempotency_key": [
+   {
+    "args": [
+     {
+      "hasDefault": false,
+      "name": "p_user_id",
+      "type": "uuid"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_key",
+      "type": "text"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_endpoint",
+      "type": "text"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_fingerprint",
+      "type": "text"
+     },
+     {
+      "hasDefault": true,
+      "name": "p_stale_seconds",
+      "type": "integer"
+     }
+    ],
+    "name": "claim_idempotency_key",
+    "returnType": "jsonb",
+    "returns": "scalar",
+    "returnsSet": false,
+    "volatility": "v"
+   }
+  ],
+  "claim_price_activation": [
+   {
+    "args": [
+     {
+      "hasDefault": false,
+      "name": "p_date",
+      "type": "date"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_trigger",
+      "type": "public.closure_trigger"
+     }
+    ],
+    "name": "claim_price_activation",
+    "returnType": "boolean",
+    "returns": "scalar",
+    "returnsSet": false,
+    "volatility": "v"
+   }
+  ],
+  "close_price_activation": [
+   {
+    "args": [
+     {
+      "hasDefault": false,
+      "name": "p_date",
+      "type": "date"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_status",
+      "type": "public.closure_status"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_activated",
+      "type": "integer"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_error",
+      "type": "text"
+     }
+    ],
+    "name": "close_price_activation",
+    "returnType": "void",
+    "returns": "void",
+    "returnsSet": false,
+    "volatility": "v"
+   }
+  ],
+  "commit_branch_return": [
+   {
+    "args": [
+     {
+      "hasDefault": false,
+      "name": "p_branch_id",
+      "type": "uuid"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_product_id",
+      "type": "uuid"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_product_name",
+      "type": "text"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_qty",
+      "type": "numeric"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_ref_id",
+      "type": "text"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_business_date",
+      "type": "date"
+     }
+    ],
+    "name": "commit_branch_return",
+    "returnType": "jsonb",
+    "returns": "scalar",
+    "returnsSet": false,
+    "volatility": "v"
+   }
+  ],
+  "commit_production_sale": [
+   {
+    "args": [
+     {
+      "hasDefault": false,
+      "name": "p_order",
+      "type": "jsonb"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_items",
+      "type": "jsonb"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_branch_id",
+      "type": "uuid"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_business_date",
+      "type": "date"
+     }
+    ],
+    "name": "commit_production_sale",
+    "returnType": "jsonb",
+    "returns": "scalar",
+    "returnsSet": false,
+    "volatility": "v"
+   }
+  ],
+  "commit_sale": [
+   {
+    "args": [
+     {
+      "hasDefault": false,
+      "name": "p_order",
+      "type": "jsonb"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_items",
+      "type": "jsonb"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_branch_id",
+      "type": "uuid"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_business_date",
+      "type": "date"
+     }
+    ],
+    "name": "commit_sale",
+    "returnType": "jsonb",
+    "returns": "scalar",
+    "returnsSet": false,
+    "volatility": "v"
+   }
+  ],
+  "complete_idempotency_key": [
+   {
+    "args": [
+     {
+      "hasDefault": false,
+      "name": "p_user_id",
+      "type": "uuid"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_key",
+      "type": "text"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_status",
+      "type": "integer"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_body",
+      "type": "jsonb"
+     }
+    ],
+    "name": "complete_idempotency_key",
+    "returnType": "void",
+    "returns": "void",
+    "returnsSet": false,
+    "volatility": "v"
+   }
+  ],
+  "correct_finance_record_for_query": [
+   {
+    "args": [
+     {
+      "hasDefault": false,
+      "name": "p_ticket_id",
+      "type": "uuid"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_expected_version",
+      "type": "integer"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_edits",
+      "type": "jsonb"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_reason",
+      "type": "text"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_action",
+      "type": "text"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_resolve",
+      "type": "boolean"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_admin_response",
+      "type": "text"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_labels",
+      "type": "jsonb"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_actor_id",
+      "type": "uuid"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_actor_name",
+      "type": "text"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_actor_role",
+      "type": "text"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_ip_address",
+      "type": "text"
+     },
+     {
+      "hasDefault": true,
+      "name": "p_entry_date",
+      "type": "date"
+     }
+    ],
+    "name": "correct_finance_record_for_query",
+    "returnType": "jsonb",
+    "returns": "scalar",
+    "returnsSet": false,
+    "volatility": "v"
+   }
+  ],
+  "correct_production_order": [
+   {
+    "args": [
+     {
+      "hasDefault": false,
+      "name": "p_order_id",
+      "type": "uuid"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_lines",
+      "type": "jsonb"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_reason",
+      "type": "text"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_actor_name",
+      "type": "text"
+     }
+    ],
+    "name": "correct_production_order",
+    "returnType": "jsonb",
+    "returns": "scalar",
+    "returnsSet": false,
+    "volatility": "v"
+   }
+  ],
+  "create_special_order": [
+   {
+    "args": [
+     {
+      "hasDefault": false,
+      "name": "p_branch_id",
+      "type": "uuid"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_branch_name",
+      "type": "text"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_business_date",
+      "type": "date"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_created_by",
+      "type": "uuid"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_created_by_name",
+      "type": "text"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_items",
+      "type": "jsonb"
+     },
+     {
+      "hasDefault": true,
+      "name": "p_required_date",
+      "type": "date"
+     }
+    ],
+    "name": "create_special_order",
+    "returnType": "jsonb",
+    "returns": "scalar",
+    "returnsSet": false,
+    "volatility": "v"
+   }
+  ],
+  "daily_sale_figures": [
+   {
+    "args": [
+     {
+      "hasDefault": false,
+      "name": "p_from",
+      "type": "date"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_to",
+      "type": "date"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_branch_id",
+      "type": "uuid"
+     }
+    ],
+    "name": "daily_sale_figures",
+    "returnType": "record",
+    "returns": "composite",
+    "returnsSet": true,
+    "volatility": "s"
+   }
+  ],
+  "data_engine_aggregate": [
+   {
+    "args": [
+     {
+      "hasDefault": false,
+      "name": "p_table",
+      "type": "text"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_where",
+      "type": "jsonb"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_metrics",
+      "type": "jsonb"
+     },
+     {
+      "hasDefault": true,
+      "name": "p_group_by",
+      "type": "text[]"
+     }
+    ],
+    "name": "data_engine_aggregate",
+    "returnType": "jsonb",
+    "returns": "scalar",
+    "returnsSet": true,
+    "volatility": "s"
+   }
+  ],
+  "decide_daily_sale_record": [
+   {
+    "args": [
+     {
+      "hasDefault": false,
+      "name": "p_id",
+      "type": "uuid"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_action",
+      "type": "text"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_reason",
+      "type": "text"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_actor_id",
+      "type": "uuid"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_actor_name",
+      "type": "text"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_actor_role",
+      "type": "text"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_is_admin",
+      "type": "boolean"
+     }
+    ],
+    "name": "decide_daily_sale_record",
+    "returnType": "uuid",
+    "returns": "scalar",
+    "returnsSet": false,
+    "volatility": "v"
+   }
+  ],
+  "decide_restriction_request": [
+   {
+    "args": [
+     {
+      "hasDefault": false,
+      "name": "p_id",
+      "type": "uuid"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_decision",
+      "type": "text"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_reason",
+      "type": "text"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_actor_id",
+      "type": "uuid"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_actor_name",
+      "type": "text"
+     }
+    ],
+    "name": "decide_restriction_request",
+    "returnType": "public.restriction_requests",
+    "returns": "composite",
+    "returnsSet": true,
+    "volatility": "v"
+   }
+  ],
+  "delete_finance_ticket_source": [
+   {
+    "args": [
+     {
+      "hasDefault": false,
+      "name": "p_reference_type",
+      "type": "text"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_reference_id",
+      "type": "uuid"
+     }
+    ],
+    "name": "delete_finance_ticket_source",
+    "returnType": "jsonb",
+    "returns": "scalar",
+    "returnsSet": false,
+    "volatility": "v"
+   }
+  ],
+  "delete_production_order": [
+   {
+    "args": [
+     {
+      "hasDefault": false,
+      "name": "p_order_id",
+      "type": "uuid"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_reason",
+      "type": "text"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_ref_id",
+      "type": "text"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_actor_id",
+      "type": "uuid"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_actor_name",
+      "type": "text"
+     }
+    ],
+    "name": "delete_production_order",
+    "returnType": "jsonb",
+    "returns": "scalar",
+    "returnsSet": false,
+    "volatility": "v"
+   }
+  ],
+  "delete_user_account": [
+   {
+    "args": [
+     {
+      "hasDefault": false,
+      "name": "p_user_id",
+      "type": "uuid"
+     }
+    ],
+    "name": "delete_user_account",
+    "returnType": "boolean",
+    "returns": "scalar",
+    "returnsSet": false,
+    "volatility": "v"
+   }
+  ],
+  "edit_finance_ledger_entry": [
+   {
+    "args": [
+     {
+      "hasDefault": false,
+      "name": "p_entry_id",
+      "type": "uuid"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_set",
+      "type": "jsonb"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_expected",
+      "type": "jsonb"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_actor_id",
+      "type": "uuid"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_actor_name",
+      "type": "text"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_today",
+      "type": "date"
+     }
+    ],
+    "name": "edit_finance_ledger_entry",
+    "returnType": "public.ledger_entries",
+    "returns": "composite",
+    "returnsSet": true,
+    "volatility": "v"
+   }
+  ],
+  "edit_sale_items": [
+   {
+    "args": [
+     {
+      "hasDefault": false,
+      "name": "p_order_id",
+      "type": "uuid"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_items",
+      "type": "jsonb"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_business_date",
+      "type": "date"
+     }
+    ],
+    "name": "edit_sale_items",
+    "returnType": "jsonb",
+    "returns": "scalar",
+    "returnsSet": false,
+    "volatility": "v"
+   }
+  ],
+  "ensure_daily_sale_record": [
+   {
+    "args": [
+     {
+      "hasDefault": false,
+      "name": "p_branch_id",
+      "type": "uuid"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_business_date",
+      "type": "date"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_actor_id",
+      "type": "uuid"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_actor_name",
+      "type": "text"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_actor_role",
+      "type": "text"
+     }
+    ],
+    "name": "ensure_daily_sale_record",
+    "returnType": "uuid",
+    "returns": "scalar",
+    "returnsSet": false,
+    "volatility": "v"
+   }
+  ],
+  "feed_daily_sale_record": [
+   {
+    "args": [
+     {
+      "hasDefault": false,
+      "name": "p_branch_id",
+      "type": "uuid"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_business_date",
+      "type": "date"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_cash",
+      "type": "numeric"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_easypaisa",
+      "type": "numeric"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_bank",
+      "type": "numeric"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_actor_id",
+      "type": "uuid"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_actor_name",
+      "type": "text"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_actor_role",
+      "type": "text"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_is_admin",
+      "type": "boolean"
+     }
+    ],
+    "name": "feed_daily_sale_record",
+    "returnType": "uuid",
+    "returns": "scalar",
+    "returnsSet": false,
+    "volatility": "v"
+   }
+  ],
+  "finance_dashboard_records": [
+   {
+    "args": [
+     {
+      "hasDefault": false,
+      "name": "p_metric",
+      "type": "text"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_from",
+      "type": "date"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_to",
+      "type": "date"
+     },
+     {
+      "hasDefault": true,
+      "name": "p_branch_id",
+      "type": "uuid"
+     },
+     {
+      "hasDefault": true,
+      "name": "p_no_branch",
+      "type": "boolean"
+     },
+     {
+      "hasDefault": true,
+      "name": "p_head_id",
+      "type": "uuid"
+     },
+     {
+      "hasDefault": true,
+      "name": "p_search",
+      "type": "text"
+     },
+     {
+      "hasDefault": true,
+      "name": "p_limit",
+      "type": "integer"
+     },
+     {
+      "hasDefault": true,
+      "name": "p_offset",
+      "type": "integer"
+     }
+    ],
+    "name": "finance_dashboard_records",
+    "returnType": "jsonb",
+    "returns": "scalar",
+    "returnsSet": false,
+    "volatility": "s"
+   }
+  ],
+  "finance_day_summary": [
+   {
+    "args": [
+     {
+      "hasDefault": false,
+      "name": "p_business_date",
+      "type": "date"
+     }
+    ],
+    "name": "finance_day_summary",
+    "returnType": "record",
+    "returns": "composite",
+    "returnsSet": true,
+    "volatility": "s"
+   }
+  ],
+  "finance_ledger_totals": [
+   {
+    "args": [
+     {
+      "hasDefault": true,
+      "name": "p_from",
+      "type": "date"
+     },
+     {
+      "hasDefault": true,
+      "name": "p_to",
+      "type": "date"
+     },
+     {
+      "hasDefault": true,
+      "name": "p_branch_id",
+      "type": "uuid"
+     },
+     {
+      "hasDefault": true,
+      "name": "p_ledger_head_id",
+      "type": "uuid"
+     },
+     {
+      "hasDefault": true,
+      "name": "p_type",
+      "type": "public.ledger_head_type"
+     },
+     {
+      "hasDefault": true,
+      "name": "p_account",
+      "type": "public.finance_account"
+     },
+     {
+      "hasDefault": true,
+      "name": "p_status",
+      "type": "public.ledger_entry_status"
+     },
+     {
+      "hasDefault": true,
+      "name": "p_source_type",
+      "type": "public.finance_ledger_source"
+     },
+     {
+      "hasDefault": true,
+      "name": "p_search",
+      "type": "text"
+     },
+     {
+      "hasDefault": true,
+      "name": "p_min_amount",
+      "type": "numeric"
+     },
+     {
+      "hasDefault": true,
+      "name": "p_max_amount",
+      "type": "numeric"
+     }
+    ],
+    "name": "finance_ledger_totals",
+    "returnType": "record",
+    "returns": "composite",
+    "returnsSet": true,
+    "volatility": "s"
+   }
+  ],
+  "finance_monthly_dashboard": [
+   {
+    "args": [
+     {
+      "hasDefault": false,
+      "name": "p_from",
+      "type": "date"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_to",
+      "type": "date"
+     },
+     {
+      "hasDefault": true,
+      "name": "p_branch_id",
+      "type": "uuid"
+     },
+     {
+      "hasDefault": true,
+      "name": "p_include_heads",
+      "type": "boolean"
+     }
+    ],
+    "name": "finance_monthly_dashboard",
+    "returnType": "jsonb",
+    "returns": "scalar",
+    "returnsSet": false,
+    "volatility": "s"
+   }
+  ],
+  "finance_ticket_stats": [
+   {
+    "args": [
+     {
+      "hasDefault": true,
+      "name": "p_raised_by",
+      "type": "uuid"
+     }
+    ],
+    "name": "finance_ticket_stats",
+    "returnType": "jsonb",
+    "returns": "scalar",
+    "returnsSet": false,
+    "volatility": "s"
+   }
+  ],
+  "increment_customer_stats": [
+   {
+    "args": [
+     {
+      "hasDefault": false,
+      "name": "p_customer_id",
+      "type": "uuid"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_amount",
+      "type": "numeric"
+     }
+    ],
+    "name": "increment_customer_stats",
+    "returnType": "void",
+    "returns": "void",
+    "returnsSet": false,
+    "volatility": "v"
+   }
+  ],
+  "list_public_base_tables": [
+   {
+    "args": [],
+    "name": "list_public_base_tables",
+    "returnType": "record",
+    "returns": "composite",
+    "returnsSet": true,
+    "volatility": "s"
+   }
+  ],
+  "next_demand_number": [
+   {
+    "args": [],
+    "name": "next_demand_number",
+    "returnType": "text",
+    "returns": "scalar",
+    "returnsSet": false,
+    "volatility": "v"
+   }
+  ],
+  "next_event_number": [
+   {
+    "args": [],
+    "name": "next_event_number",
+    "returnType": "text",
+    "returns": "scalar",
+    "returnsSet": false,
+    "volatility": "v"
+   }
+  ],
+  "next_expense_number": [
+   {
+    "args": [],
+    "name": "next_expense_number",
+    "returnType": "text",
+    "returns": "scalar",
+    "returnsSet": false,
+    "volatility": "v"
+   }
+  ],
+  "next_finance_query_number": [
+   {
+    "args": [],
+    "name": "next_finance_query_number",
+    "returnType": "text",
+    "returns": "scalar",
+    "returnsSet": false,
+    "volatility": "v"
+   }
+  ],
+  "next_order_number": [
+   {
+    "args": [],
+    "name": "next_order_number",
+    "returnType": "text",
+    "returns": "scalar",
+    "returnsSet": false,
+    "volatility": "v"
+   }
+  ],
+  "next_price_number": [
+   {
+    "args": [],
+    "name": "next_price_number",
+    "returnType": "text",
+    "returns": "scalar",
+    "returnsSet": false,
+    "volatility": "v"
+   }
+  ],
+  "next_special_order_number": [
+   {
+    "args": [],
+    "name": "next_special_order_number",
+    "returnType": "text",
+    "returns": "scalar",
+    "returnsSet": false,
+    "volatility": "v"
+   }
+  ],
+  "next_stock_number": [
+   {
+    "args": [],
+    "name": "next_stock_number",
+    "returnType": "text",
+    "returns": "scalar",
+    "returnsSet": false,
+    "volatility": "v"
+   }
+  ],
+  "next_ticket_number": [
+   {
+    "args": [],
+    "name": "next_ticket_number",
+    "returnType": "text",
+    "returns": "scalar",
+    "returnsSet": false,
+    "volatility": "v"
+   }
+  ],
+  "next_user_number": [
+   {
+    "args": [],
+    "name": "next_user_number",
+    "returnType": "text",
+    "returns": "scalar",
+    "returnsSet": false,
+    "volatility": "v"
+   }
+  ],
+  "post_finance_ledger_entry": [
+   {
+    "args": [
+     {
+      "hasDefault": false,
+      "name": "p_entry_date",
+      "type": "date"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_ledger_head_id",
+      "type": "uuid"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_description",
+      "type": "text"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_debit",
+      "type": "numeric"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_credit",
+      "type": "numeric"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_account",
+      "type": "public.finance_account"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_source_type",
+      "type": "public.finance_ledger_source"
+     },
+     {
+      "hasDefault": true,
+      "name": "p_source_id",
+      "type": "uuid"
+     },
+     {
+      "hasDefault": true,
+      "name": "p_branch_id",
+      "type": "uuid"
+     },
+     {
+      "hasDefault": true,
+      "name": "p_branch_name",
+      "type": "text"
+     },
+     {
+      "hasDefault": true,
+      "name": "p_payment_method",
+      "type": "text"
+     },
+     {
+      "hasDefault": true,
+      "name": "p_approved_by",
+      "type": "uuid"
+     },
+     {
+      "hasDefault": true,
+      "name": "p_approved_by_name",
+      "type": "text"
+     },
+     {
+      "hasDefault": true,
+      "name": "p_created_by",
+      "type": "uuid"
+     },
+     {
+      "hasDefault": true,
+      "name": "p_created_by_name",
+      "type": "text"
+     },
+     {
+      "hasDefault": true,
+      "name": "p_reverses_entry_id",
+      "type": "uuid"
+     }
+    ],
+    "name": "post_finance_ledger_entry",
+    "returnType": "public.ledger_entries",
+    "returns": "composite",
+    "returnsSet": false,
+    "volatility": "v"
+   }
+  ],
+  "prepare_special_order": [
+   {
+    "args": [
+     {
+      "hasDefault": false,
+      "name": "p_order_id",
+      "type": "uuid"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_by",
+      "type": "uuid"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_by_name",
+      "type": "text"
+     },
+     {
+      "hasDefault": true,
+      "name": "p_items",
+      "type": "jsonb"
+     },
+     {
+      "hasDefault": true,
+      "name": "p_business_date",
+      "type": "date"
+     }
+    ],
+    "name": "prepare_special_order",
+    "returnType": "jsonb",
+    "returns": "scalar",
+    "returnsSet": false,
+    "volatility": "v"
+   }
+  ],
+  "production_dashboard_series": [
+   {
+    "args": [
+     {
+      "hasDefault": false,
+      "name": "p_month_from",
+      "type": "date"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_today",
+      "type": "date"
+     },
+     {
+      "hasDefault": true,
+      "name": "p_branch_id",
+      "type": "uuid"
+     }
+    ],
+    "name": "production_dashboard_series",
+    "returnType": "jsonb",
+    "returns": "scalar",
+    "returnsSet": false,
+    "volatility": "s"
+   }
+  ],
+  "production_dashboard_week": [
+   {
+    "args": [
+     {
+      "hasDefault": false,
+      "name": "p_from",
+      "type": "date"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_to",
+      "type": "date"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_prev_from",
+      "type": "date"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_prev_to",
+      "type": "date"
+     },
+     {
+      "hasDefault": true,
+      "name": "p_branch_id",
+      "type": "uuid"
+     }
+    ],
+    "name": "production_dashboard_week",
+    "returnType": "jsonb",
+    "returns": "scalar",
+    "returnsSet": false,
+    "volatility": "s"
+   }
+  ],
+  "production_demand_overview": [
+   {
+    "args": [
+     {
+      "hasDefault": false,
+      "name": "p_demand_from",
+      "type": "date"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_day_from",
+      "type": "date"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_last7",
+      "type": "date"
+     }
+    ],
+    "name": "production_demand_overview",
+    "returnType": "jsonb",
+    "returns": "scalar",
+    "returnsSet": false,
+    "volatility": "s"
+   }
+  ],
+  "production_demand_shortfalls": [
+   {
+    "args": [
+     {
+      "hasDefault": false,
+      "name": "p_quantities",
+      "type": "jsonb"
+     },
+     {
+      "hasDefault": true,
+      "name": "p_exclude_order_id",
+      "type": "uuid"
+     }
+    ],
+    "name": "production_demand_shortfalls",
+    "returnType": "jsonb",
+    "returns": "scalar",
+    "returnsSet": false,
+    "volatility": "v"
+   }
+  ],
+  "production_outstanding_demand": [
+   {
+    "args": [
+     {
+      "hasDefault": false,
+      "name": "p_product_id",
+      "type": "uuid"
+     },
+     {
+      "hasDefault": true,
+      "name": "p_exclude_order_id",
+      "type": "uuid"
+     }
+    ],
+    "name": "production_outstanding_demand",
+    "returnType": "numeric",
+    "returns": "scalar",
+    "returnsSet": false,
+    "volatility": "s"
+   }
+  ],
+  "production_stock_availability": [
+   {
+    "args": [],
+    "name": "production_stock_availability",
+    "returnType": "record",
+    "returns": "composite",
+    "returnsSet": true,
+    "volatility": "s"
+   }
+  ],
+  "purge_idempotency_keys": [
+   {
+    "args": [
+     {
+      "hasDefault": true,
+      "name": "p_older_than_days",
+      "type": "integer"
+     }
+    ],
+    "name": "purge_idempotency_keys",
+    "returnType": "integer",
+    "returns": "scalar",
+    "returnsSet": false,
+    "volatility": "v"
+   }
+  ],
+  "recompute_finance_ledger_balances": [
+   {
+    "args": [],
+    "name": "recompute_finance_ledger_balances",
+    "returnType": "jsonb",
+    "returns": "scalar",
+    "returnsSet": false,
+    "volatility": "v"
+   }
+  ],
+  "reject_cash_transfer": [
+   {
+    "args": [
+     {
+      "hasDefault": false,
+      "name": "p_id",
+      "type": "uuid"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_actor_id",
+      "type": "uuid"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_actor_name",
+      "type": "text"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_reason",
+      "type": "text"
+     }
+    ],
+    "name": "reject_cash_transfer",
+    "returnType": "public.cash_transfers",
+    "returns": "composite",
+    "returnsSet": false,
+    "volatility": "v"
+   }
+  ],
+  "release_idempotency_key": [
+   {
+    "args": [
+     {
+      "hasDefault": false,
+      "name": "p_user_id",
+      "type": "uuid"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_key",
+      "type": "text"
+     }
+    ],
+    "name": "release_idempotency_key",
+    "returnType": "void",
+    "returns": "void",
+    "returnsSet": false,
+    "volatility": "v"
+   }
+  ],
+  "reverse_finance_ledger_entry": [
+   {
+    "args": [
+     {
+      "hasDefault": false,
+      "name": "p_entry_id",
+      "type": "uuid"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_entry_date",
+      "type": "date"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_reason",
+      "type": "text"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_actor_id",
+      "type": "uuid"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_actor_name",
+      "type": "text"
+     },
+     {
+      "hasDefault": true,
+      "name": "p_corrected_amount",
+      "type": "numeric"
+     },
+     {
+      "hasDefault": true,
+      "name": "p_corrected_description",
+      "type": "text"
+     }
+    ],
+    "name": "reverse_finance_ledger_entry",
+    "returnType": "public.ledger_entries",
+    "returns": "composite",
+    "returnsSet": true,
+    "volatility": "v"
+   }
+  ],
+  "review_production_order": [
+   {
+    "args": [
+     {
+      "hasDefault": false,
+      "name": "p_order_id",
+      "type": "uuid"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_status",
+      "type": "public.branch_production_order_status"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_overrides",
+      "type": "jsonb"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_reason",
+      "type": "text"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_reviewed_by",
+      "type": "uuid"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_reviewed_by_name",
+      "type": "text"
+     },
+     {
+      "hasDefault": true,
+      "name": "p_packing_overrides",
+      "type": "jsonb"
+     }
+    ],
+    "name": "review_production_order",
+    "returnType": "jsonb",
+    "returns": "scalar",
+    "returnsSet": false,
+    "volatility": "v"
+   }
+  ],
+  "review_production_order_checked": [
+   {
+    "args": [
+     {
+      "hasDefault": false,
+      "name": "p_order_id",
+      "type": "uuid"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_status",
+      "type": "public.branch_production_order_status"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_overrides",
+      "type": "jsonb"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_reason",
+      "type": "text"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_reviewed_by",
+      "type": "uuid"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_reviewed_by_name",
+      "type": "text"
+     },
+     {
+      "hasDefault": true,
+      "name": "p_packing_overrides",
+      "type": "jsonb"
+     },
+     {
+      "hasDefault": true,
+      "name": "p_enforce_stock",
+      "type": "boolean"
+     }
+    ],
+    "name": "review_production_order_checked",
+    "returnType": "jsonb",
+    "returns": "scalar",
+    "returnsSet": false,
+    "volatility": "v"
+   }
+  ],
+  "revoke_all_auth_sessions": [
+   {
+    "args": [
+     {
+      "hasDefault": false,
+      "name": "p_user_id",
+      "type": "uuid"
+     },
+     {
+      "hasDefault": true,
+      "name": "p_keep_auth_session_id",
+      "type": "uuid"
+     }
+    ],
+    "name": "revoke_all_auth_sessions",
+    "returnType": "integer",
+    "returns": "scalar",
+    "returnsSet": false,
+    "volatility": "v"
+   }
+  ],
+  "revoke_auth_session": [
+   {
+    "args": [
+     {
+      "hasDefault": false,
+      "name": "p_auth_session_id",
+      "type": "uuid"
+     }
+    ],
+    "name": "revoke_auth_session",
+    "returnType": "boolean",
+    "returns": "scalar",
+    "returnsSet": false,
+    "volatility": "v"
+   }
+  ],
+  "sales_analytics": [
+   {
+    "args": [
+     {
+      "hasDefault": false,
+      "name": "p_from",
+      "type": "date"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_to",
+      "type": "date"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_branch_id",
+      "type": "uuid"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_top_limit",
+      "type": "integer"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_prev_from",
+      "type": "date"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_prev_to",
+      "type": "date"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_today",
+      "type": "date"
+     }
+    ],
+    "name": "sales_analytics",
+    "returnType": "jsonb",
+    "returns": "scalar",
+    "returnsSet": false,
+    "volatility": "s"
+   }
+  ],
+  "set_payment_method_lock": [
+   {
+    "args": [
+     {
+      "hasDefault": false,
+      "name": "p_branch_id",
+      "type": "uuid"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_payment_method",
+      "type": "public.payment_method"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_is_locked",
+      "type": "boolean"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_reason",
+      "type": "text"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_actor_id",
+      "type": "uuid"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_actor_name",
+      "type": "text"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_actor_role",
+      "type": "text"
+     }
+    ],
+    "name": "set_payment_method_lock",
+    "returnType": "void",
+    "returns": "void",
+    "returnsSet": false,
+    "volatility": "v"
+   }
+  ],
+  "soft_delete_finance_record": [
+   {
+    "args": [
+     {
+      "hasDefault": false,
+      "name": "p_reference_type",
+      "type": "text"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_reference_id",
+      "type": "uuid"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_reason",
+      "type": "text"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_actor_id",
+      "type": "uuid"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_actor_name",
+      "type": "text"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_query_id",
+      "type": "uuid"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_query_no",
+      "type": "text"
+     }
+    ],
+    "name": "soft_delete_finance_record",
+    "returnType": "jsonb",
+    "returns": "scalar",
+    "returnsSet": false,
+    "volatility": "v"
+   }
+  ],
+  "transfer_return_stock_to_production": [
+   {
+    "args": [
+     {
+      "hasDefault": false,
+      "name": "p_product_id",
+      "type": "uuid"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_product_name",
+      "type": "text"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_qty",
+      "type": "numeric"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_ref_id",
+      "type": "text"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_business_date",
+      "type": "date"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_reason",
+      "type": "text"
+     },
+     {
+      "hasDefault": true,
+      "name": "p_created_by",
+      "type": "uuid"
+     },
+     {
+      "hasDefault": true,
+      "name": "p_created_by_name",
+      "type": "text"
+     }
+    ],
+    "name": "transfer_return_stock_to_production",
+    "returnType": "jsonb",
+    "returns": "scalar",
+    "returnsSet": false,
+    "volatility": "v"
+   }
+  ],
+  "verify_production_order": [
+   {
+    "args": [
+     {
+      "hasDefault": false,
+      "name": "p_order_id",
+      "type": "uuid"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_verified_items",
+      "type": "jsonb"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_new_items",
+      "type": "jsonb"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_verified_by",
+      "type": "uuid"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_verified_by_name",
+      "type": "text"
+     }
+    ],
+    "name": "verify_production_order",
+    "returnType": "jsonb",
+    "returns": "scalar",
+    "returnsSet": false,
+    "volatility": "v"
+   }
+  ],
+  "verify_production_order_checked": [
+   {
+    "args": [
+     {
+      "hasDefault": false,
+      "name": "p_order_id",
+      "type": "uuid"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_verified_items",
+      "type": "jsonb"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_new_items",
+      "type": "jsonb"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_verified_by",
+      "type": "uuid"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_verified_by_name",
+      "type": "text"
+     },
+     {
+      "hasDefault": true,
+      "name": "p_enforce_stock",
+      "type": "boolean"
+     }
+    ],
+    "name": "verify_production_order_checked",
+    "returnType": "jsonb",
+    "returns": "scalar",
+    "returnsSet": false,
+    "volatility": "v"
+   }
+  ],
+  "verify_special_order": [
+   {
+    "args": [
+     {
+      "hasDefault": false,
+      "name": "p_order_id",
+      "type": "uuid"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_branch_id",
+      "type": "uuid"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_by",
+      "type": "uuid"
+     },
+     {
+      "hasDefault": false,
+      "name": "p_by_name",
+      "type": "text"
+     },
+     {
+      "hasDefault": true,
+      "name": "p_items",
+      "type": "jsonb"
+     },
+     {
+      "hasDefault": true,
+      "name": "p_business_date",
+      "type": "date"
+     }
+    ],
+    "name": "verify_special_order",
+    "returnType": "jsonb",
+    "returns": "scalar",
+    "returnsSet": false,
+    "volatility": "v"
+   }
+  ]
+ },
+ "tables": {
+  "attachments": {
+   "columns": {
+    "id": "uuid",
+    "entity": "public.attachment_entity",
+    "entity_id": "uuid",
+    "storage_path": "text",
+    "mime_type": "text",
+    "size_bytes": "integer",
+    "width": "integer",
+    "height": "integer",
+    "uploaded_by": "uuid",
+    "uploaded_by_name": "text",
+    "bound_at": "timestamp with time zone",
+    "created_at": "timestamp with time zone"
+   },
+   "pk": [
+    "id"
+   ],
+   "unique": [
+    [
+     "id"
+    ],
+    [
+     "storage_path"
+    ]
+   ]
+  },
+  "audit_logs": {
+   "columns": {
+    "id": "uuid",
+    "legacy_id": "text",
+    "action": "text",
+    "admin_id": "uuid",
+    "admin_name": "text",
+    "target_user_id": "uuid",
+    "target_user_name": "text",
+    "target_user_role": "public.user_role",
+    "details": "jsonb",
+    "created_at": "timestamp with time zone"
+   },
+   "pk": [
+    "id"
+   ],
+   "unique": [
+    [
+     "id"
+    ],
+    [
+     "legacy_id"
+    ]
+   ]
+  },
+  "auth_refresh_tokens": {
+   "columns": {
+    "token_hash": "text",
+    "session_id": "uuid",
+    "created_at": "timestamp with time zone",
+    "used_at": "timestamp with time zone"
+   },
+   "pk": [
+    "token_hash"
+   ],
+   "unique": [
+    [
+     "token_hash"
+    ]
+   ]
+  },
+  "auth_sessions": {
+   "columns": {
+    "id": "uuid",
+    "user_id": "uuid",
+    "client": "text",
+    "created_at": "timestamp with time zone",
+    "last_used_at": "timestamp with time zone",
+    "expires_at": "timestamp with time zone",
+    "revoked_at": "timestamp with time zone"
+   },
+   "pk": [
+    "id"
+   ],
+   "unique": [
+    [
+     "id"
+    ]
+   ]
+  },
+  "backup_jobs": {
+   "columns": {
+    "id": "uuid",
+    "backup_id": "text",
+    "backup_type": "text",
+    "status": "text",
+    "trigger": "text",
+    "environment": "text",
+    "app_version": "text",
+    "database_version": "text",
+    "pg_dump_version": "text",
+    "started_at": "timestamp with time zone",
+    "completed_at": "timestamp with time zone",
+    "duration_ms": "integer",
+    "dump_ms": "integer",
+    "upload_ms": "integer",
+    "s3_bucket": "text",
+    "s3_key": "text",
+    "auth_s3_key": "text",
+    "manifest_s3_key": "text",
+    "file_size": "bigint",
+    "auth_file_size": "bigint",
+    "checksum_sha256": "text",
+    "auth_checksum_sha256": "text",
+    "retention_until": "timestamp with time zone",
+    "attempts": "integer",
+    "error_category": "text",
+    "error_message": "text",
+    "triggered_by": "uuid",
+    "triggered_by_name": "text",
+    "last_verified_at": "timestamp with time zone",
+    "created_at": "timestamp with time zone"
+   },
+   "pk": [
+    "id"
+   ],
+   "unique": [
+    [
+     "backup_id"
+    ],
+    [
+     "id"
+    ]
+   ]
+  },
+  "backup_restore_tests": {
+   "columns": {
+    "id": "uuid",
+    "backup_job_id": "uuid",
+    "backup_id": "text",
+    "status": "text",
+    "started_at": "timestamp with time zone",
+    "completed_at": "timestamp with time zone",
+    "duration_ms": "integer",
+    "target_host_redacted": "text",
+    "table_count": "integer",
+    "row_counts": "jsonb",
+    "checks": "jsonb",
+    "error_message": "text",
+    "run_by": "text",
+    "created_at": "timestamp with time zone"
+   },
+   "pk": [
+    "id"
+   ],
+   "unique": [
+    [
+     "id"
+    ]
+   ]
+  },
+  "branch_discounts": {
+   "columns": {
+    "id": "uuid",
+    "branch_id": "uuid",
+    "branch_name": "text",
+    "production_order_id": "uuid",
+    "demand_number": "text",
+    "amount": "numeric",
+    "reason": "text",
+    "status": "public.branch_discount_status",
+    "business_date": "date",
+    "created_by": "uuid",
+    "created_by_name": "text",
+    "created_at": "timestamp with time zone",
+    "reviewed_by": "uuid",
+    "reviewed_by_name": "text",
+    "reviewed_at": "timestamp with time zone",
+    "review_note": "text"
+   },
+   "pk": [
+    "id"
+   ],
+   "unique": [
+    [
+     "id"
+    ]
+   ]
+  },
+  "branch_locations": {
+   "columns": {
+    "id": "uuid",
+    "branch_id": "uuid",
+    "branch_name": "text",
+    "address": "text",
+    "latitude": "numeric",
+    "longitude": "numeric",
+    "radius_km": "numeric",
+    "google_place_id": "text",
+    "is_active": "boolean",
+    "created_by": "uuid",
+    "created_at": "timestamp with time zone",
+    "updated_at": "timestamp with time zone"
+   },
+   "pk": [
+    "id"
+   ],
+   "unique": [
+    [
+     "branch_id"
+    ],
+    [
+     "id"
+    ]
+   ]
+  },
+  "branch_share_payments": {
+   "columns": {
+    "id": "uuid",
+    "payment_no": "text",
+    "branch_id": "uuid",
+    "branch_name": "text",
+    "amount": "numeric",
+    "bonus": "numeric",
+    "business_date": "date",
+    "payment_method": "text",
+    "account": "public.finance_account",
+    "status": "public.finance_doc_status",
+    "notes": "text",
+    "requested_by": "uuid",
+    "requested_by_name": "text",
+    "approved_by": "uuid",
+    "approved_by_name": "text",
+    "approved_at": "timestamp with time zone",
+    "rejection_reason": "text",
+    "ledger_entry_id": "uuid",
+    "bonus_ledger_entry_id": "uuid",
+    "created_at": "timestamp with time zone",
+    "updated_at": "timestamp with time zone",
+    "deleted_at": "timestamp with time zone",
+    "deleted_by": "uuid",
+    "deleted_by_name": "text",
+    "delete_reason": "text",
+    "deleted_query_id": "uuid",
+    "deleted_query_no": "text"
+   },
+   "pk": [
+    "id"
+   ],
+   "unique": [
+    [
+     "id"
+    ],
+    [
+     "payment_no"
+    ]
+   ]
+  },
+  "branches": {
+   "columns": {
+    "id": "uuid",
+    "legacy_id": "text",
+    "name": "text",
+    "slug": "text",
+    "location": "text",
+    "phone": "text",
+    "address": "text",
+    "city": "text",
+    "manager_id": "uuid",
+    "manager_name": "text",
+    "is_active": "boolean",
+    "daily_budget": "numeric",
+    "weekly_budget": "numeric",
+    "monthly_budget": "numeric",
+    "created_at": "timestamp with time zone",
+    "updated_at": "timestamp with time zone",
+    "company_share_pct": "numeric"
+   },
+   "pk": [
+    "id"
+   ],
+   "unique": [
+    [
+     "id"
+    ],
+    [
+     "legacy_id"
+    ],
+    [
+     "slug"
+    ]
+   ]
+  },
+  "business_day_closures": {
+   "columns": {
+    "business_date": "date",
+    "status": "public.closure_status",
+    "trigger": "public.closure_trigger",
+    "closed_by": "text",
+    "auto_stock_closing": "boolean",
+    "sales_summary": "jsonb",
+    "expense_summary": "jsonb",
+    "production_expense_summary": "jsonb",
+    "production_summary": "jsonb",
+    "stock_snapshot": "jsonb",
+    "error": "text",
+    "started_at": "timestamp with time zone",
+    "closed_at": "timestamp with time zone",
+    "duration_ms": "integer"
+   },
+   "pk": [
+    "business_date"
+   ],
+   "unique": [
+    [
+     "business_date"
+    ]
+   ]
+  },
+  "cash_transfers": {
+   "columns": {
+    "id": "uuid",
+    "transfer_no": "text",
+    "branch_id": "uuid",
+    "branch_name": "text",
+    "amount": "numeric",
+    "payment_method": "text",
+    "note": "text",
+    "business_date": "date",
+    "status": "public.cash_transfer_status",
+    "created_by": "uuid",
+    "created_by_name": "text",
+    "approved_by": "uuid",
+    "approved_by_name": "text",
+    "approved_at": "timestamp with time zone",
+    "approval_note": "text",
+    "rejection_reason": "text",
+    "ledger_entry_id": "uuid",
+    "voucher_no": "text",
+    "created_at": "timestamp with time zone",
+    "updated_at": "timestamp with time zone",
+    "deleted_at": "timestamp with time zone",
+    "deleted_by": "uuid",
+    "deleted_by_name": "text",
+    "delete_reason": "text",
+    "deleted_query_id": "uuid",
+    "deleted_query_no": "text",
+    "cash_amount": "numeric",
+    "easypaisa_amount": "numeric",
+    "bank_amount": "numeric",
+    "fuel_charges": "numeric",
+    "updated_by": "uuid",
+    "updated_by_name": "text"
+   },
+   "pk": [
+    "id"
+   ],
+   "unique": [
+    [
+     "id"
+    ],
+    [
+     "transfer_no"
+    ]
+   ]
+  },
+  "categories": {
+   "columns": {
+    "id": "uuid",
+    "legacy_id": "text",
+    "name": "text",
+    "slug": "text",
+    "sort_order": "integer",
+    "is_active": "boolean",
+    "created_at": "timestamp with time zone",
+    "updated_at": "timestamp with time zone"
+   },
+   "pk": [
+    "id"
+   ],
+   "unique": [
+    [
+     "id"
+    ],
+    [
+     "legacy_id"
+    ],
+    [
+     "slug"
+    ]
+   ]
+  },
+  "counters": {
+   "columns": {
+    "id": "text",
+    "count": "bigint"
+   },
+   "pk": [
+    "id"
+   ],
+   "unique": [
+    [
+     "id"
+    ]
+   ]
+  },
+  "customers": {
+   "columns": {
+    "id": "uuid",
+    "legacy_id": "text",
+    "name": "text",
+    "phone": "text",
+    "email": "text",
+    "address": "text",
+    "branch_id": "uuid",
+    "branch_name": "text",
+    "total_orders": "integer",
+    "total_spent": "numeric",
+    "created_at": "timestamp with time zone",
+    "updated_at": "timestamp with time zone"
+   },
+   "pk": [
+    "id"
+   ],
+   "unique": [
+    [
+     "id"
+    ],
+    [
+     "legacy_id"
+    ]
+   ]
+  },
+  "daily_closing_reports": {
+   "columns": {
+    "id": "uuid",
+    "business_date": "date",
+    "scope": "public.closing_report_scope",
+    "branch_id": "uuid",
+    "department": "text",
+    "report_json": "jsonb",
+    "generated_at": "timestamp with time zone"
+   },
+   "pk": [
+    "id"
+   ],
+   "unique": [
+    [
+     "id"
+    ]
+   ]
+  },
+  "daily_sale_record_audits": {
+   "columns": {
+    "id": "uuid",
+    "record_id": "uuid",
+    "branch_id": "uuid",
+    "business_date": "date",
+    "action": "public.daily_sale_audit_action",
+    "field": "text",
+    "old_value": "text",
+    "new_value": "text",
+    "reason": "text",
+    "actor_id": "uuid",
+    "actor_name": "text",
+    "actor_role": "text",
+    "created_at": "timestamp with time zone"
+   },
+   "pk": [
+    "id"
+   ],
+   "unique": [
+    [
+     "id"
+    ]
+   ]
+  },
+  "daily_sale_records": {
+   "columns": {
+    "id": "uuid",
+    "branch_id": "uuid",
+    "branch_name": "text",
+    "business_date": "date",
+    "auto_total_sale": "numeric",
+    "auto_cash": "numeric",
+    "auto_easypaisa": "numeric",
+    "auto_foodpanda": "numeric",
+    "auto_bank": "numeric",
+    "auto_other": "numeric",
+    "auto_staff": "numeric",
+    "discount": "numeric",
+    "cash_expense": "numeric",
+    "expense_total": "numeric",
+    "order_count": "integer",
+    "generated_at": "timestamp with time zone",
+    "manual_cash": "numeric",
+    "manual_easypaisa": "numeric",
+    "manual_bank": "numeric",
+    "fed_by": "uuid",
+    "fed_by_name": "text",
+    "fed_at": "timestamp with time zone",
+    "cash_difference": "numeric",
+    "easypaisa_difference": "numeric",
+    "bank_difference": "numeric",
+    "overall_difference": "numeric",
+    "payment_total": "numeric",
+    "expected_cash_in_hand": "numeric",
+    "status": "public.daily_sale_record_status",
+    "created_by": "uuid",
+    "created_by_name": "text",
+    "verified_by": "uuid",
+    "verified_by_name": "text",
+    "verified_at": "timestamp with time zone",
+    "locked_by": "uuid",
+    "locked_by_name": "text",
+    "locked_at": "timestamp with time zone",
+    "amended_at": "timestamp with time zone",
+    "created_at": "timestamp with time zone",
+    "updated_at": "timestamp with time zone"
+   },
+   "pk": [
+    "id"
+   ],
+   "unique": [
+    [
+     "branch_id",
+     "business_date"
+    ],
+    [
+     "id"
+    ]
+   ]
+  },
+  "employee_advances": {
+   "columns": {
+    "id": "uuid",
+    "advance_no": "text",
+    "employee_id": "uuid",
+    "employee_name": "text",
+    "department": "text",
+    "designation": "text",
+    "business_date": "date",
+    "advance_amount": "numeric",
+    "bonus_amount": "numeric",
+    "loan_amount": "numeric",
+    "total_amount": "numeric",
+    "payment_method": "text",
+    "account": "public.finance_account",
+    "status": "public.finance_doc_status",
+    "notes": "text",
+    "recovered_by_salary_id": "uuid",
+    "recovered_at": "timestamp with time zone",
+    "created_by": "uuid",
+    "created_by_name": "text",
+    "approved_by": "uuid",
+    "approved_by_name": "text",
+    "approved_at": "timestamp with time zone",
+    "rejection_reason": "text",
+    "ledger_entry_id": "uuid",
+    "created_at": "timestamp with time zone",
+    "updated_at": "timestamp with time zone",
+    "deleted_at": "timestamp with time zone",
+    "deleted_by": "uuid",
+    "deleted_by_name": "text",
+    "delete_reason": "text",
+    "deleted_query_id": "uuid",
+    "deleted_query_no": "text"
+   },
+   "pk": [
+    "id"
+   ],
+   "unique": [
+    [
+     "advance_no"
+    ],
+    [
+     "id"
+    ]
+   ]
+  },
+  "event_branch_demand_items": {
+   "columns": {
+    "id": "uuid",
+    "demand_id": "uuid",
+    "product_id": "uuid",
+    "product_name": "text",
+    "qty": "numeric",
+    "approved_qty": "numeric",
+    "prepared_qty": "numeric",
+    "unit_price": "numeric",
+    "remarks": "text",
+    "line_no": "integer"
+   },
+   "pk": [
+    "id"
+   ],
+   "unique": [
+    [
+     "id"
+    ]
+   ]
+  },
+  "event_branch_demands": {
+   "columns": {
+    "id": "uuid",
+    "event_id": "uuid",
+    "branch_id": "uuid",
+    "branch_name": "text",
+    "status": "public.event_demand_status",
+    "expected_customers": "integer",
+    "notes": "text",
+    "submitted_at": "timestamp with time zone",
+    "submitted_by": "uuid",
+    "submitted_by_name": "text",
+    "reviewed_at": "timestamp with time zone",
+    "reviewed_by": "uuid",
+    "reviewed_by_name": "text",
+    "review_remarks": "text",
+    "created_at": "timestamp with time zone",
+    "updated_at": "timestamp with time zone"
+   },
+   "pk": [
+    "id"
+   ],
+   "unique": [
+    [
+     "branch_id",
+     "event_id"
+    ],
+    [
+     "id"
+    ]
+   ]
+  },
+  "event_branches": {
+   "columns": {
+    "event_id": "uuid",
+    "branch_id": "uuid"
+   },
+   "pk": [
+    "event_id",
+    "branch_id"
+   ],
+   "unique": [
+    [
+     "branch_id",
+     "event_id"
+    ]
+   ]
+  },
+  "event_notifications": {
+   "columns": {
+    "id": "uuid",
+    "event_id": "uuid",
+    "audience": "public.event_notification_audience",
+    "branch_id": "uuid",
+    "reminder_kind": "public.event_reminder_kind",
+    "offset_days": "smallint",
+    "scheduled_for": "date",
+    "title": "text",
+    "message": "text",
+    "status": "public.event_notification_status",
+    "in_app_notification_id": "uuid",
+    "attempts": "integer",
+    "claimed_at": "timestamp with time zone",
+    "sent_at": "timestamp with time zone",
+    "error_message": "text",
+    "created_at": "timestamp with time zone",
+    "updated_at": "timestamp with time zone"
+   },
+   "pk": [
+    "id"
+   ],
+   "unique": [
+    [
+     "id"
+    ]
+   ]
+  },
+  "event_production_status": {
+   "columns": {
+    "id": "uuid",
+    "event_id": "uuid",
+    "stage": "public.event_production_stage",
+    "completion_percentage": "smallint",
+    "remarks": "text",
+    "started_at": "timestamp with time zone",
+    "completed_at": "timestamp with time zone",
+    "updated_by": "uuid",
+    "updated_by_name": "text",
+    "created_at": "timestamp with time zone",
+    "updated_at": "timestamp with time zone"
+   },
+   "pk": [
+    "id"
+   ],
+   "unique": [
+    [
+     "event_id",
+     "stage"
+    ],
+    [
+     "id"
+    ]
+   ]
+  },
+  "expenses": {
+   "columns": {
+    "id": "uuid",
+    "legacy_id": "text",
+    "branch_id": "uuid",
+    "branch_name": "text",
+    "business_date": "date",
+    "description": "text",
+    "payment_method": "public.expense_payment_method",
+    "amount": "numeric",
+    "remarks": "text",
+    "created_by": "uuid",
+    "created_by_name": "text",
+    "created_at": "timestamp with time zone",
+    "expense_number": "text",
+    "category": "text"
+   },
+   "pk": [
+    "id"
+   ],
+   "unique": [
+    [
+     "expense_number"
+    ],
+    [
+     "id"
+    ],
+    [
+     "legacy_id"
+    ]
+   ]
+  },
+  "finance_amendments": {
+   "columns": {
+    "id": "uuid",
+    "ticket_id": "uuid",
+    "query_no": "text",
+    "reference_type": "text",
+    "reference_id": "uuid",
+    "reference_no": "text",
+    "action": "text",
+    "field": "text",
+    "original_value": "text",
+    "new_value": "text",
+    "difference": "numeric",
+    "reason": "text",
+    "admin_id": "uuid",
+    "admin_name": "text",
+    "ip_address": "text",
+    "created_at": "timestamp with time zone"
+   },
+   "pk": [
+    "id"
+   ],
+   "unique": [
+    [
+     "id"
+    ]
+   ]
+  },
+  "finance_audit_logs": {
+   "columns": {
+    "id": "uuid",
+    "entity": "text",
+    "entity_id": "uuid",
+    "entity_ref": "text",
+    "action": "text",
+    "actor_id": "uuid",
+    "actor_name": "text",
+    "actor_role": "text",
+    "previous_values": "jsonb",
+    "new_values": "jsonb",
+    "ip_address": "text",
+    "device_info": "text",
+    "created_at": "timestamp with time zone"
+   },
+   "pk": [
+    "id"
+   ],
+   "unique": [
+    [
+     "id"
+    ]
+   ]
+  },
+  "finance_day_closings": {
+   "columns": {
+    "business_date": "date",
+    "opening_balance": "numeric",
+    "opening_cash": "numeric",
+    "opening_bank": "numeric",
+    "total_income": "numeric",
+    "total_expenses": "numeric",
+    "net_balance": "numeric",
+    "cash_in_hand": "numeric",
+    "bank_balance": "numeric",
+    "closing_balance": "numeric",
+    "entry_count": "integer",
+    "notes": "text",
+    "closed_by": "uuid",
+    "closed_by_name": "text",
+    "closed_at": "timestamp with time zone"
+   },
+   "pk": [
+    "business_date"
+   ],
+   "unique": [
+    [
+     "business_date"
+    ]
+   ]
+  },
+  "finance_employees": {
+   "columns": {
+    "id": "uuid",
+    "employee_code": "text",
+    "name": "text",
+    "department": "text",
+    "designation": "text",
+    "branch_id": "uuid",
+    "branch_name": "text",
+    "base_salary": "numeric",
+    "phone": "text",
+    "joined_on": "date",
+    "is_active": "boolean",
+    "created_at": "timestamp with time zone",
+    "updated_at": "timestamp with time zone"
+   },
+   "pk": [
+    "id"
+   ],
+   "unique": [
+    [
+     "employee_code"
+    ],
+    [
+     "id"
+    ]
+   ]
+  },
+  "finance_income_approvals": {
+   "columns": {
+    "id": "uuid",
+    "reference_no": "text",
+    "branch_id": "uuid",
+    "branch_name": "text",
+    "business_date": "date",
+    "total_amount": "numeric",
+    "cash_amount": "numeric",
+    "easypaisa_amount": "numeric",
+    "foodpanda_amount": "numeric",
+    "bank_amount": "numeric",
+    "other_amount": "numeric",
+    "branch_expenses": "numeric",
+    "net_amount": "numeric",
+    "company_share_pct": "numeric",
+    "branch_share_pct": "numeric",
+    "company_share": "numeric",
+    "branch_share": "numeric",
+    "status": "public.finance_income_status",
+    "verified_by": "uuid",
+    "verified_by_name": "text",
+    "verified_at": "timestamp with time zone",
+    "approved_by": "uuid",
+    "approved_by_name": "text",
+    "approved_at": "timestamp with time zone",
+    "rejection_reason": "text",
+    "notes": "text",
+    "posted_at": "timestamp with time zone",
+    "created_at": "timestamp with time zone",
+    "updated_at": "timestamp with time zone",
+    "deleted_at": "timestamp with time zone",
+    "deleted_by": "uuid",
+    "deleted_by_name": "text",
+    "delete_reason": "text",
+    "deleted_query_id": "uuid",
+    "deleted_query_no": "text"
+   },
+   "pk": [
+    "id"
+   ],
+   "unique": [
+    [
+     "id"
+    ],
+    [
+     "reference_no"
+    ]
+   ]
+  },
+  "finance_partners": {
+   "columns": {
+    "id": "uuid",
+    "name": "text",
+    "father_name": "text",
+    "date_of_birth": "date",
+    "joined_on": "date",
+    "partner_type": "text",
+    "address": "text",
+    "contact_number": "text",
+    "emergency_number": "text",
+    "share_pct": "numeric",
+    "is_active": "boolean",
+    "created_at": "timestamp with time zone",
+    "updated_at": "timestamp with time zone"
+   },
+   "pk": [
+    "id"
+   ],
+   "unique": [
+    [
+     "id"
+    ],
+    [
+     "name"
+    ]
+   ]
+  },
+  "finance_queries": {
+   "columns": {
+    "id": "uuid",
+    "query_no": "text",
+    "business_date": "date",
+    "title": "text",
+    "amount": "numeric",
+    "category": "text",
+    "branch_id": "uuid",
+    "branch_name": "text",
+    "type": "text",
+    "comment": "text",
+    "created_by": "uuid",
+    "created_by_name": "text",
+    "created_at": "timestamp with time zone",
+    "updated_at": "timestamp with time zone",
+    "updated_by": "uuid",
+    "updated_by_name": "text"
+   },
+   "pk": [
+    "id"
+   ],
+   "unique": [
+    [
+     "id"
+    ],
+    [
+     "query_no"
+    ]
+   ]
+  },
+  "finance_query_counters": {
+   "columns": {
+    "day": "date",
+    "count": "integer"
+   },
+   "pk": [
+    "day"
+   ],
+   "unique": [
+    [
+     "day"
+    ]
+   ]
+  },
+  "finance_query_year_counters": {
+   "columns": {
+    "year": "integer",
+    "count": "integer"
+   },
+   "pk": [
+    "year"
+   ],
+   "unique": [
+    [
+     "year"
+    ]
+   ]
+  },
+  "finance_settings": {
+   "columns": {
+    "id": "boolean",
+    "company_share_pct": "numeric",
+    "branch_share_pct": "numeric",
+    "share_basis": "text",
+    "opening_cash_balance": "numeric",
+    "opening_bank_balance": "numeric",
+    "opening_balance_date": "date",
+    "auto_import_branch_income": "boolean",
+    "require_admin_verification": "boolean",
+    "allow_super_admin_write": "boolean",
+    "updated_at": "timestamp with time zone",
+    "updated_by": "text"
+   },
+   "pk": [
+    "id"
+   ],
+   "unique": [
+    [
+     "id"
+    ]
+   ]
+  },
+  "finance_ticket_messages": {
+   "columns": {
+    "id": "uuid",
+    "ticket_id": "uuid",
+    "author_id": "uuid",
+    "author_name": "text",
+    "author_role": "text",
+    "author_side": "text",
+    "body": "text",
+    "created_at": "timestamp with time zone"
+   },
+   "pk": [
+    "id"
+   ],
+   "unique": [
+    [
+     "id"
+    ]
+   ]
+  },
+  "finance_ticket_versions": {
+   "columns": {
+    "id": "uuid",
+    "ticket_id": "uuid",
+    "query_no": "text",
+    "version": "integer",
+    "action": "text",
+    "changed_by": "uuid",
+    "changed_by_name": "text",
+    "changed_by_role": "text",
+    "changed_at": "timestamp with time zone",
+    "reason": "text",
+    "changes": "jsonb",
+    "snapshot": "jsonb"
+   },
+   "pk": [
+    "id"
+   ],
+   "unique": [
+    [
+     "id"
+    ],
+    [
+     "ticket_id",
+     "version"
+    ]
+   ]
+  },
+  "finance_tickets": {
+   "columns": {
+    "id": "uuid",
+    "ticket_no": "text",
+    "reference_type": "text",
+    "reference_id": "uuid",
+    "reference_no": "text",
+    "reference_snapshot": "jsonb",
+    "subject": "text",
+    "message": "text",
+    "status": "text",
+    "resolution_note": "text",
+    "raised_by": "uuid",
+    "raised_by_name": "text",
+    "raised_by_role": "text",
+    "resolved_by": "uuid",
+    "resolved_by_name": "text",
+    "resolved_at": "timestamp with time zone",
+    "created_at": "timestamp with time zone",
+    "updated_at": "timestamp with time zone",
+    "query_no": "text",
+    "query_type": "text",
+    "priority": "text",
+    "voucher_ref": "text",
+    "admin_response": "text",
+    "responded_by": "uuid",
+    "responded_by_name": "text",
+    "responded_at": "timestamp with time zone",
+    "assigned_to": "uuid",
+    "assigned_to_name": "text",
+    "assigned_at": "timestamp with time zone",
+    "information_received_at": "timestamp with time zone",
+    "deleted_at": "timestamp with time zone",
+    "deleted_by": "uuid",
+    "deleted_by_name": "text",
+    "delete_reason": "text",
+    "resolution_history": "jsonb",
+    "reopen_count": "integer",
+    "reopened_at": "timestamp with time zone",
+    "reopened_by": "uuid",
+    "reopened_by_name": "text",
+    "reopen_reason": "text",
+    "resolution_type": "text",
+    "internal_note": "text",
+    "amount": "numeric",
+    "branch_id": "uuid",
+    "branch_name": "text",
+    "business_date": "date",
+    "remarks": "text",
+    "transaction_ref": "text",
+    "expense_ref": "text",
+    "income_ref": "text",
+    "resolution_amount": "numeric",
+    "version": "integer",
+    "submitted_at": "timestamp with time zone",
+    "amend_count": "integer",
+    "amended_at": "timestamp with time zone",
+    "amended_by": "uuid",
+    "amended_by_name": "text",
+    "recreated_from_id": "uuid",
+    "recreated_from_query_no": "text",
+    "recreated_as_id": "uuid",
+    "recreated_as_query_no": "text",
+    "restored_at": "timestamp with time zone",
+    "restored_by": "uuid",
+    "restored_by_name": "text",
+    "restore_reason": "text"
+   },
+   "pk": [
+    "id"
+   ],
+   "unique": [
+    [
+     "id"
+    ],
+    [
+     "query_no"
+    ],
+    [
+     "ticket_no"
+    ]
+   ]
+  },
+  "finance_transactions": {
+   "columns": {
+    "id": "uuid",
+    "txn_no": "text",
+    "txn_type": "public.ledger_head_type",
+    "ledger_head_id": "uuid",
+    "ledger_head_name": "text",
+    "branch_id": "uuid",
+    "branch_name": "text",
+    "description": "text",
+    "amount": "numeric",
+    "payment_method": "text",
+    "account": "public.finance_account",
+    "business_date": "date",
+    "status": "public.finance_doc_status",
+    "reference_no": "text",
+    "notes": "text",
+    "created_by": "uuid",
+    "created_by_name": "text",
+    "approved_by": "uuid",
+    "approved_by_name": "text",
+    "approved_at": "timestamp with time zone",
+    "rejection_reason": "text",
+    "ledger_entry_id": "uuid",
+    "created_at": "timestamp with time zone",
+    "updated_at": "timestamp with time zone",
+    "deleted_at": "timestamp with time zone",
+    "deleted_by": "uuid",
+    "deleted_by_name": "text",
+    "delete_reason": "text",
+    "deleted_query_id": "uuid",
+    "deleted_query_no": "text"
+   },
+   "pk": [
+    "id"
+   ],
+   "unique": [
+    [
+     "id"
+    ],
+    [
+     "txn_no"
+    ]
+   ]
+  },
+  "geofence_logs": {
+   "columns": {
+    "id": "uuid",
+    "branch_id": "uuid",
+    "branch_name": "text",
+    "user_id": "uuid",
+    "user_name": "text",
+    "user_role": "public.user_role",
+    "action": "text",
+    "latitude": "numeric",
+    "longitude": "numeric",
+    "accuracy_m": "integer",
+    "distance_km": "numeric",
+    "radius_km": "numeric",
+    "outcome": "text",
+    "allowed": "boolean",
+    "ip_address": "text",
+    "user_agent": "text",
+    "created_at": "timestamp with time zone"
+   },
+   "pk": [
+    "id"
+   ],
+   "unique": [
+    [
+     "id"
+    ]
+   ]
+  },
+  "idempotency_keys": {
+   "columns": {
+    "user_id": "uuid",
+    "key": "text",
+    "endpoint": "text",
+    "fingerprint": "text",
+    "status": "text",
+    "response_status": "integer",
+    "response_body": "jsonb",
+    "created_at": "timestamp with time zone",
+    "completed_at": "timestamp with time zone"
+   },
+   "pk": [
+    "user_id",
+    "key"
+   ],
+   "unique": [
+    [
+     "key",
+     "user_id"
+    ]
+   ]
+  },
+  "ledger_entries": {
+   "columns": {
+    "id": "uuid",
+    "voucher_no": "text",
+    "seq": "bigint",
+    "entry_date": "date",
+    "ledger_head_id": "uuid",
+    "ledger_head_name": "text",
+    "ledger_head_type": "public.ledger_head_type",
+    "branch_id": "uuid",
+    "branch_name": "text",
+    "description": "text",
+    "debit": "numeric",
+    "credit": "numeric",
+    "balance": "numeric",
+    "account": "public.finance_account",
+    "payment_method": "text",
+    "status": "public.ledger_entry_status",
+    "source_type": "public.finance_ledger_source",
+    "source_id": "uuid",
+    "reverses_entry_id": "uuid",
+    "reversed_by_entry_id": "uuid",
+    "approved_by": "uuid",
+    "approved_by_name": "text",
+    "created_by": "uuid",
+    "created_by_name": "text",
+    "posted_at": "timestamp with time zone",
+    "deleted_at": "timestamp with time zone",
+    "deleted_by": "uuid",
+    "deleted_by_name": "text",
+    "delete_reason": "text",
+    "deleted_query_id": "uuid",
+    "deleted_query_no": "text",
+    "updated_at": "timestamp with time zone",
+    "updated_by": "uuid",
+    "updated_by_name": "text"
+   },
+   "pk": [
+    "id"
+   ],
+   "unique": [
+    [
+     "id"
+    ],
+    [
+     "seq"
+    ],
+    [
+     "voucher_no"
+    ]
+   ]
+  },
+  "ledger_heads": {
+   "columns": {
+    "id": "uuid",
+    "code": "text",
+    "name": "text",
+    "type": "public.ledger_head_type",
+    "description": "text",
+    "group_name": "text",
+    "is_active": "boolean",
+    "is_system": "boolean",
+    "sort_order": "integer",
+    "created_by": "uuid",
+    "created_at": "timestamp with time zone",
+    "updated_at": "timestamp with time zone"
+   },
+   "pk": [
+    "id"
+   ],
+   "unique": [
+    [
+     "code"
+    ],
+    [
+     "id"
+    ]
+   ]
+  },
+  "login_attempts": {
+   "columns": {
+    "id": "uuid",
+    "email": "text",
+    "reason": "text",
+    "ip_address": "text",
+    "user_agent": "text",
+    "browser": "text",
+    "browser_version": "text",
+    "os": "text",
+    "os_version": "text",
+    "device_type": "text",
+    "country": "text",
+    "country_code": "text",
+    "city": "text",
+    "region": "text",
+    "timezone": "text",
+    "location_source": "text",
+    "attempted_at": "timestamp with time zone",
+    "business_date": "date",
+    "created_at": "timestamp with time zone"
+   },
+   "pk": [
+    "id"
+   ],
+   "unique": [
+    [
+     "id"
+    ]
+   ]
+  },
+  "login_sessions": {
+   "columns": {
+    "id": "uuid",
+    "user_id": "uuid",
+    "user_email": "text",
+    "user_name": "text",
+    "user_role": "public.user_role",
+    "branch_id": "uuid",
+    "branch_name": "text",
+    "ip_address": "text",
+    "user_agent": "text",
+    "country": "text",
+    "country_code": "text",
+    "city": "text",
+    "region": "text",
+    "login_at": "timestamp with time zone",
+    "last_seen_at": "timestamp with time zone",
+    "ended_at": "timestamp with time zone",
+    "end_reason": "text",
+    "business_date": "date",
+    "created_at": "timestamp with time zone",
+    "user_code": "text",
+    "auth_session_id": "uuid",
+    "browser": "text",
+    "browser_version": "text",
+    "os": "text",
+    "os_version": "text",
+    "device_type": "text",
+    "timezone": "text",
+    "is_suspicious": "boolean",
+    "suspicious_reason": "text",
+    "revoked_at": "timestamp with time zone",
+    "revoked_by": "uuid",
+    "revoked_by_name": "text",
+    "revoke_reason": "text",
+    "location_source": "text",
+    "latitude": "numeric",
+    "longitude": "numeric",
+    "screen_size": "text",
+    "device_name": "text",
+    "browser_email": "text",
+    "area": "text"
+   },
+   "pk": [
+    "id"
+   ],
+   "unique": [
+    [
+     "id"
+    ]
+   ]
+  },
+  "notification_logs": {
+   "columns": {
+    "id": "uuid",
+    "report_id": "uuid",
+    "recipient_id": "uuid",
+    "business_date": "date",
+    "channel": "text",
+    "status": "public.notification_delivery_status",
+    "provider": "text",
+    "provider_message_id": "text",
+    "error_message": "text",
+    "retry_count": "integer",
+    "sent_at": "timestamp with time zone",
+    "created_at": "timestamp with time zone",
+    "order_id": "uuid",
+    "event_notification_id": "uuid"
+   },
+   "pk": [
+    "id"
+   ],
+   "unique": [
+    [
+     "id"
+    ]
+   ]
+  },
+  "notification_reads": {
+   "columns": {
+    "notification_id": "uuid",
+    "user_id": "uuid",
+    "read_at": "timestamp with time zone"
+   },
+   "pk": [
+    "notification_id",
+    "user_id"
+   ],
+   "unique": [
+    [
+     "notification_id",
+     "user_id"
+    ]
+   ]
+  },
+  "notification_recipients": {
+   "columns": {
+    "id": "uuid",
+    "branch_id": "uuid",
+    "department": "text",
+    "recipient_name": "text",
+    "mobile_number": "text",
+    "channel": "public.notification_channel",
+    "active": "boolean",
+    "created_at": "timestamp with time zone",
+    "updated_at": "timestamp with time zone"
+   },
+   "pk": [
+    "id"
+   ],
+   "unique": [
+    [
+     "id"
+    ]
+   ]
+  },
+  "notifications": {
+   "columns": {
+    "id": "uuid",
+    "legacy_id": "text",
+    "type": "public.notification_type",
+    "title": "text",
+    "message": "text",
+    "is_read": "boolean",
+    "target_user_id": "uuid",
+    "target_role": "public.user_role",
+    "branch_id": "uuid",
+    "related_id": "uuid",
+    "created_at": "timestamp with time zone"
+   },
+   "pk": [
+    "id"
+   ],
+   "unique": [
+    [
+     "id"
+    ],
+    [
+     "legacy_id"
+    ]
+   ]
+  },
+  "order_items": {
+   "columns": {
+    "id": "uuid",
+    "order_id": "uuid",
+    "product_id": "uuid",
+    "product_name": "text",
+    "category_id": "uuid",
+    "category_name": "text",
+    "unit_price": "numeric",
+    "qty": "numeric",
+    "discount": "numeric",
+    "line_total": "numeric",
+    "line_no": "integer"
+   },
+   "pk": [
+    "id"
+   ],
+   "unique": [
+    [
+     "id"
+    ]
+   ]
+  },
+  "orders": {
+   "columns": {
+    "id": "uuid",
+    "legacy_id": "text",
+    "order_number": "text",
+    "branch_id": "uuid",
+    "branch_name": "text",
+    "customer_id": "uuid",
+    "customer_name": "text",
+    "customer_phone": "text",
+    "customer_address": "text",
+    "subtotal": "numeric",
+    "discount_total": "numeric",
+    "delivery_charges": "numeric",
+    "tax_rate": "numeric",
+    "tax_amount": "numeric",
+    "grand_total": "numeric",
+    "payment_method": "public.payment_method",
+    "status": "public.order_status",
+    "notes": "text",
+    "received_cash": "numeric",
+    "cash_returned": "numeric",
+    "created_by": "uuid",
+    "created_by_name": "text",
+    "business_date": "date",
+    "created_at": "timestamp with time zone",
+    "updated_at": "timestamp with time zone"
+   },
+   "pk": [
+    "id"
+   ],
+   "unique": [
+    [
+     "id"
+    ],
+    [
+     "legacy_id"
+    ],
+    [
+     "order_number"
+    ]
+   ]
+  },
+  "packing_materials": {
+   "columns": {
+    "id": "uuid",
+    "material_code": "text",
+    "material_name": "text",
+    "category": "text",
+    "description": "text",
+    "is_active": "boolean",
+    "created_by": "uuid",
+    "created_at": "timestamp with time zone",
+    "updated_at": "timestamp with time zone"
+   },
+   "pk": [
+    "id"
+   ],
+   "unique": [
+    [
+     "id"
+    ],
+    [
+     "material_code"
+    ]
+   ]
+  },
+  "partner_expenses": {
+   "columns": {
+    "id": "uuid",
+    "expense_no": "text",
+    "partner_name": "text",
+    "ledger_head_id": "uuid",
+    "ledger_head_name": "text",
+    "description": "text",
+    "amount": "numeric",
+    "payment_method": "text",
+    "account": "public.finance_account",
+    "business_date": "date",
+    "status": "public.finance_doc_status",
+    "requested_by": "uuid",
+    "requested_by_name": "text",
+    "approved_by": "uuid",
+    "approved_by_name": "text",
+    "approved_at": "timestamp with time zone",
+    "rejection_reason": "text",
+    "notes": "text",
+    "ledger_entry_id": "uuid",
+    "created_at": "timestamp with time zone",
+    "updated_at": "timestamp with time zone",
+    "partner_id": "uuid",
+    "txn_kind": "text",
+    "deleted_at": "timestamp with time zone",
+    "deleted_by": "uuid",
+    "deleted_by_name": "text",
+    "delete_reason": "text",
+    "deleted_query_id": "uuid",
+    "deleted_query_no": "text"
+   },
+   "pk": [
+    "id"
+   ],
+   "unique": [
+    [
+     "expense_no"
+    ],
+    [
+     "id"
+    ]
+   ]
+  },
+  "password_reset_tokens": {
+   "columns": {
+    "token_hash": "text",
+    "user_id": "uuid",
+    "created_at": "timestamp with time zone",
+    "expires_at": "timestamp with time zone",
+    "used_at": "timestamp with time zone"
+   },
+   "pk": [
+    "token_hash"
+   ],
+   "unique": [
+    [
+     "token_hash"
+    ]
+   ]
+  },
+  "payment_method_settings": {
+   "columns": {
+    "id": "uuid",
+    "branch_id": "uuid",
+    "payment_method": "public.payment_method",
+    "is_locked": "boolean",
+    "updated_by": "uuid",
+    "updated_by_name": "text",
+    "reason": "text",
+    "created_at": "timestamp with time zone",
+    "updated_at": "timestamp with time zone"
+   },
+   "pk": [
+    "id"
+   ],
+   "unique": [
+    [
+     "branch_id",
+     "payment_method"
+    ],
+    [
+     "id"
+    ]
+   ]
+  },
+  "price_activation_locks": {
+   "columns": {
+    "business_date": "date",
+    "status": "public.closure_status",
+    "trigger": "public.closure_trigger",
+    "started_at": "timestamp with time zone",
+    "activated": "integer",
+    "closed_at": "timestamp with time zone",
+    "error": "text"
+   },
+   "pk": [
+    "business_date"
+   ],
+   "unique": [
+    [
+     "business_date"
+    ]
+   ]
+  },
+  "product_price_history": {
+   "columns": {
+    "id": "uuid",
+    "legacy_id": "text",
+    "product_id": "uuid",
+    "product_code": "text",
+    "product_name": "text",
+    "category_name": "text",
+    "old_price": "numeric",
+    "new_price": "numeric",
+    "effective_date": "date",
+    "reason": "text",
+    "source": "public.price_change_source",
+    "status": "public.price_change_status",
+    "version_number": "integer",
+    "changed_by": "uuid",
+    "changed_by_name": "text",
+    "changed_on": "timestamp with time zone",
+    "activated_on": "timestamp with time zone",
+    "batch_id": "uuid",
+    "price_number": "text"
+   },
+   "pk": [
+    "id"
+   ],
+   "unique": [
+    [
+     "id"
+    ],
+    [
+     "legacy_id"
+    ],
+    [
+     "price_number"
+    ],
+    [
+     "product_id",
+     "version_number"
+    ]
+   ]
+  },
+  "production_balances": {
+   "columns": {
+    "id": "uuid",
+    "branch_id": "uuid",
+    "branch_name": "text",
+    "product_id": "uuid",
+    "product_name": "text",
+    "pending_qty": "numeric",
+    "updated_at": "timestamp with time zone"
+   },
+   "pk": [
+    "id"
+   ],
+   "unique": [
+    [
+     "branch_id",
+     "product_id"
+    ],
+    [
+     "id"
+    ]
+   ]
+  },
+  "production_order_items": {
+   "columns": {
+    "id": "uuid",
+    "production_order_id": "uuid",
+    "product_id": "uuid",
+    "product_name": "text",
+    "qty": "numeric",
+    "remarks": "text",
+    "previous_balance_qty": "numeric",
+    "total_required_qty": "numeric",
+    "approved_qty": "numeric",
+    "remaining_balance_qty": "numeric",
+    "line_no": "integer",
+    "is_special": "boolean",
+    "added_by_production": "boolean",
+    "unit_price": "numeric"
+   },
+   "pk": [
+    "id"
+   ],
+   "unique": [
+    [
+     "id"
+    ]
+   ]
+  },
+  "production_order_packing_items": {
+   "columns": {
+    "id": "uuid",
+    "production_order_id": "uuid",
+    "packing_material_id": "uuid",
+    "material_name": "text",
+    "qty": "numeric",
+    "approved_qty": "numeric",
+    "line_no": "integer"
+   },
+   "pk": [
+    "id"
+   ],
+   "unique": [
+    [
+     "id"
+    ],
+    [
+     "packing_material_id",
+     "production_order_id"
+    ]
+   ]
+  },
+  "production_orders": {
+   "columns": {
+    "id": "uuid",
+    "legacy_id": "text",
+    "branch_id": "uuid",
+    "branch_name": "text",
+    "business_date": "date",
+    "submitted_time": "text",
+    "status": "public.branch_production_order_status",
+    "created_by": "uuid",
+    "created_by_name": "text",
+    "submitted_at": "timestamp with time zone",
+    "approved_by": "uuid",
+    "approved_by_name": "text",
+    "approved_at": "timestamp with time zone",
+    "was_changed": "boolean",
+    "change_reason": "text",
+    "printed": "boolean",
+    "printed_at": "timestamp with time zone",
+    "created_at": "timestamp with time zone",
+    "updated_at": "timestamp with time zone",
+    "demand_number": "text",
+    "verified_by": "uuid",
+    "verified_by_name": "text",
+    "verified_at": "timestamp with time zone",
+    "cancel_reason": "text",
+    "cancelled_by": "uuid",
+    "cancelled_by_name": "text",
+    "cancelled_at": "timestamp with time zone",
+    "required_date": "date"
+   },
+   "pk": [
+    "id"
+   ],
+   "unique": [
+    [
+     "demand_number"
+    ],
+    [
+     "id"
+    ],
+    [
+     "legacy_id"
+    ]
+   ]
+  },
+  "production_returns": {
+   "columns": {
+    "id": "uuid",
+    "legacy_id": "text",
+    "branch_id": "uuid",
+    "branch_name": "text",
+    "product_id": "uuid",
+    "product_name": "text",
+    "qty": "numeric",
+    "reason": "text",
+    "status": "public.production_return_status",
+    "source": "text",
+    "business_date": "date",
+    "created_by": "uuid",
+    "created_by_name": "text",
+    "created_at": "timestamp with time zone",
+    "reviewed_by": "uuid",
+    "reviewed_by_name": "text",
+    "reviewed_at": "timestamp with time zone",
+    "disposition": "public.production_return_disposition",
+    "disposition_note": "text",
+    "photo_attachment_id": "uuid"
+   },
+   "pk": [
+    "id"
+   ],
+   "unique": [
+    [
+     "id"
+    ],
+    [
+     "legacy_id"
+    ]
+   ]
+  },
+  "production_stock": {
+   "columns": {
+    "product_id": "uuid",
+    "product_name": "text",
+    "balance": "numeric",
+    "updated_at": "timestamp with time zone"
+   },
+   "pk": [
+    "product_id"
+   ],
+   "unique": [
+    [
+     "product_id"
+    ]
+   ]
+  },
+  "production_stock_history": {
+   "columns": {
+    "id": "uuid",
+    "legacy_id": "text",
+    "product_id": "uuid",
+    "product_name": "text",
+    "type": "public.production_stock_movement_type",
+    "delta": "numeric",
+    "balance_after": "numeric",
+    "ref_id": "text",
+    "business_date": "date",
+    "created_at": "timestamp with time zone",
+    "branch_id": "uuid",
+    "production_order_id": "uuid",
+    "created_by": "uuid",
+    "created_by_name": "text",
+    "reason": "text",
+    "remarks": "text",
+    "transaction_no": "text",
+    "metadata": "jsonb"
+   },
+   "pk": [
+    "id"
+   ],
+   "unique": [
+    [
+     "id"
+    ],
+    [
+     "legacy_id"
+    ],
+    [
+     "product_id",
+     "ref_id",
+     "type"
+    ],
+    [
+     "transaction_no"
+    ]
+   ]
+  },
+  "products": {
+   "columns": {
+    "id": "uuid",
+    "legacy_id": "text",
+    "name": "text",
+    "category_id": "uuid",
+    "category_name": "text",
+    "sku": "text",
+    "price": "numeric",
+    "cost_price": "numeric",
+    "description": "text",
+    "is_active": "boolean",
+    "created_at": "timestamp with time zone",
+    "updated_at": "timestamp with time zone",
+    "stock_code": "text",
+    "is_special": "boolean"
+   },
+   "pk": [
+    "id"
+   ],
+   "unique": [
+    [
+     "id"
+    ],
+    [
+     "legacy_id"
+    ],
+    [
+     "stock_code"
+    ]
+   ]
+  },
+  "push_subscriptions": {
+   "columns": {
+    "id": "uuid",
+    "user_id": "uuid",
+    "role": "public.user_role",
+    "endpoint": "text",
+    "p256dh": "text",
+    "auth": "text",
+    "user_agent": "text",
+    "created_at": "timestamp with time zone",
+    "last_used_at": "timestamp with time zone"
+   },
+   "pk": [
+    "id"
+   ],
+   "unique": [
+    [
+     "endpoint"
+    ],
+    [
+     "id"
+    ]
+   ]
+  },
+  "restriction_events": {
+   "columns": {
+    "id": "uuid",
+    "event_no": "text",
+    "rule_code": "text",
+    "branch_id": "uuid",
+    "branch_name": "text",
+    "user_id": "uuid",
+    "user_name": "text",
+    "ref": "text",
+    "current_value": "text",
+    "threshold": "text",
+    "action": "text",
+    "result": "text",
+    "approval_no": "text",
+    "created_at": "timestamp with time zone"
+   },
+   "pk": [
+    "id"
+   ],
+   "unique": [
+    [
+     "event_no"
+    ],
+    [
+     "id"
+    ]
+   ]
+  },
+  "restriction_requests": {
+   "columns": {
+    "id": "uuid",
+    "request_no": "text",
+    "type": "text",
+    "binding_key": "text",
+    "branch_id": "uuid",
+    "branch_name": "text",
+    "requested_date": "date",
+    "current_business_date": "date",
+    "amount": "numeric",
+    "description": "text",
+    "entry_label": "text",
+    "reason": "text",
+    "requested_by": "uuid",
+    "requested_by_name": "text",
+    "requested_at": "timestamp with time zone",
+    "status": "text",
+    "approval_no": "text",
+    "decided_by": "uuid",
+    "decided_by_name": "text",
+    "decided_at": "timestamp with time zone",
+    "admin_reason": "text",
+    "consumed_at": "timestamp with time zone",
+    "consumed_ref": "text"
+   },
+   "pk": [
+    "id"
+   ],
+   "unique": [
+    [
+     "approval_no"
+    ],
+    [
+     "id"
+    ],
+    [
+     "request_no"
+    ]
+   ]
+  },
+  "restriction_rules": {
+   "columns": {
+    "group_key": "text",
+    "config": "jsonb",
+    "updated_by": "uuid",
+    "updated_by_name": "text",
+    "updated_at": "timestamp with time zone"
+   },
+   "pk": [
+    "group_key"
+   ],
+   "unique": [
+    [
+     "group_key"
+    ]
+   ]
+  },
+  "return_stock": {
+   "columns": {
+    "product_id": "uuid",
+    "product_name": "text",
+    "balance": "numeric",
+    "updated_at": "timestamp with time zone"
+   },
+   "pk": [
+    "product_id"
+   ],
+   "unique": [
+    [
+     "product_id"
+    ]
+   ]
+  },
+  "return_stock_history": {
+   "columns": {
+    "id": "uuid",
+    "product_id": "uuid",
+    "product_name": "text",
+    "type": "public.return_stock_movement_type",
+    "delta": "numeric",
+    "balance_after": "numeric",
+    "ref_id": "text",
+    "business_date": "date",
+    "branch_id": "uuid",
+    "production_return_id": "uuid",
+    "created_by": "uuid",
+    "created_by_name": "text",
+    "reason": "text",
+    "remarks": "text",
+    "created_at": "timestamp with time zone"
+   },
+   "pk": [
+    "id"
+   ],
+   "unique": [
+    [
+     "id"
+    ],
+    [
+     "product_id",
+     "ref_id",
+     "type"
+    ]
+   ]
+  },
+  "salary_payments": {
+   "columns": {
+    "id": "uuid",
+    "salary_no": "text",
+    "employee_id": "uuid",
+    "employee_name": "text",
+    "department": "text",
+    "designation": "text",
+    "salary_month": "text",
+    "gross_salary": "numeric",
+    "bonus": "numeric",
+    "deductions": "numeric",
+    "net_salary": "numeric",
+    "payment_date": "date",
+    "payment_method": "text",
+    "account": "public.finance_account",
+    "status": "public.finance_doc_status",
+    "notes": "text",
+    "created_by": "uuid",
+    "created_by_name": "text",
+    "approved_by": "uuid",
+    "approved_by_name": "text",
+    "approved_at": "timestamp with time zone",
+    "rejection_reason": "text",
+    "ledger_entry_id": "uuid",
+    "created_at": "timestamp with time zone",
+    "updated_at": "timestamp with time zone",
+    "deleted_at": "timestamp with time zone",
+    "deleted_by": "uuid",
+    "deleted_by_name": "text",
+    "delete_reason": "text",
+    "deleted_query_id": "uuid",
+    "deleted_query_no": "text"
+   },
+   "pk": [
+    "id"
+   ],
+   "unique": [
+    [
+     "id"
+    ],
+    [
+     "salary_no"
+    ]
+   ]
+  },
+  "salary_revisions": {
+   "columns": {
+    "id": "uuid",
+    "employee_id": "uuid",
+    "employee_name": "text",
+    "previous_salary": "numeric",
+    "new_salary": "numeric",
+    "reason": "text",
+    "effective_from": "date",
+    "changed_by": "uuid",
+    "changed_by_name": "text",
+    "created_at": "timestamp with time zone"
+   },
+   "pk": [
+    "id"
+   ],
+   "unique": [
+    [
+     "id"
+    ]
+   ]
+  },
+  "settings": {
+   "columns": {
+    "id": "boolean",
+    "company_name": "text",
+    "logo_url": "text",
+    "logo_path": "text",
+    "currency": "text",
+    "currency_symbol": "text",
+    "gst_rate": "numeric",
+    "gst_enabled": "boolean",
+    "receipt_footer": "text",
+    "theme": "public.app_theme",
+    "business_start_time": "text",
+    "business_closing_time": "text",
+    "order_start_time": "text",
+    "order_end_time": "text",
+    "auto_close_business": "boolean",
+    "auto_stock_closing": "boolean",
+    "updated_at": "timestamp with time zone",
+    "updated_by": "uuid",
+    "closing_notifications_enabled": "boolean",
+    "order_confirmations_enabled": "boolean",
+    "event_notifications_enabled": "boolean",
+    "geofencing_enabled": "boolean",
+    "geofence_default_radius_km": "numeric",
+    "geofence_verify_interval_min": "integer",
+    "geofence_require_high_accuracy": "boolean",
+    "geofence_gps_timeout_sec": "integer",
+    "geofence_max_position_age_sec": "integer"
+   },
+   "pk": [
+    "id"
+   ],
+   "unique": [
+    [
+     "id"
+    ]
+   ]
+  },
+  "special_events": {
+   "columns": {
+    "id": "uuid",
+    "event_number": "text",
+    "series_code": "text",
+    "event_year": "integer",
+    "name": "text",
+    "description": "text",
+    "category": "public.event_category",
+    "event_type": "text",
+    "calendar_system": "public.event_calendar_system",
+    "hijri_month": "smallint",
+    "hijri_day": "smallint",
+    "gregorian_month": "smallint",
+    "gregorian_day": "smallint",
+    "nth_weekday": "smallint",
+    "weekday": "smallint",
+    "is_recurring": "boolean",
+    "estimated_date": "date",
+    "confirmed_date": "date",
+    "duration_days": "smallint",
+    "event_date": "date",
+    "event_end_date": "date",
+    "demand_due_date": "date",
+    "demand_lead_days": "smallint",
+    "preparation_start_date": "date",
+    "status": "public.event_status",
+    "priority": "public.event_priority",
+    "applies_to_all_branches": "boolean",
+    "color": "text",
+    "notes": "text",
+    "is_active": "boolean",
+    "created_by": "uuid",
+    "created_by_name": "text",
+    "created_at": "timestamp with time zone",
+    "updated_at": "timestamp with time zone",
+    "occurrence_index": "smallint",
+    "reminder_lead_days": "smallint",
+    "anchor_offset_days": "smallint"
+   },
+   "pk": [
+    "id"
+   ],
+   "unique": [
+    [
+     "event_number"
+    ],
+    [
+     "event_year",
+     "occurrence_index",
+     "series_code"
+    ],
+    [
+     "id"
+    ]
+   ]
+  },
+  "special_order_items": {
+   "columns": {
+    "id": "uuid",
+    "special_order_id": "uuid",
+    "product_id": "uuid",
+    "item_name": "text",
+    "qty": "numeric",
+    "amount": "numeric",
+    "description": "text",
+    "line_no": "integer",
+    "stock_movement_id": "uuid",
+    "stock_transaction_no": "text",
+    "prepared_qty": "numeric",
+    "verified_qty": "numeric"
+   },
+   "pk": [
+    "id"
+   ],
+   "unique": [
+    [
+     "id"
+    ],
+    [
+     "line_no",
+     "special_order_id"
+    ]
+   ]
+  },
+  "special_orders": {
+   "columns": {
+    "id": "uuid",
+    "order_number": "text",
+    "branch_id": "uuid",
+    "branch_name": "text",
+    "business_date": "date",
+    "required_date": "date",
+    "status": "public.branch_production_order_status",
+    "created_by": "uuid",
+    "created_by_name": "text",
+    "submitted_at": "timestamp with time zone",
+    "prepared_by": "uuid",
+    "prepared_by_name": "text",
+    "prepared_at": "timestamp with time zone",
+    "verified_by": "uuid",
+    "verified_by_name": "text",
+    "verified_at": "timestamp with time zone",
+    "approved_by": "uuid",
+    "approved_by_name": "text",
+    "approved_at": "timestamp with time zone",
+    "stock_added_at": "timestamp with time zone",
+    "created_at": "timestamp with time zone",
+    "updated_at": "timestamp with time zone"
+   },
+   "pk": [
+    "id"
+   ],
+   "unique": [
+    [
+     "id"
+    ],
+    [
+     "order_number"
+    ]
+   ]
+  },
+  "stock": {
+   "columns": {
+    "id": "uuid",
+    "branch_id": "uuid",
+    "product_id": "uuid",
+    "product_name": "text",
+    "balance": "numeric",
+    "updated_at": "timestamp with time zone"
+   },
+   "pk": [
+    "id"
+   ],
+   "unique": [
+    [
+     "branch_id",
+     "product_id"
+    ],
+    [
+     "id"
+    ]
+   ]
+  },
+  "stock_audit_log": {
+   "columns": {
+    "id": "uuid",
+    "legacy_id": "text",
+    "branch_id": "uuid",
+    "branch_name": "text",
+    "user_id": "uuid",
+    "user_name": "text",
+    "product_id": "uuid",
+    "product_name": "text",
+    "requested_qty": "numeric",
+    "available_qty": "numeric",
+    "reason": "text",
+    "business_date": "date",
+    "created_at": "timestamp with time zone"
+   },
+   "pk": [
+    "id"
+   ],
+   "unique": [
+    [
+     "id"
+    ],
+    [
+     "legacy_id"
+    ]
+   ]
+  },
+  "stock_history": {
+   "columns": {
+    "id": "uuid",
+    "legacy_id": "text",
+    "branch_id": "uuid",
+    "product_id": "uuid",
+    "product_name": "text",
+    "type": "public.stock_movement_type",
+    "delta": "numeric",
+    "balance_after": "numeric",
+    "ref_id": "text",
+    "business_date": "date",
+    "created_at": "timestamp with time zone"
+   },
+   "pk": [
+    "id"
+   ],
+   "unique": [
+    [
+     "id"
+    ],
+    [
+     "legacy_id"
+    ],
+    [
+     "product_id",
+     "ref_id",
+     "type"
+    ]
+   ]
+  },
+  "support_tickets": {
+   "columns": {
+    "id": "uuid",
+    "ticket_number": "text",
+    "reference_type": "text",
+    "reference_id": "text",
+    "reference_snapshot": "jsonb",
+    "message": "text",
+    "status": "text",
+    "resolution_note": "text",
+    "branch_id": "uuid",
+    "branch_name": "text",
+    "raised_by": "uuid",
+    "raised_by_name": "text",
+    "raised_by_role": "text",
+    "resolved_by": "uuid",
+    "resolved_by_name": "text",
+    "resolved_at": "timestamp with time zone",
+    "created_at": "timestamp with time zone",
+    "updated_at": "timestamp with time zone",
+    "archived_at": "timestamp with time zone",
+    "archived_by": "uuid",
+    "archived_by_name": "text"
+   },
+   "pk": [
+    "id"
+   ],
+   "unique": [
+    [
+     "id"
+    ],
+    [
+     "ticket_number"
+    ]
+   ]
+  },
+  "user_credentials": {
+   "columns": {
+    "user_id": "uuid",
+    "password_hash": "text",
+    "password_changed_at": "timestamp with time zone"
+   },
+   "pk": [
+    "user_id"
+   ],
+   "unique": [
+    [
+     "user_id"
+    ]
+   ]
+  },
+  "users": {
+   "columns": {
+    "id": "uuid",
+    "email": "text",
+    "display_name": "text",
+    "phone": "text",
+    "username": "text",
+    "role": "public.user_role",
+    "branch_id": "uuid",
+    "branch_name": "text",
+    "status": "public.user_status",
+    "last_login_at": "timestamp with time zone",
+    "must_change_password": "boolean",
+    "last_password_reset": "timestamp with time zone",
+    "password_reset_by": "uuid",
+    "password_reset_by_name": "text",
+    "created_at": "timestamp with time zone",
+    "updated_at": "timestamp with time zone",
+    "user_code": "text"
+   },
+   "pk": [
+    "id"
+   ],
+   "unique": [
+    [
+     "email"
+    ],
+    [
+     "id"
+    ],
+    [
+     "user_code"
+    ],
+    [
+     "username"
+    ]
+   ]
+  }
+ }
+}

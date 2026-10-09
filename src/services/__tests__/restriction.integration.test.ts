@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { PGlite } from '@electric-sql/pglite';
+import { usePglite } from '../../db/testing';
 
 /**
  * The restriction service against a real Postgres (pglite, in memory) with
@@ -13,13 +14,9 @@ import { PGlite } from '@electric-sql/pglite';
  * is spent exactly once, and that the SQL in the migration does what the
  * service assumes.
  *
- * `supabaseAdmin.from` / `.rpc` are replaced by a small translator from the
- * supabase-js builder calls this service makes into SQL. It implements only
- * those calls; anything else throws rather than silently passing.
+ * The service's own `db.from` / `db.rpc` calls run against that database
+ * through the real query layer (src/db) — the same SQL generator the API uses.
  */
-
-process.env['SUPABASE_URL'] ??= 'http://localhost:54321';
-process.env['SUPABASE_SERVICE_ROLE_KEY'] ??= 'test-service-role-key';
 
 const STUBS = `
   create schema app;
@@ -43,100 +40,6 @@ const STUBS = `
   create table ledger_heads (id uuid primary key default gen_random_uuid(), code text, name text, type text);
   create table settings (id boolean primary key, business_start_time text, business_closing_time text);
 `;
-
-type Filter = [string, unknown[]];
-
-class Query {
-  private op: 'select' | 'insert' | 'update' | 'upsert' = 'select';
-  private columns = '*';
-  private returning: string | null = null;
-  private values: Record<string, unknown>[] = [];
-  private conflict = '';
-  private filters: Filter[] = [];
-  private orderBy = '';
-  private max: number | null = null;
-  private counting = false;
-  private headOnly = false;
-  private one: 'single' | 'maybe' | null = null;
-
-  constructor(private db: PGlite, private table: string) {}
-
-  select(columns = '*', opts: { count?: string; head?: boolean } = {}) {
-    if (this.op === 'select') {
-      this.columns = columns;
-      this.counting = opts.count === 'exact';
-      this.headOnly = !!opts.head;
-    } else this.returning = columns;
-    return this;
-  }
-  insert(v: Record<string, unknown> | Record<string, unknown>[]) { this.op = 'insert'; this.values = Array.isArray(v) ? v : [v]; return this; }
-  update(v: Record<string, unknown>) { this.op = 'update'; this.values = [v]; return this; }
-  upsert(v: Record<string, unknown>, o: { onConflict: string }) { this.op = 'upsert'; this.values = [v]; this.conflict = o.onConflict; return this; }
-  eq(c: string, v: unknown) { this.filters.push([`${c} = ?`, [v]]); return this; }
-  neq(c: string, v: unknown) { this.filters.push([`${c} <> ?`, [v]]); return this; }
-  gte(c: string, v: unknown) { this.filters.push([`${c} >= ?`, [v]]); return this; }
-  is(c: string, v: null) { assert.equal(v, null); this.filters.push([`${c} is null`, []]); return this; }
-  in(c: string, v: unknown[]) { this.filters.push([`${c} in (${v.map(() => '?').join(', ')})`, v]); return this; }
-  order(c: string, o: { ascending?: boolean } = {}) { this.orderBy = ` order by ${c} ${o.ascending === false ? 'desc' : 'asc'}`; return this; }
-  limit(n: number) { this.max = n; return this; }
-  single() { this.one = 'single'; return this; }
-  maybeSingle() { this.one = 'maybe'; return this; }
-
-  then<T>(resolve: (r: { data: unknown; error: unknown; count?: number | null }) => T, reject?: (e: unknown) => T) {
-    return this.run().then(resolve, reject);
-  }
-
-  private async run(): Promise<{ data: unknown; error: unknown; count?: number | null }> {
-    const params: unknown[] = [];
-    const bind = (v: unknown) => { params.push(v !== null && typeof v === 'object' ? JSON.stringify(v) : v); return `$${params.length}`; };
-    const where = () => {
-      if (this.filters.length === 0) return '';
-      return ' where ' + this.filters.map(([sql, vals]) => { let i = 0; return sql.replace(/\?/g, () => bind(vals[i++])); }).join(' and ');
-    };
-    const cols = Object.keys(this.values[0] ?? {});
-    const ret = this.returning ? ` returning ${this.returning}` : '';
-    let sql: string;
-
-    if (this.op === 'select') {
-      sql = `select ${this.headOnly ? 'count(*)::int as n' : this.columns} from ${this.table}${where()}`;
-      if (!this.headOnly) sql += this.orderBy + (this.max !== null ? ` limit ${this.max}` : '');
-    } else if (this.op === 'update') {
-      const sets = cols.map((c) => `${c} = ${bind(this.values[0]![c])}`).join(', ');
-      sql = `update ${this.table} set ${sets}${where()}${ret}`;
-    } else {
-      const rows = this.values.map((v) => `(${cols.map((c) => bind(v[c])).join(', ')})`).join(', ');
-      sql = `insert into ${this.table} (${cols.join(', ')}) values ${rows}`;
-      if (this.op === 'upsert') {
-        sql += ` on conflict (${this.conflict}) do update set ${cols.map((c) => `${c} = excluded.${c}`).join(', ')}`;
-      }
-      sql += ret;
-    }
-
-    try {
-      const res = await this.db.query<Record<string, unknown>>(sql, params);
-      const rows = res.rows.map(normalise);
-      if (this.headOnly) return { data: null, error: null, count: Number(res.rows[0]!['n']) };
-      if (this.one) {
-        if (rows.length === 0 && this.one === 'single') return { data: null, error: { code: 'PGRST116', message: 'no rows' } };
-        return { data: rows[0] ?? null, error: null };
-      }
-      return { data: rows, error: null, count: this.counting ? rows.length : null };
-    } catch (e) {
-      const err = e as { code?: string; message: string };
-      return { data: null, error: { code: err.code, message: err.message } };
-    }
-  }
-}
-
-/** What PostgREST would send: timestamps as ISO strings, dates as 'YYYY-MM-DD'. */
-function normalise(row: Record<string, unknown>): Record<string, unknown> {
-  const out: Record<string, unknown> = {};
-  for (const [k, v] of Object.entries(row)) {
-    if (v instanceof Date) out[k] = k.endsWith('_date') ? v.toISOString().slice(0, 10) : v.toISOString();
-    else out[k] = v;
-  }
-  return out;
-}
 
 let db: PGlite;
 let svc: typeof import('../restriction.service');
@@ -192,21 +95,7 @@ before(async () => {
   ids.shareHead = await one(`insert into ledger_heads (code, name, type) values ('INC-COMPANY-SHARE', 'Company Share', 'income') returning id`);
   ids.rentHead = await one(`insert into ledger_heads (code, name, type) values ('EXP-RENT', 'Rent', 'expense') returning id`);
 
-  const { supabaseAdmin } = await import('../../config/supabase');
-  const fake = supabaseAdmin as unknown as { from: unknown; rpc: unknown };
-  fake.from = (table: string) => new Query(db, table);
-  fake.rpc = async (fn: string, args: Record<string, unknown>) => {
-    const names = Object.keys(args);
-    try {
-      const res = await db.query<Record<string, unknown>>(
-        `select * from ${fn}(${names.map((n, i) => `${n} => $${i + 1}`).join(', ')})`,
-        names.map((n) => args[n]),
-      );
-      return { data: res.rows.map(normalise), error: null };
-    } catch (e) {
-      return { data: null, error: { message: (e as Error).message } };
-    }
-  };
+  await usePglite(db);
 
   svc = await import('../restriction.service');
   shared = await import('../../shared');

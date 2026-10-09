@@ -1,6 +1,8 @@
-import { supabaseAdmin } from '../config/supabase';
+import { dbFor } from '../db';
 import { resolveShareSplit, type PaymentReceivedItem } from '../shared';
 import { paymentsReceivedInWindow } from './cash-transfers.service';
+
+const db = dbFor('previous-balance');
 
 /**
  * What a branch owes for the delivery immediately preceding a given production
@@ -82,7 +84,7 @@ export interface PreviousOrderBalance {
 //
 // Returns null when the order id does not exist (the route turns that into a 404).
 export async function getPreviousOrderBalance(orderId: string): Promise<PreviousOrderBalance | null> {
-  const { data: order, error: orderErr } = await supabaseAdmin
+  const { data: order, error: orderErr } = await db
     .from('production_orders')
     .select('id, branch_id, business_date, submitted_at')
     .eq('id', orderId)
@@ -92,7 +94,7 @@ export async function getPreviousOrderBalance(orderId: string): Promise<Previous
 
   // Only a DELIVERED order can be owed for. 'pending' shipped nothing yet and
   // 'rejected' never will, so both are skipped when walking back.
-  const { data: prev, error: prevErr } = await supabaseAdmin
+  const { data: prev, error: prevErr } = await db
     .from('production_orders')
     .select('id, demand_number, business_date, submitted_at, items:production_order_items(product_id, qty, approved_qty)')
     .eq('branch_id', order.branch_id)
@@ -107,8 +109,8 @@ export async function getPreviousOrderBalance(orderId: string): Promise<Previous
   // where it does not (migration 68) — the same resolution branch-income
   // approval uses, so the slip bills at the terms the branch is actually on.
   const [{ data: fin, error: finErr }, { data: branchRow, error: branchErr }] = await Promise.all([
-    supabaseAdmin.from('finance_settings').select('company_share_pct').maybeSingle(),
-    supabaseAdmin.from('branches').select('company_share_pct').eq('id', order.branch_id).maybeSingle(),
+    db.from('finance_settings').select('company_share_pct').maybeSingle(),
+    db.from('branches').select('company_share_pct').eq('id', order.branch_id).maybeSingle(),
   ]);
   if (finErr) throw finErr;
   if (branchErr) throw branchErr;
@@ -152,7 +154,7 @@ export async function getPreviousOrderBalance(orderId: string): Promise<Previous
   let orderedValue = 0;
   let deliveredValue = 0;
   if (productIds.length > 0) {
-    const { data: products, error: prodErr } = await supabaseAdmin
+    const { data: products, error: prodErr } = await db
       .from('products')
       .select('id, price')
       .in('id', productIds);
@@ -175,7 +177,7 @@ export async function getPreviousOrderBalance(orderId: string): Promise<Previous
   // returns on every slip of that day — four orders, one return deducted four
   // times. Bounding by the two orders' timestamps partitions returns exactly:
   // each falls in one window, so it is deducted once and never lost.
-  const { data: returns, error: retErr } = await supabaseAdmin
+  const { data: returns, error: retErr } = await db
     .from('production_returns')
     .select('product_id, product_name, qty')
     .eq('branch_id', order.branch_id)
@@ -189,7 +191,7 @@ export async function getPreviousOrderBalance(orderId: string): Promise<Previous
   const returnRows = (returns ?? []) as { product_id: string; product_name: string; qty: number | string }[];
   if (returnRows.length > 0) {
     const retIds = [...new Set(returnRows.map((r) => r.product_id))];
-    const { data: retProducts, error: retProdErr } = await supabaseAdmin
+    const { data: retProducts, error: retProdErr } = await db
       .from('products')
       .select('id, price')
       .in('id', retIds);
@@ -221,7 +223,7 @@ export async function getPreviousOrderBalance(orderId: string): Promise<Previous
   // No price lookup, unlike returns: a claim IS an amount. There are no units to
   // value, which is why the printed line carries money alone where Less Returns
   // carries `qty · money`.
-  const { data: discounts, error: discErr } = await supabaseAdmin
+  const { data: discounts, error: discErr } = await db
     .from('branch_discounts')
     .select('demand_number, amount')
     .eq('branch_id', order.branch_id)

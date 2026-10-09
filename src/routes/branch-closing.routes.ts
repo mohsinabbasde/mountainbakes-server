@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { supabaseAdmin } from '../config/supabase';
+import { dbFor } from '../db';
 import { authenticate, type AuthRequest } from '../middleware/auth';
 import { requireRole } from '../middleware/requireRole';
 import {
@@ -13,6 +13,8 @@ import {
 import { computeBranchStockHistory } from '../services/stock.service';
 import { genericExcel, genericCSV } from '../services/production-export.service';
 import { rowToApi } from '../utils/case';
+
+const db = dbFor('branch-closing');
 
 export const router = Router();
 
@@ -76,13 +78,13 @@ router.get('/export', async (req: AuthRequest, res, next) => {
     }
 
     const [ordersRes, expensesRes] = await Promise.all([
-      supabaseAdmin
+      db
         .from('orders')
         .select('*')
         .eq('branch_id', branchId)
         .gte('business_date', fromStr)
         .lte('business_date', toStr),
-      supabaseAdmin
+      db
         .from('expenses')
         .select('*')
         .eq('branch_id', branchId)

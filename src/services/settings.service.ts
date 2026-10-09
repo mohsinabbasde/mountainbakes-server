@@ -1,4 +1,4 @@
-import { supabaseAdmin } from '../config/supabase';
+import { dbFor } from '../db';
 import {
   DEFAULT_BUSINESS_HOURS,
   DEFAULT_GEOFENCE_SETTINGS,
@@ -8,6 +8,8 @@ import {
   type AppSettings,
 } from '../shared';
 import { getCached, setCached } from '../utils/cache';
+
+const db = dbFor('settings');
 
 /** Full defaults — used when the settings/app doc is missing or partially populated. */
 const FULL_DEFAULTS: AppSettings = {
@@ -85,7 +87,7 @@ export async function getAppSettings(): Promise<AppSettings> {
   const hit = getCached<AppSettings>('settings');
   if (hit) return hit;
 
-  const { data, error } = await supabaseAdmin.from('settings').select('*').maybeSingle();
+  const { data, error } = await db.from('settings').select('*').maybeSingle();
   if (error) throw new Error(`Failed to load app settings: ${error.message}`);
 
   const settings: AppSettings = { ...FULL_DEFAULTS };

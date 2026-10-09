@@ -11,11 +11,13 @@
  * every field to the column the resource config declared, and `where.ts`
  * turns the lot into one condition tree.
  */
-import { supabaseAdmin } from '../config/supabase';
+import { dbFor } from '../db';
 import type { PaginatedResponse } from '../shared';
 import { rowToApi } from '../utils/case';
 import type { AuthUser, ResolvedListQuery, ResourceConfig, ScopeRule } from './types';
 import { applyCondition, buildCondition, type FilterableQuery } from './where';
+
+const db = dbFor('data-engine');
 
 export type { FilterableQuery } from './where';
 
@@ -78,7 +80,7 @@ export async function runListQuery<Row>(
   user: AuthUser,
 ): Promise<PaginatedResponse<Row>> {
   const scopeRules = await resolveScope(config, user);
-  const base = supabaseAdmin.from(config.table).select(config.select ?? '*', { count: 'exact' });
+  const base = db.from(config.table).select(config.select ?? '*', { count: 'exact' });
   let query = buildFilteredQuery(base as unknown as FilterableQuery, config, resolved, scopeRules);
 
   const fromRow = (resolved.page - 1) * resolved.pageSize;
@@ -90,7 +92,7 @@ export async function runListQuery<Row>(
     // pager that still points at page 6. That is an empty page with an honest
     // total, not a failure; the client resets to a page that exists.
     if ((error as { code?: string }).code === 'PGRST103' && resolved.page > 1) {
-      const head = supabaseAdmin.from(config.table).select('id', { count: 'exact', head: true });
+      const head = db.from(config.table).select('id', { count: 'exact', head: true });
       const counted = buildFilteredQuery(head as unknown as FilterableQuery, config, resolved, scopeRules, { sort: false });
       const { count: total, error: countError } = await (counted as unknown as typeof head);
       if (countError) throw countError;
@@ -122,7 +124,7 @@ export async function runFullQuery<Row>(
   const scopeRules = await resolveScope(config, user);
 
   for (let offset = 0; offset < maxRows; offset += WINDOW) {
-    const base = supabaseAdmin.from(config.table).select(config.select ?? '*');
+    const base = db.from(config.table).select(config.select ?? '*');
     let query = buildFilteredQuery(base as unknown as FilterableQuery, config, resolved, scopeRules);
     const windowEnd = Math.min(offset + WINDOW, maxRows);
     query = query.range(offset, windowEnd - 1);

@@ -1,5 +1,7 @@
 import 'dotenv/config';
-import { supabaseAdmin } from '../config/supabase';
+import { dbFor } from '../db';
+
+const db = dbFor('scripts');
 
 /**
  * Maintenance script: delete expired `idempotency_keys` rows (migration 84).
@@ -38,7 +40,7 @@ async function main() {
 
   const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
 
-  const { count, error: countErr } = await supabaseAdmin
+  const { count, error: countErr } = await db
     .from('idempotency_keys')
     .select('*', { count: 'exact', head: true })
     .lt('created_at', cutoff);
@@ -62,7 +64,7 @@ async function main() {
   // Goes through the function rather than a PostgREST delete so the cutoff is
   // computed once, in the database, against the same clock the rows were
   // stamped with.
-  const { data, error } = await supabaseAdmin.rpc('purge_idempotency_keys', {
+  const { data, error } = await db.rpc('purge_idempotency_keys', {
     p_older_than_days: days,
   });
   if (error) throw error;

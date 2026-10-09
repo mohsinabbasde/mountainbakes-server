@@ -1,32 +1,40 @@
+import { randomUUID } from 'node:crypto';
 import { Router } from 'express';
-import { supabaseAdmin } from '../config/supabase';
-import { authenticate, type AuthRequest } from '../middleware/auth';
+import { dbFor } from '../db';
+import { authenticate, signedInHere, type AuthRequest } from '../middleware/auth';
 import { requireRole } from '../middleware/requireRole';
 import { validate } from '../middleware/validate';
 import { CreateUserSchema, UpdateUserSchema, AdminResetPasswordSchema, type User } from '../shared';
 import { generateTempPassword } from '../utils/password';
 import { logAudit, resolveAdminName } from '../services/audit.service';
+import {
+  RESET_TOKEN_TTL_MINUTES,
+  createCredentials,
+  createPasswordResetToken,
+  setPassword,
+  signOutEverywhere,
+} from '../services/auth/auth.service';
+import {
+  mirrorActive,
+  mirrorClaims,
+  mirrorCreateUser,
+  mirrorDeleteUser,
+  mirrorDisplayName,
+} from '../services/auth/gotrue-mirror';
+import { MailNotConfiguredError, sendPasswordResetEmail } from '../services/mailer';
 import { notify } from '../services/push.service';
 import { rowToApi } from '../utils/case';
+
+const db = dbFor('users');
 
 export const router = Router();
 
 // All user routes require super_admin
 router.use(authenticate, requireRole('super_admin'));
 
-/** Merge a claims patch onto a user's existing app_metadata (role/branch preserved). */
-async function mergeClaims(uid: string, patch: Record<string, unknown>): Promise<void> {
-  const { data, error } = await supabaseAdmin.auth.admin.getUserById(uid);
-  if (error || !data.user) throw error ?? new Error('User not found');
-  const { error: updErr } = await supabaseAdmin.auth.admin.updateUserById(uid, {
-    app_metadata: { ...(data.user.app_metadata ?? {}), ...patch },
-  });
-  if (updErr) throw updErr;
-}
-
 /** Read one users row, or null. Shared by the paths that need the target's details. */
 async function getUserRow(id: string): Promise<User | null> {
-  const { data, error } = await supabaseAdmin.from('users').select('*').eq('id', id).maybeSingle();
+  const { data, error } = await db.from('users').select('*').eq('id', id).maybeSingle();
   if (error) throw error;
   return data ? rowToApi<User>(data) : null;
 }
@@ -35,7 +43,7 @@ async function getUserRow(id: string): Promise<User | null> {
 // '/:id' so it isn't captured as a user id.
 router.get('/activity', async (_req: AuthRequest, res, next) => {
   try {
-    const { data, error } = await supabaseAdmin
+    const { data, error } = await db
       .from('audit_logs')
       .select('*')
       .order('created_at', { ascending: false })
@@ -52,7 +60,7 @@ router.get('/', async (req: AuthRequest, res, next) => {
   try {
     const { status, role } = req.query;
 
-    let query = supabaseAdmin.from('users').select('*').order('created_at', { ascending: false });
+    let query = db.from('users').select('*').order('created_at', { ascending: false });
     if (status) query = query.eq('status', status);
     if (role) query = query.eq('role', role);
 
@@ -85,7 +93,7 @@ router.post('/', validate(CreateUserSchema), async (req: AuthRequest, res, next)
     // branch_name is a denormalised cache of branches.name.
     let branchName: string | null = null;
     if (branchId) {
-      const { data: branch, error: branchErr } = await supabaseAdmin
+      const { data: branch, error: branchErr } = await db
         .from('branches')
         .select('name')
         .eq('id', branchId)
@@ -95,21 +103,17 @@ router.post('/', validate(CreateUserSchema), async (req: AuthRequest, res, next)
       branchName = branch.name as string;
     }
 
-    // Create the Supabase Auth user with role/branch in app_metadata.
-    const { data: created, error: createErr } = await supabaseAdmin.auth.admin.createUser({
-      email,
-      password,
-      email_confirm: true,
-      user_metadata: { displayName },
-      app_metadata: { role, branchId: branchId ?? null, branchName },
-    });
-    if (createErr || !created.user) throw createErr ?? new Error('Failed to create user');
-    const uid = created.user.id;
+    // While Supabase Auth is still in use the account is created there first,
+    // with role/branch in app_metadata, and ITS id is the user's id:
+    // public.users.id is a foreign key to auth.users.id, so the row must follow
+    // the auth user. Once it is gone the id is simply a new one.
+    const uid =
+      (await mirrorCreateUser({ email, password, displayName, claims: { role, branchId: branchId ?? null, branchName } })) ??
+      randomUUID();
 
-    // public.users.id is FK → auth.users.id, so the row must follow the auth user.
     // created_at / updated_at come from column defaults and the users_touch
     // trigger — do not set them here.
-    const { error: rowErr } = await supabaseAdmin.from('users').insert({
+    const { error: rowErr } = await db.from('users').insert({
       id: uid,
       email,
       display_name: displayName,
@@ -125,7 +129,7 @@ router.post('/', validate(CreateUserSchema), async (req: AuthRequest, res, next)
       // Roll the auth user back. Without this an orphaned auth account keeps the
       // email (auth.users.email is unique), so the admin could never retry the
       // same address — and the account would exist with no profile row.
-      await supabaseAdmin.auth.admin.deleteUser(uid).catch((e) =>
+      await mirrorDeleteUser(uid).catch((e) =>
         console.error(`[users] orphaned auth user ${uid} — profile insert failed and cleanup did too`, e),
       );
       if (rowErr.code === '23505') {
@@ -134,6 +138,10 @@ router.post('/', validate(CreateUserSchema), async (req: AuthRequest, res, next)
       }
       throw rowErr;
     }
+
+    // The password, for the API's own sign-in. Stored after the row because it
+    // references it; no-op until that sign-in is switched on.
+    await createCredentials(uid, password);
 
     await logAudit({
       action: 'user_created',
@@ -176,7 +184,7 @@ router.put('/:id', validate(UpdateUserSchema), async (req: AuthRequest, res, nex
       if (updates['branchId'] !== undefined) {
         branchName = null;
         if (updates['branchId']) {
-          const { data: branch, error: branchErr } = await supabaseAdmin
+          const { data: branch, error: branchErr } = await db
             .from('branches')
             .select('name')
             .eq('id', updates['branchId'] as string)
@@ -189,16 +197,16 @@ router.put('/:id', validate(UpdateUserSchema), async (req: AuthRequest, res, nex
         patch['branch_name'] = branchName;
       }
 
-      await mergeClaims(id, {
-        role: updates['role'] ?? current.role,
-        branchId: updates['branchId'] !== undefined ? updates['branchId'] || null : current.branchId,
+      await mirrorClaims(id, {
+        role: (updates['role'] as string | undefined) ?? current.role,
+        branchId: updates['branchId'] !== undefined ? (updates['branchId'] as string) || null : current.branchId,
         branchName,
       });
     }
 
     if (Object.keys(patch).length > 0) {
       // updated_at is maintained by the users_touch trigger — do not set it here.
-      const { error } = await supabaseAdmin.from('users').update(patch).eq('id', id);
+      const { error } = await db.from('users').update(patch).eq('id', id);
       if (error) {
         if (error.code === '23505') {
           res.status(409).json({ error: 'That email or username is already taken' });
@@ -209,12 +217,11 @@ router.put('/:id', validate(UpdateUserSchema), async (req: AuthRequest, res, nex
     }
 
     // Keep the auth user's display name in step with the profile row.
-    if (updates['displayName']) {
-      const { error } = await supabaseAdmin.auth.admin.updateUserById(id, {
-        user_metadata: { displayName: updates['displayName'] },
-      });
-      if (error) throw error;
-    }
+    if (updates['displayName']) await mirrorDisplayName(id, updates['displayName'] as string);
+
+    // A status change made here rather than through DELETE /:id: an account
+    // that is no longer active is signed out everywhere it is signed in.
+    if (updates['status'] !== undefined && updates['status'] !== 'active') await signOutEverywhere(id);
 
     const updated = await getUserRow(id);
     await logAudit({
@@ -248,7 +255,7 @@ router.delete('/:id/permanent', async (req: AuthRequest, res, next) => {
 
     const adminName = await resolveAdminName(req.user!.uid, req.user!.email);
 
-    const { data: deleted, error } = await supabaseAdmin.rpc('delete_user_account', { p_user_id: id });
+    const { data: deleted, error } = await db.rpc('delete_user_account', { p_user_id: id });
     if (error) throw error;
     if (!deleted) { res.status(404).json({ error: 'User not found' }); return; }
 
@@ -276,12 +283,15 @@ router.delete('/:id', async (req: AuthRequest, res, next) => {
     const target = await getUserRow(id);
     if (!target) { res.status(404).json({ error: 'User not found' }); return; }
 
-    const { error: rowErr } = await supabaseAdmin.from('users').update({ status: 'inactive' }).eq('id', id);
+    const { error: rowErr } = await db.from('users').update({ status: 'inactive' }).eq('id', id);
     if (rowErr) throw rowErr;
 
-    // Ban the auth user (~100 years) to block sign-in. 'none' re-enables.
-    const { error } = await supabaseAdmin.auth.admin.updateUserById(id, { ban_duration: '876000h' });
-    if (error) throw error;
+    // Supabase Auth: ban the auth user (~100 years) to block sign-in. The API's
+    // own sign-in reads `status` on every request, so there the row update
+    // above is already enough; ending the sessions makes it immediate for
+    // refresh as well.
+    await mirrorActive(id, false);
+    await signOutEverywhere(id);
 
     await logAudit({
       action: 'user_deactivated',
@@ -305,11 +315,10 @@ router.post('/:id/activate', async (req: AuthRequest, res, next) => {
     const target = await getUserRow(id);
     if (!target) { res.status(404).json({ error: 'User not found' }); return; }
 
-    const { error: rowErr } = await supabaseAdmin.from('users').update({ status: 'active' }).eq('id', id);
+    const { error: rowErr } = await db.from('users').update({ status: 'active' }).eq('id', id);
     if (rowErr) throw rowErr;
 
-    const { error } = await supabaseAdmin.auth.admin.updateUserById(id, { ban_duration: 'none' });
-    if (error) throw error;
+    await mirrorActive(id, true);
 
     await logAudit({
       action: 'user_activated',
@@ -337,22 +346,41 @@ router.post('/:id/reset-password', validate(AdminResetPasswordSchema), async (re
     const target = await getUserRow(id);
     if (!target) { res.status(404).json({ error: 'User not found' }); return; }
 
+    const mustChange = forceChange ? true : (target.mustChangePassword ?? false);
+
     let tempPassword: string | null = null;
     if (generateTemp) {
       tempPassword = generateTempPassword();
-      const { error } = await supabaseAdmin.auth.admin.updateUserById(id, { password: tempPassword });
-      if (error) throw error;
+      await setPassword(id, tempPassword, { mustChange });
+    } else if (forceChange) {
+      await mirrorClaims(id, { mustChangePassword: true });
     }
 
-    if (forceChange) {
-      await mergeClaims(id, { mustChangePassword: true });
+    // The reset link. An app that has been updated (it is signed in to this
+    // API) has the API send it; one that has not sends Supabase's own reset
+    // email itself, from the address returned below, as it always did.
+    //
+    // A link that could not be sent is REPORTED, not thrown: any temporary
+    // password above has already been set, and failing the request here would
+    // leave the administrator with a changed password they were never shown.
+    let emailSent = false;
+    let emailError: string | null = null;
+    if (sendEmail && signedInHere(req)) {
+      try {
+        const token = await createPasswordResetToken(id);
+        await sendPasswordResetEmail(target.email, token, RESET_TOKEN_TTL_MINUTES);
+        emailSent = true;
+      } catch (err) {
+        console.error('[users] reset email could not be sent', err instanceof Error ? err.message : err);
+        emailError = err instanceof MailNotConfiguredError ? err.message : 'The reset email could not be sent.';
+      }
     }
 
     const adminName = await resolveAdminName(req.user!.uid, req.user!.email);
-    const { error: rowErr } = await supabaseAdmin
+    const { error: rowErr } = await db
       .from('users')
       .update({
-        must_change_password: forceChange ? true : (target.mustChangePassword ?? false),
+        must_change_password: mustChange,
         last_password_reset: new Date().toISOString(),
         password_reset_by: req.user!.uid,
         password_reset_by_name: adminName,
@@ -387,7 +415,7 @@ router.post('/:id/reset-password', validate(AdminResetPasswordSchema), async (re
       targetUserId: id,
     });
 
-    res.json({ success: true, tempPassword, email: sendEmail ? target.email : null });
+    res.json({ success: true, tempPassword, email: sendEmail ? target.email : null, emailSent, emailError });
   } catch (err) {
     next(err);
   }

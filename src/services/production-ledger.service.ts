@@ -1,10 +1,12 @@
-import { supabaseAdmin } from '../config/supabase';
+import { dbFor } from '../db';
 import {
   businessDateStr,
   type ProductionLedgerType,
   type ProductionStockLedgerRow,
   type ProductionStockMovementType,
 } from '../shared';
+
+const db = dbFor('production-ledger');
 
 /**
  * The Stock Ledger (§13) — `production_stock_history` read back as the movement
@@ -124,7 +126,7 @@ export async function getStockLedger(q: LedgerQuery): Promise<LedgerPage> {
   // and joining products just to filter would read the whole ledger.
   let productIds: string[] | null = null;
   if (q.categoryId) {
-    const { data, error } = await supabaseAdmin
+    const { data, error } = await db
       .from('products')
       .select('id')
       .eq('category_id', q.categoryId);
@@ -145,8 +147,8 @@ export async function getStockLedger(q: LedgerQuery): Promise<LedgerPage> {
   if (search) {
     const like = `%${search}%`;
     const [prods, branches] = await Promise.all([
-      supabaseAdmin.from('products').select('id').or(`stock_code.ilike.${like},name.ilike.${like}`),
-      supabaseAdmin.from('branches').select('id').ilike('name', like),
+      db.from('products').select('id').or(`stock_code.ilike.${like},name.ilike.${like}`),
+      db.from('branches').select('id').ilike('name', like),
     ]);
     if (prods.error) throw prods.error;
     if (branches.error) throw branches.error;
@@ -154,7 +156,7 @@ export async function getStockLedger(q: LedgerQuery): Promise<LedgerPage> {
     searchBranchIds = (branches.data ?? []).map((b) => b.id as string);
   }
 
-  let query = supabaseAdmin
+  let query = db
     .from('production_stock_history')
     .select(
       `id, transaction_no, created_at, business_date, product_id, product_name, type, delta,
@@ -254,13 +256,13 @@ export async function getProductDayLedger(
   date: string = businessDateStr(),
 ): Promise<ProductionStockLedgerRow[]> {
   const [prior, day, product, reservations] = await Promise.all([
-    supabaseAdmin
+    db
       .from('production_stock_history')
       .select('delta')
       .eq('product_id', productId)
       .lt('business_date', date),
     getStockLedger({ productId, from: date, to: date, limit: 200 }),
-    supabaseAdmin.from('products').select('id, name, stock_code').eq('id', productId).maybeSingle(),
+    db.from('products').select('id, name, stock_code').eq('id', productId).maybeSingle(),
     outstandingReservationRows(productId, date),
   ]);
   if (prior.error) throw prior.error;
@@ -334,7 +336,7 @@ async function outstandingReservationRows(
 ): Promise<ProductionStockLedgerRow[]> {
   if (date !== businessDateStr()) return [];
 
-  const { data, error } = await supabaseAdmin
+  const { data, error } = await db
     .from('production_orders')
     .select('id, demand_number, branch_id, branch_name, status, submitted_at, items:production_order_items(product_id, qty, approved_qty)')
     .in('status', ['pending', 'awaiting_verification']);
@@ -381,14 +383,14 @@ async function outstandingReservationRows(
 
 async function stockCodesFor(ids: string[]): Promise<Map<string, string>> {
   if (ids.length === 0) return new Map();
-  const { data, error } = await supabaseAdmin.from('products').select('id, stock_code').in('id', ids);
+  const { data, error } = await db.from('products').select('id, stock_code').in('id', ids);
   if (error) throw error;
   return new Map((data ?? []).map((p) => [p.id as string, (p.stock_code as string) ?? '—']));
 }
 
 async function branchNamesFor(ids: string[]): Promise<Map<string, string>> {
   if (ids.length === 0) return new Map();
-  const { data, error } = await supabaseAdmin.from('branches').select('id, name').in('id', ids);
+  const { data, error } = await db.from('branches').select('id, name').in('id', ids);
   if (error) throw error;
   return new Map((data ?? []).map((b) => [b.id as string, b.name as string]));
 }

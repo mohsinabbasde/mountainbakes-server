@@ -1,4 +1,4 @@
-import { supabaseAdmin } from '../config/supabase';
+import { dbFor } from '../db';
 import {
   DEFAULT_FINANCE_SETTINGS,
   SYSTEM_LEDGER_HEAD_CODES,
@@ -10,6 +10,8 @@ import {
 } from '../shared';
 import { getCached, setCached, invalidate } from '../utils/cache';
 import { rowToApi } from '../utils/case';
+
+const db = dbFor('finance-settings');
 
 const CACHE_KEY = 'financeSettings';
 const TABLE = 'finance_settings';
@@ -37,7 +39,7 @@ export async function getFinanceSettings(): Promise<FinanceSettings> {
   const hit = getCached<FinanceSettings>(CACHE_KEY);
   if (hit) return hit;
 
-  const { data, error } = await supabaseAdmin.from(TABLE).select('*').maybeSingle();
+  const { data, error } = await db.from(TABLE).select('*').maybeSingle();
   if (error) throw new Error(`Failed to load finance settings: ${error.message}`);
 
   const row = rowToApi<Partial<FinanceSettings>>(data ?? {});
@@ -73,7 +75,7 @@ export async function getFinanceSettings(): Promise<FinanceSettings> {
 export async function getBranchShareSplit(branchId: string): Promise<ShareSplit> {
   const [settings, { data, error }] = await Promise.all([
     getFinanceSettings(),
-    supabaseAdmin.from('branches').select('company_share_pct').eq('id', branchId).maybeSingle(),
+    db.from('branches').select('company_share_pct').eq('id', branchId).maybeSingle(),
   ]);
   if (error) throw error;
   // PostgREST serialises numeric as a STRING; resolveShareSplit coerces, but a
@@ -96,7 +98,7 @@ export async function getBranchShareSplits(branchIds: string[]): Promise<Map<str
   const out = new Map<string, ShareSplit>();
   if (branchIds.length === 0) return out;
 
-  const { data, error } = await supabaseAdmin
+  const { data, error } = await db
     .from('branches')
     .select('id, company_share_pct')
     .in('id', branchIds);
@@ -153,7 +155,7 @@ export async function updateFinanceSettings(
   row['updated_at'] = new Date().toISOString();
   row['updated_by'] = actor.name;
 
-  const { error } = await supabaseAdmin.from(TABLE).update(row).eq('id', true);
+  const { error } = await db.from(TABLE).update(row).eq('id', true);
   if (error) throw error;
   invalidate(CACHE_KEY);
 
@@ -195,7 +197,7 @@ async function postOpeningBalance(
 ): Promise<string | null> {
   const head = await getLedgerHeadByCode(SYSTEM_LEDGER_HEAD_CODES.OPENING_BALANCE);
 
-  const { data, error } = await supabaseAdmin.rpc('post_finance_ledger_entry', {
+  const { data, error } = await db.rpc('post_finance_ledger_entry', {
     p_entry_date: entryDate,
     p_ledger_head_id: head.id,
     p_description: `Opening balance (${account}) set to ${delta > 0 ? '+' : ''}${delta}`,
@@ -234,7 +236,7 @@ export async function getLedgerHeadByCode(code: string): Promise<{ id: string; n
   const hit = getCached<{ id: string; name: string }>(cacheKey);
   if (hit) return hit;
 
-  const { data, error } = await supabaseAdmin
+  const { data, error } = await db
     .from('ledger_heads')
     .select('id, name')
     .eq('code', code)

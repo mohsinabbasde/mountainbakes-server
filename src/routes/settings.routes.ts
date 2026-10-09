@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import multer from 'multer';
-import { supabaseAdmin } from '../config/supabase';
+import { dbFor } from '../db';
 import { authenticate, type AuthRequest } from '../middleware/auth';
 import { requireRole } from '../middleware/requireRole';
 import { validate } from '../middleware/validate';
@@ -8,6 +8,8 @@ import { UpdateSettingsSchema, type AppSettings } from '../shared';
 import { invalidate } from '../utils/cache';
 import { getAppSettings, FIELD_TO_COLUMN } from '../services/settings.service';
 import { fileStore } from '../services/file-store';
+
+const db = dbFor('settings');
 
 export const router = Router();
 
@@ -59,7 +61,7 @@ router.put('/', requireRole('super_admin'), validate(UpdateSettingsSchema), asyn
       if (column) row[column] = value;
     }
 
-    const { error } = await supabaseAdmin.from('settings').upsert(row, { onConflict: 'id' });
+    const { error } = await db.from('settings').upsert(row, { onConflict: 'id' });
     if (error) throw error;
 
     invalidate('settings');
@@ -83,7 +85,7 @@ router.post('/logo', requireRole('super_admin'), // eslint-disable-next-line @ty
     // The path of the logo currently on record, read straight from the table
     // rather than via the cached getAppSettings() — this is the delete target,
     // and deleting based on a stale value could remove the live logo.
-    const { data: existing, error: readErr } = await supabaseAdmin
+    const { data: existing, error: readErr } = await db
       .from('settings')
       .select('logo_path')
       .maybeSingle();
@@ -100,7 +102,7 @@ router.post('/logo', requireRole('super_admin'), // eslint-disable-next-line @ty
     // is this API's own /api/public/branding route.
     const logoUrl = fileStore().publicUrl(LOGO_BUCKET, logoPath);
 
-    const { error: writeErr } = await supabaseAdmin
+    const { error: writeErr } = await db
       .from('settings')
       .upsert({ id: true, logo_url: logoUrl, logo_path: logoPath, updated_by: req.user!.uid }, { onConflict: 'id' });
     if (writeErr) throw writeErr;

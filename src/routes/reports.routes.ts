@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { supabaseAdmin } from '../config/supabase';
+import { dbFor } from '../db';
 import { authenticate, type AuthRequest } from '../middleware/auth';
 import { requireRole } from '../middleware/requireRole';
 import { exportToPDF, exportToExcel, exportToCSV } from '../services/export.service';
@@ -7,6 +7,8 @@ import { businessRange, type CategoryBreakdown, type PaymentMethodBreakdown } fr
 import { startOfMonth, endOfMonth, format } from 'date-fns';
 import { rowToApi } from '../utils/case';
 import { sortRows } from '../utils/sortRows';
+
+const db = dbFor('reports');
 
 export const router = Router();
 
@@ -69,7 +71,7 @@ router.get('/summary', async (req: AuthRequest, res, next) => {
     const { from, to } = getDateRange(period, String(req.query['from'] || ''), String(req.query['to'] || ''));
     const basic = String(req.query['fields'] || '') === 'basic';
 
-    let query = supabaseAdmin
+    let query = db
       .from('orders')
       .select(basic ? ORDER_SELECT_BASIC : ORDER_SELECT)
       .gte('created_at', from)
@@ -197,7 +199,7 @@ router.get('/summary', async (req: AuthRequest, res, next) => {
       ? req.user!.branchId
       : (req.query['branchId'] as string | undefined) || null;
 
-    let expenseQuery = supabaseAdmin
+    let expenseQuery = db
       .from('expenses')
       .select('amount, business_date')
       .gte('created_at', from)
@@ -228,7 +230,7 @@ router.get('/summary', async (req: AuthRequest, res, next) => {
     // Branch budget (only when a single branch is in scope)
     let budget: { daily: number; weekly: number; monthly: number } | undefined;
     if (scopeBranchId) {
-      const { data: branch, error: branchErr } = await supabaseAdmin
+      const { data: branch, error: branchErr } = await db
         .from('branches')
         .select('daily_budget, weekly_budget, monthly_budget')
         .eq('id', scopeBranchId)
@@ -321,7 +323,7 @@ router.get('/packing-usage', async (req: AuthRequest, res, next) => {
     const page = Math.max(1, Math.trunc(Number(req.query['page'])) || 1);
     const pageSize = Math.min(500, Math.max(1, Math.trunc(Number(req.query['pageSize'])) || 50));
 
-    let query = supabaseAdmin
+    let query = db
       .from('production_orders')
       .select(`
         business_date, branch_id, branch_name, status,
@@ -461,7 +463,7 @@ router.get('/branch-comparison', requireRole('super_admin'), async (req: AuthReq
 
     // `status != 'cancelled'` alongside a range filter is just an ordinary
     // predicate here.
-    const { data, error } = await supabaseAdmin
+    const { data, error } = await db
       .from('orders')
       .select('branch_id, branch_name, grand_total')
       .gte('created_at', from)
@@ -494,7 +496,7 @@ router.get('/export', async (req: AuthRequest, res, next) => {
     const period = String(req.query['period'] || 'monthly');
     const { from, to } = getDateRange(period, String(req.query['from'] || ''), String(req.query['to'] || ''));
 
-    let query = supabaseAdmin
+    let query = db
       .from('orders')
       .select(ORDER_SELECT)
       .gte('created_at', from)

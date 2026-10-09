@@ -1,8 +1,10 @@
-import { supabaseAdmin } from '../config/supabase';
+import { dbFor } from '../db';
 import { logAudit } from './audit.service';
 import { countRecentFailures } from './login-attempts.service';
 import { notify } from './push.service';
 import { describeDevice, type ParsedUserAgent } from '../utils/userAgent';
+
+const db = dbFor('login-security');
 
 /**
  * Suspicious-login detection, and the admin alert that follows it.
@@ -131,7 +133,7 @@ export async function detectSuspicion(params: {
   try {
     const since = new Date(Date.now() - HISTORY_DAYS * 24 * 60 * 60 * 1000).toISOString();
 
-    const { data, error } = await supabaseAdmin
+    const { data, error } = await db
       .from('login_sessions')
       .select('country, browser, os, login_at')
       .eq('user_id', params.userId)

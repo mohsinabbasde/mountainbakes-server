@@ -1,4 +1,6 @@
-import { supabaseAdmin } from '../config/supabase';
+import { dbFor } from '../db';
+
+const db = dbFor('business-day');
 
 /**
  * Business-day closure state.
@@ -22,7 +24,7 @@ import { supabaseAdmin } from '../config/supabase';
  * which is why the check is specifically for `status === 'success'`.
  */
 export async function isBusinessDayClosed(businessDate: string): Promise<boolean> {
-  const { data, error } = await supabaseAdmin
+  const { data, error } = await db
     .from('business_day_closures')
     .select('status')
     .eq('business_date', businessDate)

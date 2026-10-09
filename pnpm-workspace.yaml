@@ -3,3 +3,7 @@
 allowBuilds:
   esbuild: true
   protobufjs: true
+  # The Prisma CLI fetches its schema engine (used by `db pull` / `migrate`) in
+  # a postinstall. Dev-only: the API runs the committed client in src/generated.
+  '@prisma/engines': true
+  prisma: true

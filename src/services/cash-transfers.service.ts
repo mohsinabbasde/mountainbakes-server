@@ -1,4 +1,4 @@
-import { supabaseAdmin } from '../config/supabase';
+import { dbFor } from '../db';
 import {
   CASH_TRANSFER_METHODS,
   CASH_TRANSFER_STATUSES,
@@ -21,6 +21,8 @@ import { bindAttachments, listAttachments, listAttachmentsFor } from './attachme
 import { getLedgerEntry } from './finance-ledger.service';
 import { notify } from './push.service';
 import { checkCashDeposit, enforceRestrictions } from './restriction.service';
+
+const db = dbFor('cash-transfers');
 
 /**
  * Cash transfers — money a branch hands to the company (migration 118).
@@ -148,7 +150,7 @@ export async function listCashTransfers(
 
   // Soft-deleted through the Help Desk (migration 120) → gone from every list.
   let query = withoutDeleted(
-    supabaseAdmin
+    db
       .from('cash_transfers')
       .select('*', { count: 'exact' }),
   )
@@ -190,7 +192,7 @@ export async function listCashTransfers(
  * so the response does not confirm the id exists.
  */
 export async function getCashTransfer(id: string, branchId?: string | null): Promise<CashTransfer | null> {
-  let query = withoutDeleted(supabaseAdmin.from('cash_transfers').select('*').eq('id', id));
+  let query = withoutDeleted(db.from('cash_transfers').select('*').eq('id', id));
   if (branchId) query = query.eq('branch_id', branchId);
   const { data, error } = await query.maybeSingle();
   if (error) throw error;
@@ -209,7 +211,7 @@ export async function createCashTransfer(input: {
   actor: { uid: string; email: string };
   body: CreateCashTransferInput;
 }): Promise<CashTransfer> {
-  const { data: branch, error: brErr } = await supabaseAdmin
+  const { data: branch, error: brErr } = await db
     .from('branches')
     .select('id, name')
     .eq('id', input.branchId)
@@ -242,7 +244,7 @@ export async function createCashTransfer(input: {
   const { cashAmount, easypaisaAmount, bankAmount, fuelCharges } = input.body;
   const amount = cashTransferTotal({ cashAmount, easypaisaAmount, bankAmount });
 
-  const { data: created, error: insErr } = await supabaseAdmin
+  const { data: created, error: insErr } = await db
     .from('cash_transfers')
     .insert({
       branch_id: branch.id,
@@ -333,7 +335,7 @@ export async function approveCashTransfer(
   actor: CashTransferActor,
   note?: string | null,
 ): Promise<{ transfer: CashTransfer; ledgerEntry: LedgerEntry | null }> {
-  const { data, error } = await supabaseAdmin.rpc('approve_cash_transfer', {
+  const { data, error } = await db.rpc('approve_cash_transfer', {
     p_id: id,
     p_actor_id: actor.uid,
     p_actor_name: actor.name,
@@ -360,7 +362,7 @@ export async function rejectCashTransfer(
   actor: CashTransferActor,
   reason: string,
 ): Promise<CashTransfer> {
-  const { data, error } = await supabaseAdmin.rpc('reject_cash_transfer', {
+  const { data, error } = await db.rpc('reject_cash_transfer', {
     p_id: id,
     p_actor_id: actor.uid,
     p_actor_name: actor.name,
@@ -442,7 +444,7 @@ export async function paymentsReceivedInWindow(
   // vouchers (migration 125) and must drop out of the slip's figure too.
   const approved = () =>
     withoutDeleted(
-      supabaseAdmin
+      db
         .from('cash_transfers')
         .select('id, transfer_no, voucher_no, business_date, amount, cash_amount, easypaisa_amount, bank_amount, created_at'),
     )

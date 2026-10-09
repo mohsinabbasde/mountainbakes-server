@@ -1,7 +1,7 @@
 import ExcelJS from 'exceljs';
 import { randomUUID } from 'crypto';
 import { Readable } from 'stream';
-import { supabaseAdmin } from '../config/supabase';
+import { dbFor } from '../db';
 import {
   businessDateStr,
   type PriceHistoryDoc,
@@ -14,6 +14,8 @@ import {
 import { invalidate } from '../utils/cache';
 import { rowToApi } from '../utils/case';
 import { notify } from './push.service';
+
+const db = dbFor('price');
 
 /**
  * Product price changes with an effective date. `products.price` always holds the
@@ -97,7 +99,7 @@ interface ApplyPriceChangeRow {
 export async function applyPriceChange(input: ApplyPriceChangeInput): Promise<ApplyPriceChangeResult> {
   const { productId, newPrice, effectiveDate, reason, source, changedBy, changedByName } = input;
 
-  const { data, error } = await supabaseAdmin.rpc('apply_price_change', {
+  const { data, error } = await db.rpc('apply_price_change', {
     p_product_id: productId,
     p_new_price: newPrice,
     p_effective_date: effectiveDate,
@@ -162,7 +164,7 @@ export async function activateDuePrices(
   // ever diagnostic, and nothing currently calls with 'startup'.
   const trigger = opts.trigger === 'startup' ? 'manual' : opts.trigger;
 
-  const { data: claimed, error: claimErr } = await supabaseAdmin.rpc('claim_price_activation', {
+  const { data: claimed, error: claimErr } = await db.rpc('claim_price_activation', {
     p_date: today,
     p_trigger: trigger,
   });
@@ -174,7 +176,7 @@ export async function activateDuePrices(
 
   try {
     const activated = await withRetry(async () => {
-      const { data, error } = await supabaseAdmin.rpc('activate_due_prices', { p_today: today });
+      const { data, error } = await db.rpc('activate_due_prices', { p_today: today });
       if (error) throw error;
       return Number(data ?? 0);
     }, 3);
@@ -191,7 +193,7 @@ export async function activateDuePrices(
       });
     }
 
-    await supabaseAdmin.rpc('close_price_activation', {
+    await db.rpc('close_price_activation', {
       p_date: today,
       p_status: 'success',
       p_activated: activated,
@@ -202,7 +204,7 @@ export async function activateDuePrices(
     const message = err instanceof Error ? err.message : String(err);
     // Best-effort: the run already failed, so a failure to record that must not
     // mask the original error.
-    await supabaseAdmin
+    await db
       .rpc('close_price_activation', { p_date: today, p_status: 'failed', p_activated: 0, p_error: message })
       .then(undefined, () => undefined);
     console.error(`[price-activation] FAILED for ${today}:`, message);
@@ -235,7 +237,7 @@ export async function listPriceHistory(
   // rather than by fetching the whole collection and sorting/slicing in memory.
   const sortCol = (sortBy && PRICE_HISTORY_SORTABLE_COLUMNS[sortBy]) || 'changed_on';
   const ascending = sortDir === 'asc';
-  let query = supabaseAdmin
+  let query = db
     .from(HISTORY)
     .select('*', { count: 'exact' })
     .order(sortCol, { ascending })
@@ -290,7 +292,7 @@ export async function buildPriceListRows(opts?: { groupBy?: 'category' }): Promi
   // (migration 69). They are excluded from the price list for the same reason
   // they are excluded from the catalogue — nobody prices a single named cake
   // through here, and a list padded with them is harder to read.
-  let productQuery = supabaseAdmin
+  let productQuery = db
     .from('products')
     .select('id, name, sku, price, category_name, is_active, created_at')
     .eq('is_special', false);
@@ -298,7 +300,7 @@ export async function buildPriceListRows(opts?: { groupBy?: 'category' }): Promi
 
   const [{ data: products, error: prodErr }, { data: history, error: histErr }] = await Promise.all([
     productQuery,
-    supabaseAdmin
+    db
       .from(HISTORY)
       .select('product_id, effective_date, version_number')
       .eq('status', 'active')
@@ -421,7 +423,7 @@ export async function parseImportWorkbook(buffer: Buffer): Promise<ImportPreview
     throw Object.assign(new Error('File must have a "Product Code" column and a "Current Price" (or Price) column'), { status: 400 });
   }
 
-  const { data: products, error } = await supabaseAdmin
+  const { data: products, error } = await db
     .from('products')
     .select('id, name, sku, price, category_name');
   if (error) throw error;

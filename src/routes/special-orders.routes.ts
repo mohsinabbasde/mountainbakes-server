@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { supabaseAdmin } from '../config/supabase';
+import { dbFor } from '../db';
 import { authenticate, type AuthRequest } from '../middleware/auth';
 import { requireRole } from '../middleware/requireRole';
 import { validate } from '../middleware/validate';
@@ -19,6 +19,8 @@ import { notify } from '../services/push.service';
 import { resolveClientBusinessDate } from '../utils/clientBusinessDate';
 import { rowToApi } from '../utils/case';
 import { invalidate } from '../utils/cache';
+
+const db = dbFor('special-orders');
 
 /**
  * Special Orders — a branch's one-off, sent straight to Production.
@@ -122,7 +124,7 @@ router.post('/', requireRole(...BRANCH_ROLES), idempotent('special_order.create'
     // saved while the caller is told it failed, which a retry then duplicates.
     const photoIds = [...new Set(items.flatMap((i) => i.attachmentIds ?? []))];
     if (photoIds.length > 0) {
-      const { data: staged, error: stagedErr } = await supabaseAdmin
+      const { data: staged, error: stagedErr } = await db
         .from('attachments')
         .select('id')
         .in('id', photoIds)
@@ -140,7 +142,7 @@ router.post('/', requireRole(...BRANCH_ROLES), idempotent('special_order.create'
 
     // Order + items + any hidden product, in one transaction. `amount` is sent
     // exactly as entered and stored on the item; nothing reads a price list.
-    const { data, error } = await supabaseAdmin.rpc('create_special_order', {
+    const { data, error } = await db.rpc('create_special_order', {
       p_branch_id: branchId,
       p_branch_name: req.user!.branchName || '',
       p_business_date: businessDate,
@@ -199,7 +201,7 @@ router.post('/', requireRole(...BRANCH_ROLES), idempotent('special_order.create'
 // the token's branch and cannot be widened by a query parameter.
 router.get('/', requireRole(...BRANCH_ROLES, ...PRODUCTION_ROLES), async (req: AuthRequest, res, next) => {
   try {
-    let query = supabaseAdmin
+    let query = db
       .from('special_orders')
       .select(ORDER_SELECT)
       .or(`status.in.(${OPEN_STATUSES.join(',')}),business_date.gte.${businessDaysAgoStr(6)}`)
@@ -233,7 +235,7 @@ router.put('/:id/prepare', requireRole(...PRODUCTION_ROLES), validate(PrepareSpe
   try {
     const id = req.params['id']!;
     const { items = [] } = req.body as { items?: { itemId: string; preparedQty: number }[] };
-    const { data, error } = await supabaseAdmin.rpc('prepare_special_order', {
+    const { data, error } = await db.rpc('prepare_special_order', {
       p_order_id: id,
       p_by: req.user!.uid,
       p_by_name: req.user!.email,
@@ -285,7 +287,7 @@ router.put('/:id/verify', requireRole(...BRANCH_ROLES), idempotent('special_orde
     // another branch's order or to one that is not waiting for it. The RPC
     // re-checks all of this under a row lock; this read is what keeps a refused
     // request from leaving a bound photo behind.
-    const { data: order, error: orderErr } = await supabaseAdmin
+    const { data: order, error: orderErr } = await db
       .from('special_orders')
       .select('id, branch_id, status')
       .eq('id', id)
@@ -310,7 +312,7 @@ router.put('/:id/verify', requireRole(...BRANCH_ROLES), idempotent('special_orde
     // A retry after a half-finished attempt arrives with photos this order
     // already holds. Bind only the ones it does not, so the retry completes
     // instead of failing on its own earlier success.
-    const { data: already, error: alreadyErr } = await supabaseAdmin
+    const { data: already, error: alreadyErr } = await db
       .from('attachments')
       .select('id')
       .in('id', attachmentIds)
@@ -326,7 +328,7 @@ router.put('/:id/verify', requireRole(...BRANCH_ROLES), idempotent('special_orde
       actor: { uid: req.user!.uid },
     });
 
-    const { data, error } = await supabaseAdmin.rpc('verify_special_order', {
+    const { data, error } = await db.rpc('verify_special_order', {
       p_order_id: id,
       p_branch_id: req.user!.branchId,
       p_by: req.user!.uid,
@@ -400,7 +402,7 @@ router.put('/:id/verify', requireRole(...BRANCH_ROLES), idempotent('special_orde
 router.put('/:id/approve', requireRole(...PRODUCTION_ROLES), async (req: AuthRequest, res, next) => {
   try {
     const id = req.params['id']!;
-    const { data, error } = await supabaseAdmin.rpc('approve_special_order', {
+    const { data, error } = await db.rpc('approve_special_order', {
       p_order_id: id,
       p_by: req.user!.uid,
       p_by_name: req.user!.email,
