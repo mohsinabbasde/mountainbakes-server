@@ -1,4 +1,4 @@
-import { supabaseAdmin } from '../config/supabase';
+import { dbFor } from '../db';
 import {
   businessDateStr,
   type LoginAttempt,
@@ -9,6 +9,8 @@ import {
 import { rowToApi } from '../utils/case';
 import { parseUserAgent } from '../utils/userAgent';
 import { lookupIp } from './geoip.service';
+
+const db = dbFor('login-attempts');
 
 /**
  * Failed sign-ins — recording them, and reading them back.
@@ -21,10 +23,10 @@ import { lookupIp } from './geoip.service';
  * "sometimes authenticated" code path that ends up trusting a body it should
  * not. Two modules, two postures.
  *
- * THE RECORD IS CLIENT-REPORTED AND THEREFORE FORGEABLE. The app is a static
- * export that authenticates against Supabase directly, so the API never observes
- * the failure; the browser posts it, from an endpoint that by definition cannot
- * require a token. Anybody who can reach the API can write rows here describing
+ * THE RECORD IS CLIENT-REPORTED AND THEREFORE FORGEABLE. `/api/auth/login`
+ * refuses a bad sign-in and writes nothing down; the browser that saw the
+ * refusal posts it, to an endpoint that by definition cannot require a token.
+ * Anybody who can reach the API can write rows here describing
  * attempts that never happened. That is a real limitation, and it is why nothing
  * in this app acts on these rows: they are evidence a person reads. A forgeable
  * table wired to a lockout would be a denial-of-service tool with an admin
@@ -76,13 +78,13 @@ export async function recordAttempt(params: {
 }): Promise<void> {
   // Lower-cased so the same address typed two ways groups into one, and capped
   // at the column's documented width. Addresses are case-insensitive in every
-  // practical sense and Supabase treats them so.
+  // practical sense and sign-in treats them so.
   const email = params.email.trim().toLowerCase().slice(0, 255);
 
   const geo = await lookupIp(params.ipAddress);
   const device = parseUserAgent(params.userAgent);
 
-  const { error } = await supabaseAdmin.from('login_attempts').insert({
+  const { error } = await db.from('login_attempts').insert({
     email,
     reason: params.reason,
     ip_address: params.ipAddress,
@@ -140,7 +142,7 @@ export async function listAttempts(opts: {
   const sortCol = opts.sortBy ? ATTEMPT_SORT_COLUMNS[opts.sortBy] : 'attempted_at';
   const ascending = opts.sortDir === 'asc';
 
-  let q = supabaseAdmin
+  let q = db
     .from('login_attempts')
     .select(COLUMNS, { count: 'exact' })
     .order(sortCol, { ascending });
@@ -152,7 +154,7 @@ export async function listAttempts(opts: {
 
   if (filters.search) {
     // Same treatment the session search gets: `%` and `_` are `ilike`
-    // wildcards, and the rest are PostgREST filter-language punctuation. A term
+    // wildcards, and the rest are punctuation in the query filter language. A term
     // containing any of them would quietly change which rows matched rather than
     // failing, which is the worst way for a filter to be wrong.
     const term = filters.search.replace(/[,()%_\\*"']/g, ' ').trim();
@@ -183,7 +185,7 @@ export async function listAttempts(opts: {
  */
 export async function countRecentFailures(email: string, hours = 24): Promise<number> {
   const since = new Date(Date.now() - hours * 60 * 60 * 1000).toISOString();
-  const { count, error } = await supabaseAdmin
+  const { count, error } = await db
     .from('login_attempts')
     .select('id', { count: 'exact', head: true })
     .eq('email', email.trim().toLowerCase())

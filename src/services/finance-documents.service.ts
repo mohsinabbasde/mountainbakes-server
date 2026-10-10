@@ -1,4 +1,4 @@
-import { supabaseAdmin } from '../config/supabase';
+import { dbFor } from '../db';
 import {
   businessDateStr,
   EDITABLE_DOC_STATUSES,
@@ -23,6 +23,8 @@ import { bindAttachments, listAttachments, listAttachmentsFor } from './attachme
 import { postEntry, requireActiveHead } from './finance-ledger.service';
 import { getLedgerHeadByCode, round2 } from './finance-settings.service';
 import { checkFinanceEntry, enforceRestrictions, type RestrictionGuard } from './restriction.service';
+
+const db = dbFor('finance-documents');
 
 /**
  * Manual income / expense documents and partner expenses.
@@ -120,7 +122,7 @@ export async function listTransactions(
   const ascending = q.sortDir === 'asc';
 
   let query = withoutDeleted(
-    supabaseAdmin
+    db
       .from('finance_transactions')
       .select('*', { count: 'exact' })
       .order(sortCol, { ascending })
@@ -181,7 +183,7 @@ async function assertNotDuplicateIncome(
   // point of deleting a wrong income posting is to enter the right one, and
   // matching against the deleted row would reject it as a duplicate of itself.
   const { data: existing, error } = await withoutDeleted(
-    supabaseAdmin
+    db
       .from('ledger_entries')
       .select('voucher_no, entry_date, debit, ledger_head_name')
       .eq('ledger_head_id', ledgerHeadId)
@@ -255,7 +257,7 @@ export async function createTransaction(
   // check and is about to be written.
   const guard = await guardFinanceEntry({ ledgerHeadId: head.id, businessDate, amount: input.amount, branch }, actor);
 
-  const { data, error } = await supabaseAdmin
+  const { data, error } = await db
     .from('finance_transactions')
     .insert({
       txn_type: head.type,
@@ -357,7 +359,7 @@ export async function updateTransaction(
   }
 
   const { data, error } = await withoutDeleted(
-    supabaseAdmin.from('finance_transactions').update(row).eq('id', id).in('status', EDITABLE_DOC_STATUSES),
+    db.from('finance_transactions').update(row).eq('id', id).in('status', EDITABLE_DOC_STATUSES),
   )
     .select('*')
     .single();
@@ -371,7 +373,7 @@ export async function updateTransaction(
 
 export async function getTransaction(id: string): Promise<FinanceTransaction | null> {
   const { data, error } = await withoutDeleted(
-    supabaseAdmin.from('finance_transactions').select('*').eq('id', id),
+    db.from('finance_transactions').select('*').eq('id', id),
   ).maybeSingle();
   if (error) throw error;
   if (!data) return null;
@@ -385,7 +387,7 @@ export async function getTransaction(id: string): Promise<FinanceTransaction | n
 /** Move a draft into the approval queue. */
 export async function submitTransaction(id: string): Promise<FinanceTransaction> {
   const { data, error } = await withoutDeleted(
-    supabaseAdmin
+    db
       .from('finance_transactions')
       .update({ status: 'pending_approval', rejection_reason: null })
       .eq('id', id)
@@ -443,7 +445,7 @@ export async function rejectTransaction(
 // ---------------------------------------------------------------------------
 
 export async function listFinancePartners(includeInactive = false): Promise<FinancePartner[]> {
-  let query = supabaseAdmin.from('finance_partners').select('*').order('name', { ascending: true });
+  let query = db.from('finance_partners').select('*').order('name', { ascending: true });
   if (!includeInactive) query = query.eq('is_active', true);
   const { data, error } = await query;
   if (error) throw error;
@@ -451,7 +453,7 @@ export async function listFinancePartners(includeInactive = false): Promise<Fina
 }
 
 async function requireActivePartner(id: string): Promise<FinancePartner> {
-  const { data, error } = await supabaseAdmin.from('finance_partners').select('*').eq('id', id).maybeSingle();
+  const { data, error } = await db.from('finance_partners').select('*').eq('id', id).maybeSingle();
   if (error) throw error;
   if (!data) throw Object.assign(new Error('Partner not found'), { status: 404 });
   const partner = { ...rowToApi<FinancePartner>(data), sharePct: num((data as Record<string, unknown>)['share_pct']) };
@@ -470,7 +472,7 @@ export async function updateFinancePartner(id: string, input: UpdateFinancePartn
   if (input.contactNumber !== undefined) row['contact_number'] = input.contactNumber;
   if (input.emergencyNumber !== undefined) row['emergency_number'] = input.emergencyNumber;
 
-  const { data, error } = await supabaseAdmin
+  const { data, error } = await db
     .from('finance_partners')
     .update(row)
     .eq('id', id)
@@ -519,7 +521,7 @@ export async function listPartnerExpenses(
   const ascending = q.sortDir === 'asc';
 
   let query = withoutDeleted(
-    supabaseAdmin
+    db
       .from('partner_expenses')
       .select('*', { count: 'exact' })
       .order(sortCol, { ascending })
@@ -568,7 +570,7 @@ export async function createPartnerExpense(
   // form only asks for a partner, an amount and a reason, not a ledger head.
   const head = await getLedgerHeadByCode(SYSTEM_LEDGER_HEAD_CODES.PARTNER_WITHDRAWAL);
 
-  const { data, error } = await supabaseAdmin
+  const { data, error } = await db
     .from('partner_expenses')
     .insert({
       partner_id: partner.id,
@@ -620,7 +622,7 @@ export async function updatePartnerExpense(
   }
 
   const { data, error } = await withoutDeleted(
-    supabaseAdmin.from('partner_expenses').update(row).eq('id', id).in('status', EDITABLE_DOC_STATUSES),
+    db.from('partner_expenses').update(row).eq('id', id).in('status', EDITABLE_DOC_STATUSES),
   )
     .select('*')
     .single();
@@ -630,7 +632,7 @@ export async function updatePartnerExpense(
 
 export async function getPartnerExpense(id: string): Promise<PartnerExpense | null> {
   const { data, error } = await withoutDeleted(
-    supabaseAdmin.from('partner_expenses').select('*').eq('id', id),
+    db.from('partner_expenses').select('*').eq('id', id),
   ).maybeSingle();
   if (error) throw error;
   if (!data) return null;
@@ -643,7 +645,7 @@ export async function getPartnerExpense(id: string): Promise<PartnerExpense | nu
 
 export async function submitPartnerExpense(id: string): Promise<PartnerExpense> {
   const { data, error } = await withoutDeleted(
-    supabaseAdmin
+    db
       .from('partner_expenses')
       .update({ status: 'pending_approval', rejection_reason: null })
       .eq('id', id)
@@ -713,7 +715,7 @@ export async function rejectPartnerExpense(
  */
 export async function getPartnerShareSummary(from?: string, to?: string): Promise<PartnerShareSummary> {
   let ledgerQuery = withoutDeleted(
-    supabaseAdmin
+    db
       .from('ledger_entries')
       .select('ledger_head_type, source_type, debit, credit')
       .in('status', ['posted', 'locked']),
@@ -738,7 +740,7 @@ export async function getPartnerShareSummary(from?: string, to?: string): Promis
   const partners = await listFinancePartners();
 
   let txnQuery = withoutDeleted(
-    supabaseAdmin
+    db
       .from('partner_expenses')
       .select('partner_id, txn_kind, amount')
       .in('status', ['posted', 'locked'])
@@ -842,7 +844,7 @@ async function approveDocument(input: ApproveDocumentInput): Promise<LedgerEntry
   }
 
   const { data: claimed, error: claimErr } = await withoutDeleted(
-    supabaseAdmin
+    db
       .from(input.table)
       .update({
         status: 'approved',
@@ -864,7 +866,7 @@ async function approveDocument(input: ApproveDocumentInput): Promise<LedgerEntry
   const entry = await postEntry({ ...input.posting, sourceId: input.id, actor: input.actor });
 
   const { error: postedErr } = await withoutDeleted(
-    supabaseAdmin
+    db
       .from(input.table)
       .update({ status: 'posted', ledger_entry_id: entry.id })
       .eq('id', input.id),
@@ -881,7 +883,7 @@ async function rejectDocument(
   actor: { uid: string; name: string },
 ): Promise<void> {
   const { data, error } = await withoutDeleted(
-    supabaseAdmin
+    db
       .from(table)
       .update({
         status: 'rejected',
@@ -906,7 +908,7 @@ async function rejectDocument(
 
 async function resolveBranch(branchId?: string | null): Promise<{ id: string; name: string } | null> {
   if (!branchId) return null;
-  const { data, error } = await supabaseAdmin.from('branches').select('id, name').eq('id', branchId).maybeSingle();
+  const { data, error } = await db.from('branches').select('id, name').eq('id', branchId).maybeSingle();
   if (error) throw error;
   if (!data) throw Object.assign(new Error('Branch not found'), { status: 400 });
   return { id: data.id as string, name: data.name as string };

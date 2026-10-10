@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { randomUUID } from 'crypto';
-import { supabaseAdmin } from '../config/supabase';
+import { dbFor } from '../db';
 import { authenticate, type AuthRequest } from '../middleware/auth';
 import { requireRole } from '../middleware/requireRole';
 import { validate } from '../middleware/validate';
@@ -50,6 +50,8 @@ import { resolveClientBusinessDate } from '../utils/clientBusinessDate';
 import { requireInsideGeofence } from '../middleware/requireInsideGeofence';
 import { rowToApi } from '../utils/case';
 
+const db = dbFor('stock');
+
 export const router = Router();
 
 router.use(authenticate);
@@ -60,7 +62,7 @@ router.get('/audit', async (req: AuthRequest, res, next) => {
     // Ordering and the 200-row cap happen in Postgres (stock_audit_log_branch_idx
     // is already (branch_id, created_at desc)); this used to fetch every row and
     // sort/slice in memory.
-    let query = supabaseAdmin
+    let query = db
       .from('stock_audit_log')
       .select('*')
       .order('created_at', { ascending: false })
@@ -256,8 +258,8 @@ router.post('/return', requireRole('super_admin', ...BRANCH_ROLES), idempotent('
     // back in a single `in` lookup however many rows the return carries.
     const productIds = items.map((i) => i.productId);
     const [branchRes, productsRes] = await Promise.all([
-      supabaseAdmin.from('branches').select('name').eq('id', branchId).maybeSingle(),
-      supabaseAdmin.from('products').select('id, name').in('id', productIds),
+      db.from('branches').select('name').eq('id', branchId).maybeSingle(),
+      db.from('products').select('id, name').in('id', productIds),
     ]);
     if (branchRes.error) throw branchRes.error;
     if (productsRes.error) throw productsRes.error;
@@ -343,7 +345,7 @@ router.post('/return', requireRole('super_admin', ...BRANCH_ROLES), idempotent('
     //    raised the return, which made every row read as "approved by the person
     //    who asked" — the review columns now mean what they say and stay empty
     //    until Production actually decides.
-    const { error: insertErr } = await supabaseAdmin.from('production_returns').insert(
+    const { error: insertErr } = await db.from('production_returns').insert(
       committed.map((c) => ({
         id: c.id,
         branch_id: branchId,
@@ -593,7 +595,7 @@ async function notifyBranchOfStockChange(
 
 /** Look up a branch by id, or null. Shared by both admin endpoints. */
 async function findBranch(branchId: string): Promise<{ id: string; name: string } | null> {
-  const { data, error } = await supabaseAdmin
+  const { data, error } = await db
     .from('branches')
     .select('id, name')
     .eq('id', branchId)
@@ -622,7 +624,7 @@ router.patch('/admin', requireRole('super_admin'), validate(AdminStockSaveSchema
     // rather than the request: stock_history keeps a name snapshot, and it should
     // read as the name at correction time, not whatever the client's cache held.
     const productIds = [...new Set(rows.map((r) => r.productId))];
-    const { data: products, error: prodErr } = await supabaseAdmin
+    const { data: products, error: prodErr } = await db
       .from('products')
       .select('id, name')
       .in('id', productIds);
@@ -711,7 +713,7 @@ router.post('/admin/delete', requireRole('super_admin'), validate(AdminStockDele
     const branch = await findBranch(branchId);
     if (!branch) { res.status(404).json({ error: 'Branch not found' }); return; }
 
-    const { data: product, error: prodErr } = await supabaseAdmin
+    const { data: product, error: prodErr } = await db
       .from('products')
       .select('name')
       .eq('id', productId)

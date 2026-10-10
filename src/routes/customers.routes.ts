@@ -1,10 +1,12 @@
 import { Router } from 'express';
-import { supabaseAdmin } from '../config/supabase';
+import { dbFor } from '../db';
 import { authenticate, type AuthRequest } from '../middleware/auth';
 import { validate } from '../middleware/validate';
 import { requireRole } from '../middleware/requireRole';
 import { CreateCustomerSchema, UpdateCustomerSchema, BRANCH_ROLES, isBranchRole } from '../shared';
 import { rowToApi, apiToRow } from '../utils/case';
+
+const db = dbFor('customers');
 
 export const router = Router();
 
@@ -14,7 +16,7 @@ router.get('/', async (req: AuthRequest, res, next) => {
   try {
     const { search } = req.query;
 
-    let query = supabaseAdmin.from('customers').select('*').order('created_at', { ascending: false });
+    let query = db.from('customers').select('*').order('created_at', { ascending: false });
 
     // Branch managers can only see their own branch customers
     if (isBranchRole(req.user!.role) && req.user!.branchId) {
@@ -44,7 +46,7 @@ router.get('/', async (req: AuthRequest, res, next) => {
 
 router.get('/:id', async (req: AuthRequest, res, next) => {
   try {
-    const { data, error } = await supabaseAdmin
+    const { data, error } = await db
       .from('customers')
       .select('*')
       .eq('id', req.params['id']!)
@@ -73,7 +75,7 @@ router.post('/', requireRole('super_admin', ...BRANCH_ROLES), validate(CreateCus
     if (!effectiveBranchId) { res.status(400).json({ error: 'Branch is required' }); return; }
 
     // branch_name is a denormalised cache of branches.name.
-    const { data: branch, error: branchErr } = await supabaseAdmin
+    const { data: branch, error: branchErr } = await db
       .from('branches')
       .select('name')
       .eq('id', effectiveBranchId)
@@ -84,7 +86,7 @@ router.post('/', requireRole('super_admin', ...BRANCH_ROLES), validate(CreateCus
     // total_orders / total_spent default to 0 and are maintained by
     // increment_customer_stats (migration 13) — do not set them here.
     // created_at / updated_at come from column defaults and customers_touch.
-    const { data, error } = await supabaseAdmin
+    const { data, error } = await db
       .from('customers')
       .insert({
         name,
@@ -106,7 +108,7 @@ router.post('/', requireRole('super_admin', ...BRANCH_ROLES), validate(CreateCus
 
 router.put('/:id', requireRole('super_admin', ...BRANCH_ROLES), validate(UpdateCustomerSchema), async (req: AuthRequest, res, next) => {
   try {
-    const { data: existing, error: readErr } = await supabaseAdmin
+    const { data: existing, error: readErr } = await db
       .from('customers')
       .select('branch_id')
       .eq('id', req.params['id']!)
@@ -122,7 +124,7 @@ router.put('/:id', requireRole('super_admin', ...BRANCH_ROLES), validate(UpdateC
     // UpdateCustomerSchema covers name/phone/email/address only — branch and the
     // order totals are deliberately not editable here.
     // updated_at is maintained by the customers_touch trigger — do not set it here.
-    const { error } = await supabaseAdmin
+    const { error } = await db
       .from('customers')
       .update(apiToRow(req.body))
       .eq('id', req.params['id']!);

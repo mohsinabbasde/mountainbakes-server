@@ -1,4 +1,4 @@
-import { supabaseAdmin } from '../config/supabase';
+import { dbFor } from '../db';
 import {
   CASH_TRANSFER_METHODS,
   CASH_TRANSFER_STATUSES,
@@ -22,6 +22,8 @@ import { getLedgerEntry } from './finance-ledger.service';
 import { notify } from './push.service';
 import { checkCashDeposit, enforceRestrictions } from './restriction.service';
 
+const db = dbFor('cash-transfers');
+
 /**
  * Cash transfers — money a branch hands to the company (migration 118).
  *
@@ -33,8 +35,8 @@ import { checkCashDeposit, enforceRestrictions } from './restriction.service';
  * JWT or chosen from the query string, and this file trusts what it is handed.
  * Every write that changes a transfer's state is a Postgres function
  * (approve_cash_transfer / reject_cash_transfer): the approval has to post the
- * RV- receipt and flip the status in one transaction, and PostgREST gives each
- * call its own transaction, so that cannot be done from here in two steps.
+ * RV- receipt and flip the status in one transaction, and each `db` call is its
+ * own transaction, so that cannot be done from here in two steps.
  *
  * WHAT IT NEVER DOES. Nothing here touches production_orders, branch_discounts,
  * orders, expenses or stock. The transfer is one transaction; the production
@@ -49,7 +51,7 @@ import { checkCashDeposit, enforceRestrictions } from './restriction.service';
 /**
  * One DB row → the API's CashTransfer shape. Two fixes the discount router
  * also has to make: `business_date` → `date`, and every money column through
- * Number() because PostgREST can hand a `numeric` back as a string.
+ * Number(), so a `numeric` that arrived as a string never leaves as one.
  */
 function toApi(row: Record<string, unknown>): CashTransfer {
   const { businessDate, amount, cashAmount, easypaisaAmount, bankAmount, fuelCharges, ...rest } =
@@ -112,7 +114,7 @@ function asClientError(error: { code?: string; message: string }): Error & { sta
     return Object.assign(
       new Error(
         'Cash transfers are unavailable: database migration 118 (cash_transfers) ' +
-          'has not been applied. Run `npx supabase db push --linked`.',
+          'has not been applied. Apply the pending database migrations.',
       ),
       { status: 503 },
     );
@@ -148,7 +150,7 @@ export async function listCashTransfers(
 
   // Soft-deleted through the Help Desk (migration 120) → gone from every list.
   let query = withoutDeleted(
-    supabaseAdmin
+    db
       .from('cash_transfers')
       .select('*', { count: 'exact' }),
   )
@@ -190,7 +192,7 @@ export async function listCashTransfers(
  * so the response does not confirm the id exists.
  */
 export async function getCashTransfer(id: string, branchId?: string | null): Promise<CashTransfer | null> {
-  let query = withoutDeleted(supabaseAdmin.from('cash_transfers').select('*').eq('id', id));
+  let query = withoutDeleted(db.from('cash_transfers').select('*').eq('id', id));
   if (branchId) query = query.eq('branch_id', branchId);
   const { data, error } = await query.maybeSingle();
   if (error) throw error;
@@ -209,7 +211,7 @@ export async function createCashTransfer(input: {
   actor: { uid: string; email: string };
   body: CreateCashTransferInput;
 }): Promise<CashTransfer> {
-  const { data: branch, error: brErr } = await supabaseAdmin
+  const { data: branch, error: brErr } = await db
     .from('branches')
     .select('id, name')
     .eq('id', input.branchId)
@@ -242,7 +244,7 @@ export async function createCashTransfer(input: {
   const { cashAmount, easypaisaAmount, bankAmount, fuelCharges } = input.body;
   const amount = cashTransferTotal({ cashAmount, easypaisaAmount, bankAmount });
 
-  const { data: created, error: insErr } = await supabaseAdmin
+  const { data: created, error: insErr } = await db
     .from('cash_transfers')
     .insert({
       branch_id: branch.id,
@@ -282,8 +284,8 @@ export async function createCashTransfer(input: {
   const transfer = { ...toApi(created as Record<string, unknown>), attachments };
 
   // Finance is two roles, and a role broadcast reaches one role — so one row
-  // each. branchId null: a finance user holds no branch claim and the
-  // notifications RLS drops a broadcast whose branch does not match. Best
+  // each. branchId null: a finance user has no branch, and the notification
+  // feed leaves out a role broadcast whose branch is not the reader's. Best
   // effort: the transfer is saved, and a failed notice must not turn a 201
   // into a 500 that the client would retry.
   const summary = depositSummary(transfer);
@@ -333,7 +335,7 @@ export async function approveCashTransfer(
   actor: CashTransferActor,
   note?: string | null,
 ): Promise<{ transfer: CashTransfer; ledgerEntry: LedgerEntry | null }> {
-  const { data, error } = await supabaseAdmin.rpc('approve_cash_transfer', {
+  const { data, error } = await db.rpc('approve_cash_transfer', {
     p_id: id,
     p_actor_id: actor.uid,
     p_actor_name: actor.name,
@@ -360,7 +362,7 @@ export async function rejectCashTransfer(
   actor: CashTransferActor,
   reason: string,
 ): Promise<CashTransfer> {
-  const { data, error } = await supabaseAdmin.rpc('reject_cash_transfer', {
+  const { data, error } = await db.rpc('reject_cash_transfer', {
     p_id: id,
     p_actor_id: actor.uid,
     p_actor_name: actor.name,
@@ -442,7 +444,7 @@ export async function paymentsReceivedInWindow(
   // vouchers (migration 125) and must drop out of the slip's figure too.
   const approved = () =>
     withoutDeleted(
-      supabaseAdmin
+      db
         .from('cash_transfers')
         .select('id, transfer_no, voucher_no, business_date, amount, cash_amount, easypaisa_amount, bank_amount, created_at'),
     )

@@ -24,19 +24,22 @@ import {
  *   pnpm backup:restore:test -- --backup-id backup-daily-2026-09-21
  *   pnpm backup:restore:test -- --keep       leave the downloaded archives in the temp dir
  *
- * THIS IS DESTRUCTIVE FOR THE TARGET DATABASE (drops public/app/auth/supabase_migrations, then pg_restore). It refuses to run when the target
- *   - is the production database (same host + database as SUPABASE_DB_URL),
- *   - mentions the production project ref anywhere,
+ * THIS IS DESTRUCTIVE FOR THE TARGET DATABASE (drops public and app, then pg_restore). It refuses to run when the target
+ *   - is the production database (same host + database as BACKUP_DB_URL),
+ *   - names the production server anywhere,
  *   - or PRODUCTION=true / BACKUP_RESTORE_TEST_ALLOW_PRODUCTION is set (never honoured, always refused).
  *
  * Steps:
  *   1. pick the latest verified backup (or --backup-id), read its manifest
- *   2. download both archives, verify SHA-256 against the manifest
- *   3. prepare the target: roles anon/authenticated/service_role, schemas auth/extensions, common extensions
- *   4. pg_restore --no-owner --no-privileges: auth archive first, then main (public, app, supabase_migrations)
- *   5. pg_restore the auth archive (auth.users, auth.identities)
- *   6. verify: table count vs manifest, row counts of the business tables, key functions, triggers, indexes, constraints
- *   7. record the drill in backup_restore_tests (status, checks, row counts) — never the target URL
+ *   2. download the archive(s), verify SHA-256 against the manifest
+ *   3. prepare the target: roles anon/authenticated/service_role, schemas app/extensions, the extensions
+ *   4. pg_restore --no-owner --no-privileges the main archive (public, app)
+ *   5. verify: row counts of the business tables, a password for every account, key functions, triggers, indexes, constraints
+ *   6. record the drill in backup_restore_tests (status, checks, row counts) — never the target URL
+ *
+ * A backup taken while accounts were kept outside `public` has a second, "auth"
+ * archive and a public schema that refers to it. Such a backup is restored the
+ * way it was made: the auth schema is prepared and its archive goes in first.
  *
  * Exit codes: 0 all checks passed · 1 restore or a check failed · 2 config / safety refusal
  */
@@ -58,7 +61,6 @@ const KEY_FUNCTIONS = [
   'claim_business_day_closure(date, closure_trigger, text, boolean, integer)',
   'claim_backup_job(text, text, text, uuid, text, text, text, integer)',
   'list_public_base_tables()',
-  'app.jwt_role()',
 ];
 
 function safetyCheck(target: string, prodUrl: string | null, prodRef: string | null): string | null {
@@ -69,11 +71,11 @@ function safetyCheck(target: string, prodUrl: string | null, prodRef: string | n
   } catch {
     return 'BACKUP_RESTORE_TEST_DB_URL is not a valid URL';
   }
-  if (prodRef && target.includes(prodRef)) return `target mentions the production project ref ${prodRef}`;
+  if (prodRef && target.includes(prodRef)) return `target names the production server ${prodRef}`;
   if (prodUrl) {
     try {
       const p = new URL(prodUrl);
-      if (p.hostname === t.hostname && p.pathname === t.pathname) return 'target is the same host and database as SUPABASE_DB_URL (production)';
+      if (p.hostname === t.hostname && p.pathname === t.pathname) return 'target is the same host and database as BACKUP_DB_URL (production)';
       if (p.hostname === t.hostname && p.username === t.username) return 'target uses the production host and user';
     } catch {
       /* prod URL invalid — already rejected by config */
@@ -101,7 +103,7 @@ async function main(): Promise<number> {
     console.error('BACKUP_RESTORE_TEST_DB_URL is required — an isolated, non-production PostgreSQL database.');
     return 2;
   }
-  const refusal = safetyCheck(target, process.env.SUPABASE_DB_URL?.trim() || null, cfg.databaseRef);
+  const refusal = safetyCheck(target, process.env.BACKUP_DB_URL?.trim() || null, cfg.databaseRef);
   if (refusal) {
     console.error(`REFUSED: ${refusal}`);
     return 2;
@@ -160,6 +162,8 @@ async function main(): Promise<number> {
       if (!ok) throw new Error(`checksum mismatch for ${f.s3Key}`);
       local[f.role] = file;
     }
+    // Backups taken before accounts moved into `public` carry an auth archive.
+    const hasAuthArchive = local.auth !== '';
 
     // 3. prepare target
     console.log('Preparing target roles, schemas and extensions …');
@@ -167,59 +171,62 @@ async function main(): Promise<number> {
       `do $$ begin
          if not exists (select 1 from pg_roles where rolname = 'anon') then create role anon nologin; end if;
          if not exists (select 1 from pg_roles where rolname = 'authenticated') then create role authenticated nologin; end if;
-         if not exists (select 1 from pg_roles where rolname = 'service_role') then create role service_role nologin bypassrls; end if;
-         if not exists (select 1 from pg_roles where rolname = 'supabase_auth_admin') then create role supabase_auth_admin nologin; end if;
+         if not exists (select 1 from pg_roles where rolname = 'service_role') then create role service_role nologin; end if;
        end $$;
-       -- Start from an empty target so reruns are repeatable: pg_restore --clean cannot drop public or
-       -- auth.users once a previous restore left cross-schema FKs behind. Only reached after safetyCheck().
+       -- Start from an empty target so reruns are repeatable. Only reached after safetyCheck().
        drop schema if exists public, app, auth, supabase_migrations cascade;
        create schema public;
-       create schema if not exists auth; create schema if not exists extensions; create schema if not exists app;
+       create schema if not exists extensions; create schema if not exists app;
        create extension if not exists pgcrypto with schema extensions;
        create extension if not exists "uuid-ossp" with schema extensions;
-       -- Production has pg_trgm in public (migration 109 created it unqualified) and the dumped
-       -- trigram indexes reference public.gin_trgm_ops, so it must live there, not in extensions.
+       -- pg_trgm lives in public (migration 109 created it unqualified) and the dumped trigram
+       -- indexes reference public.gin_trgm_ops, so it must be there, not in extensions.
        create extension if not exists pg_trgm with schema public;
        do $$ begin
          if exists (select 1 from pg_extension e join pg_namespace n on n.oid = e.extnamespace
                      where e.extname = 'pg_trgm' and n.nspname <> 'public') then
            alter extension pg_trgm set schema public;
          end if;
-       end $$;
-       create extension if not exists citext with schema extensions;
-       create extension if not exists pg_stat_statements with schema extensions;`,
+       end $$;`,
       target, pgBinDir, secrets,
     ).catch((err) => {
       console.warn(`  (preparation warning: ${redactSecrets(String(err), secrets).slice(0, 300)})`);
     });
-    // Supabase's public schema references auth.uid()/auth.role() and auth.jwt() in defaults and policies.
-    await psql(
-      `create or replace function auth.uid() returns uuid language sql stable as $$ select nullif(current_setting('request.jwt.claim.sub', true), '')::uuid $$;
-       create or replace function auth.role() returns text language sql stable as $$ select nullif(current_setting('request.jwt.claim.role', true), '')::text $$;
-       create or replace function auth.jwt() returns jsonb language sql stable as $$ select coalesce(nullif(current_setting('request.jwt.claim', true), ''), nullif(current_setting('request.jwt.claims', true), ''))::jsonb $$;`,
-      target, pgBinDir, secrets,
-    ).catch(() => undefined);
 
-    // 4. auth restore — self-contained (auth.users + auth.identities only), so it goes first
-    console.log('Restoring auth archive (auth.users, auth.identities) …');
     const pgRestore = resolvePgBinary('pg_restore', pgBinDir);
-    const authRes = await runPgProcess(
-      pgRestore,
-      {
-        argv: ['--no-owner', '--no-privileges', '--no-comments', '--dbname', pgConnectionEnv(target).PGDATABASE, local.auth],
-        env: pgConnectionEnv(target),
-        timeoutMs: cfg.pgDumpTimeoutMs,
-        label: 'pg_restore auth',
-      },
-      { pgBinDir, secrets },
-    ).catch((err) => {
-      console.warn(`  pg_restore auth reported errors: ${redactSecrets(String((err as Error).message), secrets).split('\n').slice(0, 6).join(' | ')}`);
-      return null;
-    });
-    checks.push({ name: 'pg_restore auth exited cleanly', ok: !!authRes });
+    if (hasAuthArchive) {
+      // That public schema refers to an auth schema in defaults, policies and one foreign key.
+      await psql(
+        `do $$ begin
+           if not exists (select 1 from pg_roles where rolname = 'supabase_auth_admin') then create role supabase_auth_admin nologin; end if;
+         end $$;
+         create schema if not exists auth;
+         create or replace function auth.uid() returns uuid language sql stable as $$ select nullif(current_setting('request.jwt.claim.sub', true), '')::uuid $$;
+         create or replace function auth.role() returns text language sql stable as $$ select nullif(current_setting('request.jwt.claim.role', true), '')::text $$;
+         create or replace function auth.jwt() returns jsonb language sql stable as $$ select coalesce(nullif(current_setting('request.jwt.claim', true), ''), nullif(current_setting('request.jwt.claims', true), ''))::jsonb $$;`,
+        target, pgBinDir, secrets,
+      ).catch(() => undefined);
 
-    // 5. main restore — after auth, so public.users_id_fkey → auth.users resolves
-    console.log('Restoring main archive (public, app, supabase_migrations) …');
+      // Self-contained (auth.users + auth.identities only), so it goes first.
+      console.log('Restoring auth archive (auth.users, auth.identities) …');
+      const authRes = await runPgProcess(
+        pgRestore,
+        {
+          argv: ['--no-owner', '--no-privileges', '--no-comments', '--dbname', pgConnectionEnv(target).PGDATABASE, local.auth],
+          env: pgConnectionEnv(target),
+          timeoutMs: cfg.pgDumpTimeoutMs,
+          label: 'pg_restore auth',
+        },
+        { pgBinDir, secrets },
+      ).catch((err) => {
+        console.warn(`  pg_restore auth reported errors: ${redactSecrets(String((err as Error).message), secrets).split('\n').slice(0, 6).join(' | ')}`);
+        return null;
+      });
+      checks.push({ name: 'pg_restore auth exited cleanly', ok: !!authRes });
+    }
+
+    // 4. main restore
+    console.log('Restoring main archive …');
     // Skip the archive's CREATE SCHEMA public/app: step 3 already made them (pg_trgm must be in public first).
     // --list goes to a file: runPgProcess caps captured stdout, which would silently truncate the TOC.
     const tocFile = path.join(tmp, 'main.toc');
@@ -244,15 +251,11 @@ async function main(): Promise<number> {
     });
     checks.push({ name: 'pg_restore main exited cleanly', ok: !!mainRes, detail: mainRes ? `${(mainRes.durationMs / 1000).toFixed(1)}s` : 'errors reported (see log)' });
 
-    // 6. verify
+    // 5. verify
     console.log('Verifying …');
     const q = (sql: string) => psql(sql, target, pgBinDir, secrets);
     tableCount = Number(await q(`select count(*) from information_schema.tables where table_schema = 'public' and table_type = 'BASE TABLE'`));
-    const expectedTables = Number(await q(`select count(*) from information_schema.tables where table_schema='public' and table_type='BASE TABLE'`)); // same query — the manifest holds no count; compare against migration expectation below
     checks.push({ name: 'public tables restored', ok: tableCount > 50, detail: `${tableCount} tables` });
-    void expectedTables;
-    const migrations = Number(await q(`select count(*) from supabase_migrations.schema_migrations`).catch(() => '0'));
-    checks.push({ name: 'supabase_migrations.schema_migrations restored', ok: migrations > 100, detail: `${migrations} migrations recorded` });
 
     for (const t of BUSINESS_TABLES) {
       const n = await q(`select count(*) from public.${t}`).catch(() => null);
@@ -263,12 +266,18 @@ async function main(): Promise<number> {
       rowCounts[t] = Number(n);
       checks.push({ name: `table ${t} restored`, ok: true, detail: `${n} rows` });
     }
-    const authUsers = Number(await q(`select count(*) from auth.users`).catch(() => '-1'));
-    rowCounts['auth.users'] = authUsers;
-    checks.push({ name: 'auth.users restored', ok: authUsers >= 0, detail: `${authUsers} rows` });
-    checks.push({ name: 'auth.users count matches public.users', ok: authUsers === rowCounts.users, detail: `${authUsers} vs ${rowCounts.users}` });
-    const userFk = (await q(`select exists (select 1 from pg_constraint where conname = 'users_id_fkey' and conrelid = 'public.users'::regclass and confrelid = 'auth.users'::regclass)`).catch(() => 'f')) === 't';
-    checks.push({ name: 'FK public.users → auth.users restored', ok: userFk });
+    if (hasAuthArchive) {
+      const authUsers = Number(await q(`select count(*) from auth.users`).catch(() => '-1'));
+      rowCounts['auth.users'] = authUsers;
+      checks.push({ name: 'auth.users restored', ok: authUsers >= 0, detail: `${authUsers} rows` });
+      checks.push({ name: 'auth.users count matches public.users', ok: authUsers === rowCounts.users, detail: `${authUsers} vs ${rowCounts.users}` });
+    } else {
+      // Nobody can sign in to a restored database whose accounts came back without their passwords.
+      const withoutPassword = Number(await q(
+        `select count(*) from public.users u where not exists (select 1 from public.user_credentials c where c.user_id = u.id)`,
+      ).catch(() => '-1'));
+      checks.push({ name: 'every account has its password', ok: withoutPassword === 0, detail: withoutPassword < 0 ? 'public.user_credentials is missing' : `${withoutPassword} without` });
+    }
 
     for (const fn of KEY_FUNCTIONS) {
       const exists = (await q(`select to_regprocedure('${fn}') is not null`).catch(() => 'f')) === 't';
@@ -280,8 +289,6 @@ async function main(): Promise<number> {
     checks.push({ name: 'indexes restored', ok: indexes > 50, detail: `${indexes}` });
     const constraints = Number(await q(`select count(*) from information_schema.table_constraints where table_schema = 'public' and constraint_type in ('FOREIGN KEY','UNIQUE','CHECK','PRIMARY KEY')`));
     checks.push({ name: 'constraints restored', ok: constraints > 50, detail: `${constraints}` });
-    const policies = Number(await q(`select count(*) from pg_policies where schemaname = 'public'`));
-    checks.push({ name: 'RLS policies restored', ok: policies > 0, detail: `${policies}` });
     const views = Number(await q(`select count(*) from information_schema.views where table_schema = 'public'`));
     checks.push({ name: 'views restored', ok: true, detail: `${views}` });
     const sequences = Number(await q(`select count(*) from information_schema.sequences where sequence_schema = 'public'`));
@@ -330,6 +337,6 @@ main()
       console.error(`\n${err.message}`);
       process.exit(2);
     }
-    console.error('\nRestore test failed:', redactSecrets(err instanceof Error ? err.message : String(err), [process.env.BACKUP_RESTORE_TEST_DB_URL ?? '', process.env.SUPABASE_DB_URL ?? '']));
+    console.error('\nRestore test failed:', redactSecrets(err instanceof Error ? err.message : String(err), [process.env.BACKUP_RESTORE_TEST_DB_URL ?? '', process.env.BACKUP_DB_URL ?? '']));
     process.exit(1);
   });

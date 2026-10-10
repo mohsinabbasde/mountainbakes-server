@@ -1,4 +1,4 @@
-import { supabaseAdmin } from '../config/supabase';
+import { dbFor } from '../db';
 import {
   computeDailySaleCompanyShare,
   computeDailySaleDifferences,
@@ -21,6 +21,8 @@ import { rowToApi } from '../utils/case';
 import { withoutDeleted } from '../utils/softDelete';
 import { getBranchShareSplits, getFinanceSettings } from './finance-settings.service';
 
+const db = dbFor('daily-sale');
+
 /**
  * Daily Sale Record — the branch's daily reconciliation of system sales against
  * physically counted receipts.
@@ -33,20 +35,20 @@ import { getBranchShareSplits, getFinanceSettings } from './finance-settings.ser
  * module validates the window, decides WHOSE data the caller is asking about, and
  * names the fields. It never adds up a sale.
  *
- * That split is not stylistic. PostgREST gives every call its own transaction, so
+ * That split is not stylistic. Every `db` call is its own transaction, so
  * "check the lock, then write the figure" cannot be made atomic from here — see
  * the repo CLAUDE.md. It is also what makes §24 true rather than aspirational:
  * there is no shape in which a client can send a total.
  *
  * ─── This service depends on migration 101 being applied ─────────────────────
- * Same contract migration 100 has with sales-analytics.service.ts: `db push`
- * before the deploy. `asClientError` turns the specific "function does not exist"
- * failure into a sentence that says so, rather than a masked 500 that reads like
- * the API is down.
+ * Same contract migration 100 has with sales-analytics.service.ts: the migration
+ * is applied before the deploy. `asClientError` turns the specific "function does
+ * not exist" failure into a sentence that says so, rather than a masked 500 that
+ * reads like the API is down.
  */
 
 const num = (v: unknown): number => {
-  // PostgREST can hand a `numeric` column back as a STRING. Every figure below is
+  // A `numeric` column must not get through as a STRING. Every figure below is
   // typed `number` on the API contract, and a string would flow all the way to
   // formatCurrency — whose toLocaleString options a string silently ignores — so
   // the branch would read a raw unformatted figure with no error anywhere.
@@ -105,7 +107,7 @@ function asClientError(error: { code?: string; message: string }): Error & { sta
     return Object.assign(
       new Error(
         'Daily Sale Records are unavailable: database migration 101 ' +
-          '(daily_sale_records) has not been applied. Run `npx supabase db push --linked`.',
+          '(daily_sale_records) has not been applied. Apply the pending database migrations.',
       ),
       { status: 503 },
     );
@@ -139,7 +141,7 @@ export interface DailySaleActor {
  * admin unlocked it".
  */
 export async function getPaymentMethodLocks(branchId: string): Promise<PaymentMethodLock[]> {
-  const { data, error } = await supabaseAdmin
+  const { data, error } = await db
     .from('payment_method_settings')
     .select('*')
     .eq('branch_id', branchId);
@@ -181,7 +183,7 @@ export async function setPaymentMethodLock(input: {
   reason?: string;
   actor: DailySaleActor;
 }): Promise<PaymentMethodLock[]> {
-  const { error } = await supabaseAdmin.rpc('set_payment_method_lock', {
+  const { error } = await db.rpc('set_payment_method_lock', {
     p_branch_id: input.branchId,
     p_payment_method: input.paymentMethod,
     p_is_locked: input.isLocked,
@@ -372,7 +374,7 @@ async function loadCompanyShares(
     getBranchShareSplits(branchIds),
     getFinanceSettings(),
     withoutDeleted(
-      supabaseAdmin
+      db
         .from('finance_income_approvals')
         .select('branch_id, business_date, company_share_pct')
         .in('branch_id', branchIds)
@@ -426,13 +428,13 @@ export async function listDailySaleRecords(params: ListParams): Promise<DailySal
   }
 
   const [figuresRes, storedRes] = await Promise.all([
-    supabaseAdmin.rpc('daily_sale_figures', {
+    db.rpc('daily_sale_figures', {
       p_from: from,
       p_to: to,
       p_branch_id: params.branchId,
     }),
     (() => {
-      let q = supabaseAdmin
+      let q = db
         .from('daily_sale_records')
         .select('*')
         .gte('business_date', from)
@@ -467,7 +469,7 @@ export async function listDailySaleRecords(params: ListParams): Promise<DailySal
   } else {
     const ids = [...new Set([...liveBranches, ...storedBranches])];
     if (ids.length > 0) {
-      const { data, error } = await supabaseAdmin.from('branches').select('id, name').in('id', ids);
+      const { data, error } = await db.from('branches').select('id, name').in('id', ids);
       if (error) throw asClientError(error);
       for (const b of (data ?? []) as { id: string; name: string }[]) names.set(b.id, b.name);
     }
@@ -516,7 +518,7 @@ export async function getDailySaleRecordDetail(
   id: string,
   branchScope: string | null,
 ): Promise<DailySaleRecordDetail> {
-  let q = supabaseAdmin.from('daily_sale_records').select('*').eq('id', id);
+  let q = db.from('daily_sale_records').select('*').eq('id', id);
   // The branch filter IS the authorisation, not the lookup: without it a branch
   // could read another shop's signed reconciliation by quoting its id.
   if (branchScope) q = q.eq('branch_id', branchScope);
@@ -529,17 +531,17 @@ export async function getDailySaleRecordDetail(
   const status = String(row['status']) as DailySaleRecordStatus;
 
   const [auditsRes, branchRes, locks, figuresRes] = await Promise.all([
-    supabaseAdmin
+    db
       .from('daily_sale_record_audits')
       .select('*')
       .eq('record_id', id)
       .order('created_at', { ascending: false }),
-    supabaseAdmin.from('branches').select('id, name, address, phone, city').eq('id', branchId).maybeSingle(),
+    db.from('branches').select('id, name, address, phone, city').eq('id', branchId).maybeSingle(),
     getPaymentMethodLocks(branchId),
     // Only worth the round trip while the record is still open — a frozen record
     // shows its snapshot and the live figures would not be used.
     isDailySaleRecordOpen(status)
-      ? supabaseAdmin.rpc('daily_sale_figures', { p_from: businessDate, p_to: businessDate, p_branch_id: branchId })
+      ? db.rpc('daily_sale_figures', { p_from: businessDate, p_to: businessDate, p_branch_id: branchId })
       : Promise.resolve({ data: [], error: null }),
   ]);
   if (auditsRes.error) throw asClientError(auditsRes.error);
@@ -600,7 +602,7 @@ export async function generateDailySaleRecord(input: {
 }): Promise<DailySaleRecordDetail> {
   assertNotFuture(input.businessDate);
 
-  const { data, error } = await supabaseAdmin.rpc('ensure_daily_sale_record', {
+  const { data, error } = await db.rpc('ensure_daily_sale_record', {
     p_branch_id: input.branchId,
     p_business_date: input.businessDate,
     p_actor_id: input.actor.uid,
@@ -624,7 +626,7 @@ export async function feedDailySaleRecord(input: {
 
   // `undefined` → null, which the function reads as "leave this method alone".
   // Sending 0 for an omitted field would record an empty drawer nobody counted.
-  const { data, error } = await supabaseAdmin.rpc('feed_daily_sale_record', {
+  const { data, error } = await db.rpc('feed_daily_sale_record', {
     p_branch_id: input.branchId,
     p_business_date: input.businessDate,
     p_cash: input.cash ?? null,
@@ -652,7 +654,7 @@ export async function decideDailySaleRecord(input: {
   // record. This read is what pins a branch role to its own.
   await getDailySaleRecordDetail(input.id, input.branchScope);
 
-  const { error } = await supabaseAdmin.rpc('decide_daily_sale_record', {
+  const { error } = await db.rpc('decide_daily_sale_record', {
     p_id: input.id,
     p_action: input.action,
     p_reason: input.reason ?? null,
@@ -673,7 +675,7 @@ export async function amendDailySaleRecord(input: {
   reason: string;
   actor: DailySaleActor;
 }): Promise<DailySaleRecordDetail> {
-  const { error } = await supabaseAdmin.rpc('amend_daily_sale_record', {
+  const { error } = await db.rpc('amend_daily_sale_record', {
     p_id: input.id,
     p_field: input.field,
     p_amount: round2(input.amount),

@@ -1,5 +1,7 @@
-import { supabaseAdmin } from '../config/supabase';
+import { dbFor } from '../db';
 import type { AuditAction } from '../shared';
+
+const db = dbFor('audit');
 
 export interface AuditInput {
   action: AuditAction;
@@ -23,16 +25,16 @@ export interface AuditInput {
 
 /**
  * Append a row to `audit_logs`. Never throws — an audit-write failure must not
- * break the action that triggered it (it is logged instead). supabase-js returns
- * errors rather than throwing, so the result is checked explicitly; the try/catch
- * remains for transport-level failures.
+ * break the action that triggered it (it is logged instead). The query layer
+ * returns errors rather than throwing, so the result is checked explicitly; the
+ * try/catch remains for anything that throws regardless.
  *
  * created_at is left to the column default (now()) instead of being sent from the
  * app clock, so ordering is consistent with every other table.
  */
 export async function logAudit(input: AuditInput): Promise<void> {
   try {
-    const { error } = await supabaseAdmin.from('audit_logs').insert({
+    const { error } = await db.from('audit_logs').insert({
       action: input.action,
       admin_id: input.adminId,
       admin_name: input.adminName,
@@ -50,7 +52,7 @@ export async function logAudit(input: AuditInput): Promise<void> {
 /** Resolve an admin's display name from their user row, falling back to email. */
 export async function resolveAdminName(uid: string, email: string): Promise<string> {
   try {
-    const { data, error } = await supabaseAdmin
+    const { data, error } = await db
       .from('users')
       .select('display_name')
       .eq('id', uid)

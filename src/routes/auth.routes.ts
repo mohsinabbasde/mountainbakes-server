@@ -1,9 +1,8 @@
-import { Router } from 'express';
+import { Router, type Request } from 'express';
 import rateLimit from 'express-rate-limit';
 import { z } from 'zod';
-import { supabaseAdmin } from '../config/supabase';
+import { dbFor } from '../db';
 import { authenticate, type AuthRequest } from '../middleware/auth';
-import { requireRole } from '../middleware/requireRole';
 import {
   canAccessFinance,
   FinanceLoginLookupSchema,
@@ -11,17 +10,120 @@ import {
   StrongPasswordSchema,
 } from '../shared';
 import { logAudit } from '../services/audit.service';
+import {
+  RESET_TOKEN_TTL_MINUTES,
+  changeOwnPassword,
+  createPasswordResetToken,
+  endSession,
+  refreshSession,
+  resetPasswordWithToken,
+  signIn,
+} from '../services/auth/auth.service';
+import { sendPasswordResetEmail } from '../services/mailer';
+
+const db = dbFor('auth');
 
 export const router = Router();
+
+/**
+ * The address a request came from, for counting attempts against.
+ *
+ * The app does not set `trust proxy`, so `req.ip` is the hosting router, the
+ * same for everyone. The router appends the address it actually received the
+ * connection from as the LAST entry of X-Forwarded-For; anything before that
+ * was supplied by the caller and can say whatever the caller likes. A limit
+ * keyed on the first entry is one an attacker resets by changing a header.
+ */
+function callerAddress(req: Request): string {
+  const forwarded = req.headers['x-forwarded-for'];
+  const chain = (Array.isArray(forwarded) ? forwarded.join(',') : (forwarded ?? '')).split(',').map((p) => p.trim()).filter(Boolean);
+  return chain[chain.length - 1] ?? req.ip ?? 'unknown';
+}
+
+// ─── Sign in, stay signed in, sign out ────────────────────────────────────────
+//
+// The API's own sign-in. A client posts an email (or a username) and a
+// password and gets back two tokens: a short-lived access token to send as
+// `Authorization: Bearer …`, and a refresh token to exchange for the next pair.
+// Role and branch come back alongside, in `user`.
+
+// Counted per address AND per account, failures only: ten wrong passwords for
+// one account from one place in fifteen minutes. A shop's worth of tills behind
+// one address each signing in correctly never touches it.
+const signInLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  skipSuccessfulRequests: true,
+  // The address is read from X-Forwarded-For on purpose (see callerAddress),
+  // which the library's own checks would otherwise warn about.
+  validate: false,
+  keyGenerator: (req) => {
+    const who = typeof req.body?.identifier === 'string' ? req.body.identifier : typeof req.body?.email === 'string' ? req.body.email : '';
+    return `${callerAddress(req)}|${who.trim().toLowerCase()}`;
+  },
+  message: { error: 'Too many sign-in attempts. Please wait a few minutes and try again.' },
+});
+
+const SignInSchema = z
+  .object({
+    // `identifier` is an email address or a username; `email` is accepted as
+    // another name for it.
+    identifier: z.string().trim().min(1).max(320).optional(),
+    email: z.string().trim().min(1).max(320).optional(),
+    password: z.string().min(1).max(1024),
+    client: z.enum(['web', 'mobile']).optional(),
+  })
+  .refine((d) => d.identifier || d.email);
+
+router.post('/login', signInLimiter, async (req, res, next) => {
+  try {
+    const parsed = SignInSchema.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: 'Enter your email and password.' });
+      return;
+    }
+    const session = await signIn({
+      identifier: (parsed.data.identifier ?? parsed.data.email)!,
+      password: parsed.data.password,
+      client: parsed.data.client,
+    });
+    res.json(session);
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post('/refresh', async (req, res, next) => {
+  try {
+    const parsed = z.object({ refreshToken: z.string().min(1).max(512) }).safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: 'A refresh token is required.' });
+      return;
+    }
+    res.json(await refreshSession(parsed.data.refreshToken));
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Ends THIS device's session; the account's other devices stay signed in.
+router.post('/logout', authenticate, async (req: AuthRequest, res, next) => {
+  try {
+    if (req.user!.authSessionId) await endSession(req.user!.authSessionId);
+    res.json({ success: true });
+  } catch (err) {
+    next(err);
+  }
+});
 
 // ─── Finance User ID → email (PUBLIC — the user is signing in) ────────────────
 //
 // The Finance login asks for a "Finance User ID", which the brief is explicit
-// about: accounts staff are issued an ID, not an email address. Supabase Auth
-// only understands email/password, so the ID has to be resolved before the
-// browser can sign in — and resolving it needs the `users` table, which no
-// browser may read. Hence a public endpoint on this API rather than a client
-// lookup.
+// about: accounts staff are issued an ID, not an email address. The Finance
+// login screen resolves the ID to the account's email here and then signs in
+// with that email.
 //
 // It is an account-enumeration surface, and it is treated as one:
 //   * the SAME message and the same 404 for an unknown ID, a non-finance
@@ -53,7 +155,7 @@ router.post('/finance-lookup', financeLookupLimiter, async (req, res, next) => {
     const isEmail = raw.includes('@');
     const column = isEmail ? 'email' : 'username';
 
-    const { data, error } = await supabaseAdmin
+    const { data, error } = await db
       .from('users')
       .select('email, role, status')
       .eq(column, raw.toLowerCase())
@@ -77,10 +179,30 @@ router.post('/finance-lookup', financeLookupLimiter, async (req, res, next) => {
 });
 
 // ─── Password recovery (PUBLIC — user is logged out) ──────────────────────────
-// Admin accounts only. Returns { allowed: true } so the client may then trigger
-// Supabase's built-in reset email; non-admin / unknown emails get a 403 with a
-// fixed message (we never confirm whether a non-admin email exists).
-router.post('/forgot-password', async (req, res, next) => {
+// Admin accounts only; non-admin / unknown emails get a 403 with a fixed message
+// (we never confirm whether a non-admin email exists).
+//
+// The apps send { email, deliver: true } and the API mails the reset link.
+// Without `deliver` the answer is the same { allowed: true } and nothing is
+// sent: the question "may this address reset?" on its own.
+// Counted per caller address (see callerAddress, as for sign-in). Left
+// to the library's default it would be counted per PROXY address, which is one
+// bucket for everybody — and anyone could then use up the administrators'
+// allowance for them.
+const perAddress = (max: number) =>
+  rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max,
+    standardHeaders: true,
+    legacyHeaders: false,
+    validate: false,
+    keyGenerator: (req) => callerAddress(req),
+    message: { error: 'Too many requests. Please wait a few minutes and try again.' },
+  });
+const forgotPasswordLimiter = perAddress(10);
+const resetConfirmLimiter = perAddress(20);
+
+router.post('/forgot-password', forgotPasswordLimiter, async (req, res, next) => {
   try {
     const parsed = ForgotPasswordSchema.safeParse(req.body);
     if (!parsed.success) {
@@ -93,13 +215,15 @@ router.post('/forgot-password', async (req, res, next) => {
     // given address exists. maybeSingle() returns null rather than erroring on
     // no match, which keeps that indistinguishable from a genuine lookup failure.
     let role: string | undefined;
+    let account: { id: string; email: string; status: string } | null = null;
     try {
-      const { data, error } = await supabaseAdmin
+      const { data, error } = await db
         .from('users')
-        .select('role')
+        .select('id, email, role, status')
         .eq('email', parsed.data.email)
         .maybeSingle();
       role = error ? undefined : (data?.role ?? undefined);
+      account = error ? null : data;
     } catch {
       role = undefined;
     }
@@ -112,14 +236,50 @@ router.post('/forgot-password', async (req, res, next) => {
       return;
     }
 
+    if (req.body?.deliver === true && account?.status === 'active') {
+      const token = await createPasswordResetToken(account.id);
+      await sendPasswordResetEmail(account.email, token, RESET_TOKEN_TTL_MINUTES);
+    }
+
     res.json({ allowed: true });
   } catch (err) {
     next(err);
   }
 });
 
+// ─── Choose a new password with the link from a reset email (PUBLIC) ──────────
+router.post('/password-reset/confirm', resetConfirmLimiter, async (req, res, next) => {
+  try {
+    const parsed = z.object({ token: z.string().min(1).max(512), newPassword: StrongPasswordSchema }).safeParse(req.body);
+    if (!parsed.success) {
+      const badPassword = parsed.error.errors.some((e) => e.path[0] === 'newPassword');
+      res.status(400).json(
+        badPassword
+          ? { error: 'Password does not meet the requirements', details: parsed.error.errors }
+          : { error: 'This password reset link is invalid or has expired. Request a new one.', details: { code: 'reset_link_invalid' } },
+      );
+      return;
+    }
+
+    const who = await resetPasswordWithToken(parsed.data.token, parsed.data.newPassword);
+    await logAudit({
+      action: 'password_changed',
+      adminId: who.userId,
+      adminName: who.email,
+      targetUserId: who.userId,
+      targetUserName: who.email,
+      targetUserRole: null,
+      details: 'Password reset with an emailed link',
+    });
+    res.json({ success: true });
+  } catch (err) {
+    next(err);
+  }
+});
+
 // ─── Change own password (any authenticated user) ─────────────────────────────
-// Used by the forced "Change Password" screen. Clears the must-change flag.
+// Used by the forced "Change Password" screen. Clears the must-change flag, and
+// signs out every other device the account is signed in on.
 router.post('/change-password', authenticate, async (req: AuthRequest, res, next) => {
   try {
     const parsed = z.object({ newPassword: StrongPasswordSchema }).safeParse(req.body);
@@ -129,28 +289,8 @@ router.post('/change-password', authenticate, async (req: AuthRequest, res, next
     }
 
     const uid = req.user!.uid;
-
-    // Set the new password and clear mustChangePassword, preserving the other
-    // app_metadata claims (role / branch).
-    const { data: current, error: getErr } = await supabaseAdmin.auth.admin.getUserById(uid);
-    if (getErr || !current.user) throw getErr ?? new Error('User not found');
-
-    const { error: updErr } = await supabaseAdmin.auth.admin.updateUserById(uid, {
-      password: parsed.data.newPassword,
-      app_metadata: { ...(current.user.app_metadata ?? {}), mustChangePassword: false },
-    });
-    if (updErr) throw updErr;
-
-    // Mirror the cleared flag onto the users row. Deliberately best-effort: the
-    // password has already been changed in Auth by this point, so a failure here
-    // must not fail the request. app_metadata (above) is what the app actually
-    // gates on; this row is the reporting copy. The supabase-js client returns
-    // errors rather than throwing, so the error is discarded explicitly.
-    // updated_at is maintained by the users_touch trigger — do not set it here.
-    await supabaseAdmin
-      .from('users')
-      .update({ must_change_password: false })
-      .eq('id', uid);
+    // Every other device is signed out; this one keeps its session.
+    await changeOwnPassword(uid, parsed.data.newPassword, req.user!.authSessionId);
 
     await logAudit({
       action: 'password_changed',
@@ -168,53 +308,7 @@ router.post('/change-password', authenticate, async (req: AuthRequest, res, next
   }
 });
 
-// Set app_metadata claims (role + branch) on a Supabase Auth user
-router.post('/set-custom-claims', authenticate, requireRole('super_admin'), async (req: AuthRequest, res, next) => {
-  try {
-    const { uid, role, branchId, branchName } = req.body as {
-      uid: string;
-      role: string;
-      branchId: string | null;
-      branchName: string | null;
-    };
-
-    if (!uid || !role) {
-      res.status(400).json({ error: 'uid and role are required' });
-      return;
-    }
-
-    const { data: current, error: getErr } = await supabaseAdmin.auth.admin.getUserById(uid);
-    if (getErr || !current.user) throw getErr ?? new Error('User not found');
-
-    const { error: updErr } = await supabaseAdmin.auth.admin.updateUserById(uid, {
-      app_metadata: {
-        ...(current.user.app_metadata ?? {}),
-        role,
-        branchId: branchId ?? null,
-        branchName: branchName ?? null,
-      },
-    });
-    if (updErr) throw updErr;
-
-    res.json({ success: true, message: 'Custom claims set successfully' });
-  } catch (err) {
-    next(err);
-  }
-});
-
 // Get current user info from token
 router.get('/me', authenticate, async (req: AuthRequest, res) => {
   res.json({ user: req.user });
-});
-
-// Reset user password (admin only)
-router.post('/reset-password', authenticate, requireRole('super_admin'), async (req: AuthRequest, res, next) => {
-  try {
-    const { uid, newPassword } = req.body as { uid: string; newPassword: string };
-    const { error } = await supabaseAdmin.auth.admin.updateUserById(uid, { password: newPassword });
-    if (error) throw error;
-    res.json({ success: true });
-  } catch (err) {
-    next(err);
-  }
 });

@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { supabaseAdmin } from '../config/supabase';
+import { dbFor, type QueryBuilder } from '../db';
 import { authenticate, type AuthRequest } from '../middleware/auth';
 import { requireRole } from '../middleware/requireRole';
 import { validate } from '../middleware/validate';
@@ -51,6 +51,8 @@ import {
   dispatchDueEventNotifications,
   generateEventNotificationSchedule,
 } from '../services/event-notifications.service';
+
+const db = dbFor('special-events');
 
 export const router = Router();
 
@@ -122,7 +124,7 @@ async function ensureYearMaterialised(year: number): Promise<void> {
 async function branchVisibleEventIds(branchId: string | null): Promise<string[] | null> {
   if (!branchId) return [];
 
-  const { data, error } = await supabaseAdmin
+  const { data, error } = await db
     .from(EVENT_BRANCHES)
     .select('event_id')
     .eq('branch_id', branchId);
@@ -134,11 +136,11 @@ async function branchVisibleEventIds(branchId: string | null): Promise<string[] 
 /** Apply the caller's role scoping to a list query over special_events. */
 async function scopedEventRows(
   req: AuthRequest,
-  build: (q: ReturnType<typeof supabaseAdmin.from>) => unknown,
+  build: (q: QueryBuilder) => unknown,
 ): Promise<Record<string, unknown>[]> {
   // Typed loosely because the PostgREST builder is chained per call site; the
   // rows themselves are converted through rowToApi immediately after.
-  const query = build(supabaseAdmin.from(EVENTS)) as {
+  const query = build(db.from(EVENTS)) as {
     or: (f: string) => unknown;
     then: unknown;
   };
@@ -293,7 +295,7 @@ router.get('/summary', async (req: AuthRequest, res, next) => {
 
     if (next) {
       const participants = await getParticipatingBranchIds(next.id, next.appliesToAllBranches);
-      const { data: demandRows, error: demandErr } = await supabaseAdmin
+      const { data: demandRows, error: demandErr } = await db
         .from(DEMANDS)
         .select('branch_id, status')
         .eq('event_id', next.id)
@@ -313,7 +315,7 @@ router.get('/summary', async (req: AuthRequest, res, next) => {
     let notificationsPending = 0;
     if (req.user!.role === 'super_admin' && events.length > 0) {
       const ids = events.map((e) => e.id);
-      const { data: scheduleRows, error: schedErr } = await supabaseAdmin
+      const { data: scheduleRows, error: schedErr } = await db
         .from(SCHEDULE)
         .select('status')
         .in('event_id', ids);
@@ -352,7 +354,7 @@ router.get('/summary', async (req: AuthRequest, res, next) => {
 // GET /api/special-events/notifications — the reminder schedule (admin screen).
 router.get('/notifications', requireRole('super_admin'), async (req: AuthRequest, res, next) => {
   try {
-    let query = supabaseAdmin
+    let query = db
       .from(SCHEDULE)
       .select('*')
       .order('scheduled_for', { ascending: true })
@@ -414,7 +416,7 @@ router.post(
       // Dates moving means the reminder schedule is stale. Reconcile every event
       // that still has pending reminders rather than only the ones just updated —
       // a schedule generated before the first refresh has no dates at all.
-      const { data: events, error } = await supabaseAdmin
+      const { data: events, error } = await db
         .from(EVENTS)
         .select('id')
         .eq('is_active', true)
@@ -478,7 +480,7 @@ router.put(
 
       // Check-and-set on 'submitted': two reviewers hitting Approve at the same
       // moment must not both write approved quantities.
-      const { data: claimed, error: claimErr } = await supabaseAdmin
+      const { data: claimed, error: claimErr } = await db
         .from(DEMANDS)
         .update({
           status,
@@ -496,7 +498,7 @@ router.put(
       if (!claimed) {
         // Either it does not exist or it is not awaiting review — tell those apart
         // so the UI can say something useful.
-        const { data: existing } = await supabaseAdmin
+        const { data: existing } = await db
           .from(DEMANDS)
           .select('id, status')
           .eq('id', demandId)
@@ -513,7 +515,7 @@ router.put(
 
       // Approved quantities: an override where given, the requested quantity
       // otherwise. On rejection nothing is approved.
-      const { data: itemRows, error: itemErr } = await supabaseAdmin
+      const { data: itemRows, error: itemErr } = await db
         .from(DEMAND_ITEMS)
         .select('id, product_id, qty')
         .eq('demand_id', demandId);
@@ -526,14 +528,14 @@ router.put(
             ? 0
             : (item.product_id ? overrides.get(item.product_id) : undefined) ?? Number(item.qty);
 
-        const { error } = await supabaseAdmin
+        const { error } = await db
           .from(DEMAND_ITEMS)
           .update({ approved_qty: approvedQty })
           .eq('id', item.id);
         if (error) throw error;
       }
 
-      const { data: event } = await supabaseAdmin
+      const { data: event } = await db
         .from(EVENTS)
         .select('name')
         .eq('id', demand.event_id)
@@ -594,7 +596,7 @@ router.post('/', requireRole('super_admin'), validate(CreateSpecialEventSchema),
 
     const seriesCode = body.seriesCode ?? deriveSeriesCode(body.name, body.category);
 
-    const { data: created, error } = await supabaseAdmin
+    const { data: created, error } = await db
       .from(EVENTS)
       .insert({
         series_code: seriesCode,
@@ -698,7 +700,7 @@ router.put('/:id', requireRole('super_admin'), validate(UpdateSpecialEventSchema
     const id = req.params['id']!;
     const body = req.body as Record<string, unknown>;
 
-    const { data: current, error: curErr } = await supabaseAdmin
+    const { data: current, error: curErr } = await db
       .from(EVENTS)
       .select('*')
       .eq('id', id)
@@ -759,7 +761,7 @@ router.put('/:id', requireRole('super_admin'), validate(UpdateSpecialEventSchema
       event_year: merged['eventYear'],
     };
 
-    const { data: updated, error } = await supabaseAdmin
+    const { data: updated, error } = await db
       .from(EVENTS)
       .update(update)
       .eq('id', id)
@@ -800,7 +802,7 @@ router.patch(
       const id = req.params['id']!;
       const { confirmedDate } = req.body as { confirmedDate: string | null };
 
-      const { data: current, error: curErr } = await supabaseAdmin
+      const { data: current, error: curErr } = await db
         .from(EVENTS)
         .select('*')
         .eq('id', id)
@@ -827,7 +829,7 @@ router.patch(
         demandLeadDays: existing['demandLeadDays'] as number,
       });
 
-      const { data: updated, error } = await supabaseAdmin
+      const { data: updated, error } = await db
         .from(EVENTS)
         .update({
           confirmed_date: confirmedDate,
@@ -859,7 +861,7 @@ router.patch(
       const id = req.params['id']!;
       const { status } = req.body as { status: string };
 
-      const { data, error } = await supabaseAdmin
+      const { data, error } = await db
         .from(EVENTS)
         .update({ status })
         .eq('id', id)
@@ -892,7 +894,7 @@ router.delete('/:id', requireRole('super_admin'), async (req: AuthRequest, res, 
   try {
     const id = req.params['id']!;
 
-    const { data, error } = await supabaseAdmin
+    const { data, error } = await db
       .from(EVENTS)
       .update({ is_active: false })
       .eq('id', id)
@@ -924,7 +926,7 @@ router.put(
         branchIds: string[];
       };
 
-      const { data, error } = await supabaseAdmin
+      const { data, error } = await db
         .from(EVENTS)
         .update({ applies_to_all_branches: appliesToAllBranches })
         .eq('id', id)
@@ -967,7 +969,7 @@ router.post(
 // GET /api/special-events/:id/demands — every branch's demand for one event.
 router.get('/:id/demands', requireRole('super_admin', 'production_user'), async (req: AuthRequest, res, next) => {
   try {
-    const { data, error } = await supabaseAdmin
+    const { data, error } = await db
       .from(DEMANDS)
       .select(DEMAND_SELECT)
       .eq('event_id', req.params['id']!)
@@ -996,7 +998,7 @@ router.get(
     try {
       const eventId = req.params['id']!;
 
-      const { data: demandRows, error: demandErr } = await supabaseAdmin
+      const { data: demandRows, error: demandErr } = await db
         .from(DEMANDS)
         .select('id, branch_id, status')
         .eq('event_id', eventId)
@@ -1009,7 +1011,7 @@ router.get(
         return;
       }
 
-      const { data: itemRows, error: itemErr } = await supabaseAdmin
+      const { data: itemRows, error: itemErr } = await db
         .from(DEMAND_ITEMS)
         .select('demand_id, product_id, product_name, qty, approved_qty, unit_price')
         .in('demand_id', demands.map((d) => d.id));
@@ -1071,7 +1073,7 @@ router.get('/:id/my-demand', requireRole(...BRANCH_ROLES), async (req: AuthReque
     const branchId = req.user!.branchId;
     await assertBranchMayAccessEvent(eventId, branchId);
 
-    const { data, error } = await supabaseAdmin
+    const { data, error } = await db
       .from(DEMANDS)
       .select(DEMAND_SELECT)
       .eq('event_id', eventId)
@@ -1110,7 +1112,7 @@ router.post(
         notes?: string;
       };
 
-      const { data: event, error: eventErr } = await supabaseAdmin
+      const { data: event, error: eventErr } = await db
         .from(EVENTS)
         .select('id, name, demand_due_date, status')
         .eq('id', eventId)
@@ -1133,7 +1135,7 @@ router.post(
       // they are Admin-controlled, and the price is snapshotted here so later
       // repricing does not rewrite this demand's value.
       const productIds = [...new Set(items.map((i) => i.productId))];
-      const { data: products, error: prodErr } = await supabaseAdmin
+      const { data: products, error: prodErr } = await db
         .from('products')
         .select('id, name, price')
         .eq('is_active', true)
@@ -1164,7 +1166,7 @@ router.post(
         };
       });
 
-      const { data: existing, error: exErr } = await supabaseAdmin
+      const { data: existing, error: exErr } = await db
         .from(DEMANDS)
         .select('id, status')
         .eq('event_id', eventId)
@@ -1184,7 +1186,7 @@ router.post(
         }
         demandId = row.id;
 
-        const { error } = await supabaseAdmin
+        const { error } = await db
           .from(DEMANDS)
           .update({
             expected_customers: expectedCustomers ?? null,
@@ -1194,10 +1196,10 @@ router.post(
         if (error) throw error;
 
         // Replace the lines wholesale — the client sends the full basket.
-        const { error: delErr } = await supabaseAdmin.from(DEMAND_ITEMS).delete().eq('demand_id', demandId);
+        const { error: delErr } = await db.from(DEMAND_ITEMS).delete().eq('demand_id', demandId);
         if (delErr) throw delErr;
       } else {
-        const { data: created, error } = await supabaseAdmin
+        const { data: created, error } = await db
           .from(DEMANDS)
           .insert({
             event_id: eventId,
@@ -1213,7 +1215,7 @@ router.post(
         demandId = (created as { id: string }).id;
       }
 
-      const { error: itemsErr } = await supabaseAdmin.from(DEMAND_ITEMS).insert(
+      const { error: itemsErr } = await db.from(DEMAND_ITEMS).insert(
         resolvedItems.map((item, idx) => ({
           demand_id: demandId,
           product_id: item.productId,
@@ -1244,7 +1246,7 @@ router.post('/:id/demands/:demandId/submit', requireRole(...BRANCH_ROLES), async
     // Check-and-set on 'draft', scoped to the caller's own branch. Both predicates
     // matter: the status stops a double-submit, the branch_id stops a branch
     // manager submitting another branch's demand by guessing an id.
-    const { data, error } = await supabaseAdmin
+    const { data, error } = await db
       .from(DEMANDS)
       .update({
         status: 'submitted',
@@ -1265,12 +1267,12 @@ router.post('/:id/demands/:demandId/submit', requireRole(...BRANCH_ROLES), async
       return;
     }
 
-    const { count } = await supabaseAdmin
+    const { count } = await db
       .from(DEMAND_ITEMS)
       .select('id', { count: 'exact', head: true })
       .eq('demand_id', demandId);
 
-    const { data: event } = await supabaseAdmin.from(EVENTS).select('name').eq('id', eventId).maybeSingle();
+    const { data: event } = await db.from(EVENTS).select('name').eq('id', eventId).maybeSingle();
     const eventName = (event as { name: string } | null)?.name ?? 'an event';
 
     // branchId null: production users are a central role with no branch claim, so
@@ -1331,7 +1333,7 @@ router.put(
         return;
       }
 
-      const { data: current, error: curErr } = await supabaseAdmin
+      const { data: current, error: curErr } = await db
         .from(PRODUCTION_STATUS)
         .select('id, started_at, completed_at')
         .eq('event_id', eventId)
@@ -1346,7 +1348,7 @@ router.put(
       const row = current as { id: string; started_at: string | null; completed_at: string | null };
       const now = new Date().toISOString();
 
-      const { error } = await supabaseAdmin
+      const { error } = await db
         .from(PRODUCTION_STATUS)
         .update({
           completion_percentage: completionPercentage,
@@ -1365,7 +1367,7 @@ router.put(
       const stages = await getProductionStages(eventId);
       const readiness = readinessFromStages(stages as { completion_percentage: number }[]);
 
-      const { data: event } = await supabaseAdmin.from(EVENTS).select('name').eq('id', eventId).maybeSingle();
+      const { data: event } = await db.from(EVENTS).select('name').eq('id', eventId).maybeSingle();
 
       await notify({
         type: 'event_production_updated',
@@ -1389,7 +1391,7 @@ router.get('/:id', async (req: AuthRequest, res, next) => {
   try {
     const id = req.params['id']!;
 
-    const { data, error } = await supabaseAdmin.from(EVENTS).select('*').eq('id', id).maybeSingle();
+    const { data, error } = await db.from(EVENTS).select('*').eq('id', id).maybeSingle();
     if (error) throw error;
     if (!data) {
       res.status(404).json({ error: 'Event not found' });

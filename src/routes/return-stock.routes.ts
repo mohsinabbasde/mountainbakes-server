@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { randomUUID } from 'crypto';
-import { supabaseAdmin } from '../config/supabase';
+import { dbFor } from '../db';
 import { authenticate, type AuthRequest } from '../middleware/auth';
 import { requireRole } from '../middleware/requireRole';
 import { validate } from '../middleware/validate';
@@ -12,6 +12,8 @@ import {
   transferReturnStockToProduction,
   InsufficientReturnStockError,
 } from '../services/return-stock.service';
+
+const db = dbFor('return-stock');
 
 export const router = Router();
 
@@ -69,7 +71,7 @@ router.post('/transfer', requireRole('super_admin'), idempotent('return-stock.tr
   try {
     const { productId, qty, reason } = req.body as TransferReturnStockInput;
 
-    const { data: product, error: prodErr } = await supabaseAdmin
+    const { data: product, error: prodErr } = await db
       .from('products')
       .select('id, name')
       .eq('id', productId)

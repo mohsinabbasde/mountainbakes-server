@@ -1,7 +1,9 @@
-import { supabaseAdmin } from '../../config/supabase';
+import { dbFor } from '../../db';
 import type { BackupType } from '../../shared';
 import { notify } from '../push.service';
 import { getMessageProvider, getRetryPolicy, sendWithRetry } from '../messaging';
+
+const db = dbFor('backup');
 
 /**
  * A failed backup must not vanish into a Scheduler log nobody reads. Every
@@ -59,7 +61,7 @@ export async function alertBackupFailure(alert: FailureAlert, opts: AlertOptions
   ].join('\n');
 
   try {
-    const { data: ticket, error } = await supabaseAdmin
+    const { data: ticket, error } = await db
       .from('support_tickets')
       .insert({
         reference_type: 'system',
@@ -89,7 +91,7 @@ export async function alertBackupFailure(alert: FailureAlert, opts: AlertOptions
 
   if (!opts.messaging) return;
   try {
-    const { data, error } = await supabaseAdmin
+    const { data, error } = await db
       .from('notification_recipients')
       .select('recipient_name, mobile_number, channel')
       .eq('active', true)

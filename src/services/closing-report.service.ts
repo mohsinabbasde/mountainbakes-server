@@ -1,4 +1,4 @@
-import { supabaseAdmin } from '../config/supabase';
+import { dbFor } from '../db';
 import {
   businessDayBounds,
   type BranchClosingReport,
@@ -7,6 +7,8 @@ import {
   type PaymentMethod,
 } from '../shared';
 import { computeStockRows } from './stock.service';
+
+const db = dbFor('closing-report');
 
 /**
  * Build the end-of-day closing reports.
@@ -44,18 +46,18 @@ export async function buildBranchReport(
   const { fromISO, toISO } = businessDayBounds(businessDate);
 
   const [orders, expenses, demandOrders, stockRows] = await Promise.all([
-    supabaseAdmin
+    db
       .from('orders')
       .select('status, grand_total, discount_total, tax_amount, payment_method')
       .eq('branch_id', branch.id)
       .gte('created_at', fromISO)
       .lte('created_at', toISO),
-    supabaseAdmin
+    db
       .from('expenses')
       .select('amount, payment_method, category')
       .eq('branch_id', branch.id)
       .eq('business_date', businessDate),
-    supabaseAdmin
+    db
       .from('production_orders')
       .select('status, items:production_order_items(product_name, qty)')
       .eq('branch_id', branch.id)
@@ -171,7 +173,7 @@ export async function buildBranchReport(
 // ---------------------------------------------------------------------------
 export async function buildProductionReport(businessDate: string): Promise<ProductionClosingReport> {
   const [movements, closing, demandOrders, returnMovements] = await Promise.all([
-    supabaseAdmin
+    db
       .from('production_stock_history')
       .select('type, delta, ref_id')
       .eq('business_date', businessDate),
@@ -182,17 +184,17 @@ export async function buildProductionReport(businessDate: string): Promise<Produ
     // so re-running a report for last Tuesday would print this morning's shelf
     // against Tuesday's date. Reading the ledger to the date makes a closed day's
     // report reproducible.
-    supabaseAdmin
+    db
       .from('production_stock_history')
       .select('delta')
       .lte('business_date', businessDate),
-    supabaseAdmin
+    db
       .from('production_orders')
       .select('status, items:production_order_items(qty, approved_qty)')
       .eq('business_date', businessDate),
     // Returns accepted on the day live in Branch Return Stock's own ledger
     // (migration 139), not in the pool's.
-    supabaseAdmin
+    db
       .from('return_stock_history')
       .select('delta, ref_id')
       .eq('business_date', businessDate)
@@ -290,7 +292,7 @@ export async function generateClosingReports(businessDate: string): Promise<{
   production: ProductionClosingReport;
   company: CompanyClosingReport;
 }> {
-  const { data: branchRows, error } = await supabaseAdmin
+  const { data: branchRows, error } = await db
     .from('branches')
     .select('id, name')
     .eq('is_active', true)

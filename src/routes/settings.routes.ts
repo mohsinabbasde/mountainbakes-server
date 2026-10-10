@@ -1,22 +1,28 @@
 import { Router } from 'express';
 import multer from 'multer';
-import { supabaseAdmin } from '../config/supabase';
+import { dbFor } from '../db';
 import { authenticate, type AuthRequest } from '../middleware/auth';
 import { requireRole } from '../middleware/requireRole';
 import { validate } from '../middleware/validate';
 import { UpdateSettingsSchema, type AppSettings } from '../shared';
 import { invalidate } from '../utils/cache';
 import { getAppSettings, FIELD_TO_COLUMN } from '../services/settings.service';
+import { fileStore } from '../services/file-store';
+
+const db = dbFor('settings');
 
 export const router = Router();
 
-const LOGO_BUCKET = 'branding';
+const LOGO_BUCKET = 'branding' as const;
 
 /**
  * Extension is derived from the sniffed mimetype, never from originalname —
  * that string is attacker-controlled and would otherwise land in a storage path.
  * The keys mirror the bucket's allowed_mime_types (migration 10); anything else
  * is rejected below, so the bucket never has to be the one to say no.
+ *
+ * The extensions also appear in LOGO_PATH_PATTERN (services/file-store.ts),
+ * which is what the public logo route will serve. Add one here, add it there.
  */
 const LOGO_EXTENSIONS: Record<string, string> = {
   'image/png': 'png',
@@ -55,7 +61,7 @@ router.put('/', requireRole('super_admin'), validate(UpdateSettingsSchema), asyn
       if (column) row[column] = value;
     }
 
-    const { error } = await supabaseAdmin.from('settings').upsert(row, { onConflict: 'id' });
+    const { error } = await db.from('settings').upsert(row, { onConflict: 'id' });
     if (error) throw error;
 
     invalidate('settings');
@@ -79,7 +85,7 @@ router.post('/logo', requireRole('super_admin'), // eslint-disable-next-line @ty
     // The path of the logo currently on record, read straight from the table
     // rather than via the cached getAppSettings() — this is the delete target,
     // and deleting based on a stale value could remove the live logo.
-    const { data: existing, error: readErr } = await supabaseAdmin
+    const { data: existing, error: readErr } = await db
       .from('settings')
       .select('logo_path')
       .maybeSingle();
@@ -87,19 +93,16 @@ router.post('/logo', requireRole('super_admin'), // eslint-disable-next-line @ty
     const previousPath: string | null = existing?.logo_path ?? null;
 
     const logoPath = `settings/logo-${Date.now()}.${extension}`;
-    const { error: uploadErr } = await supabaseAdmin.storage
-      .from(LOGO_BUCKET)
-      .upload(logoPath, req.file.buffer, { contentType: req.file.mimetype });
-    if (uploadErr) throw uploadErr;
+    await fileStore().upload(LOGO_BUCKET, logoPath, req.file.buffer, req.file.mimetype);
 
-    // `branding` is a PUBLIC bucket, so this URL is permanent and unauthenticated
-    // — which is required: logo_url is persisted and rendered on the login page
-    // and on printed receipts, where there is no session. A signed URL would
-    // expire and silently break both. See migration 10.
-    const { data: publicUrl } = supabaseAdmin.storage.from(LOGO_BUCKET).getPublicUrl(logoPath);
-    const logoUrl = publicUrl.publicUrl;
+    // This URL is permanent and unauthenticated — which is required: logo_url is
+    // persisted and rendered on the login page and on printed receipts, where
+    // there is no session. A signed URL would expire and silently break both.
+    // The S3 bucket is private, so the URL is this API's own
+    // /api/public/branding route.
+    const logoUrl = fileStore().publicUrl(LOGO_BUCKET, logoPath);
 
-    const { error: writeErr } = await supabaseAdmin
+    const { error: writeErr } = await db
       .from('settings')
       .upsert({ id: true, logo_url: logoUrl, logo_path: logoPath, updated_by: req.user!.uid }, { onConflict: 'id' });
     if (writeErr) throw writeErr;
@@ -112,9 +115,10 @@ router.post('/logo', requireRole('super_admin'), // eslint-disable-next-line @ty
     // it just leaves one orphan behind. Deleting any earlier would risk removing
     // the current logo if the upload or the row write then failed.
     if (previousPath && previousPath !== logoPath) {
-      const { error: removeErr } = await supabaseAdmin.storage.from(LOGO_BUCKET).remove([previousPath]);
-      if (removeErr) {
-        console.warn(`[settings] could not delete previous logo ${previousPath}:`, removeErr.message);
+      try {
+        await fileStore().remove(LOGO_BUCKET, [previousPath]);
+      } catch (removeErr) {
+        console.warn(`[settings] could not delete previous logo ${previousPath}:`, (removeErr as Error).message);
       }
     }
 

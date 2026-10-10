@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { supabaseAdmin } from '../config/supabase';
+import { dbFor } from '../db';
 import { authenticate, type AuthRequest } from '../middleware/auth';
 import { requireRole } from '../middleware/requireRole';
 import { businessDateStr, businessDaysAgoStr } from '../shared';
@@ -9,6 +9,8 @@ import { genericPDF, genericExcel, genericCSV } from '../services/production-exp
 import { getPreviousOrderBalance } from '../services/previous-balance.service';
 import { format } from 'date-fns';
 import { sortRows } from '../utils/sortRows';
+
+const db = dbFor('production-reports');
 
 export const router = Router();
 
@@ -134,7 +136,7 @@ async function buildReport(
       // Deltas are summed SIGNED: a day can hold several prep batches, and an
       // admin lowering "Prepared Today" appends a negative 'prepare' movement.
       // abs() here would report a correction as extra production.
-      const { data, error } = await supabaseAdmin
+      const { data, error } = await db
         .from('production_stock_history')
         .select('product_id, product_name, delta, business_date')
         .eq('type', 'prepare')
@@ -151,7 +153,7 @@ async function buildReport(
       const productIds = [...new Set(movements.map((m) => m.product_id))];
       const meta = new Map<string, { code: string; category: string }>();
       if (productIds.length > 0) {
-        const { data: prods, error: prodErr } = await supabaseAdmin
+        const { data: prods, error: prodErr } = await db
           .from('products')
           .select('id, stock_code, category_name')
           .in('id', productIds);
@@ -233,9 +235,9 @@ async function buildReport(
     }
     case 'branch-stock': {
       const [stockRes, branchesRes, productsRes] = await Promise.all([
-        supabaseAdmin.from('stock').select('branch_id, product_id, balance'),
-        supabaseAdmin.from('branches').select('id, name').eq('is_active', true),
-        supabaseAdmin.from('products').select('id, name').eq('is_active', true),
+        db.from('stock').select('branch_id, product_id, balance'),
+        db.from('branches').select('id, name').eq('is_active', true),
+        db.from('products').select('id, name').eq('is_active', true),
       ]);
       for (const r of [stockRes, branchesRes, productsRes]) { if (r.error) throw r.error; }
 
@@ -259,7 +261,7 @@ async function buildReport(
       // Every row counts here regardless of status, so a demand the branch
       // deleted has to be dropped at the query or it inflates that branch's
       // demand and order count.
-      const { data, error } = await supabaseAdmin
+      const { data, error } = await db
         .from('production_orders')
         .select(ORDER_WITH_ITEMS)
         .gte('business_date', fromStr)
@@ -287,7 +289,7 @@ async function buildReport(
       };
     }
     case 'approved-orders': {
-      const { data, error } = await supabaseAdmin
+      const { data, error } = await db
         .from('production_orders')
         .select(ORDER_WITH_ITEMS)
         .gte('business_date', fromStr)
@@ -314,7 +316,7 @@ async function buildReport(
     }
     case 'pending-balance': {
       // Snapshot of outstanding carry-forward balances (not period-filtered).
-      const { data, error } = await supabaseAdmin
+      const { data, error } = await db
         .from('production_balances')
         .select('branch_name, product_name, pending_qty, updated_at');
       if (error) throw error;
@@ -328,7 +330,7 @@ async function buildReport(
       };
     }
     case 'returned-products': {
-      const { data, error } = await supabaseAdmin
+      const { data, error } = await db
         .from('production_returns')
         .select('business_date, branch_name, product_name, qty, reason, status')
         .gte('business_date', fromStr)
@@ -359,7 +361,7 @@ async function buildReport(
       // fixes the window the returns and discounts are counted in. The final row
       // says how many were held back for that reason, so a short sheet is never
       // mistaken for a quiet day.
-      let q = supabaseAdmin
+      let q = db
         .from('production_orders')
         .select('id, branch_id, branch_name, demand_number, business_date, submitted_at')
         .in('status', ['awaiting_verification', 'approved'])
@@ -474,7 +476,7 @@ async function buildReport(
     case 'production':
     default: {
       // Prepared production by day.
-      const { data, error } = await supabaseAdmin
+      const { data, error } = await db
         .from('production_stock_history')
         .select('type, delta, business_date')
         .gte('business_date', fromStr)

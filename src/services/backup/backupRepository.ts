@@ -1,6 +1,8 @@
-import { supabaseAdmin } from '../../config/supabase';
+import { dbFor } from '../../db';
 import type { BackupJob, BackupRestoreTest, BackupStatus, BackupTrigger, BackupType } from '../../shared';
 import { rowToApi } from '../../utils/case';
+
+const db = dbFor('backup');
 
 /**
  * backup_jobs / backup_restore_tests access, behind an interface so the runner
@@ -118,9 +120,9 @@ function patchToRow(patch: JobPatch): Record<string, unknown> {
   return row;
 }
 
-export class SupabaseBackupRepository implements BackupRepository {
+export class DbBackupRepository implements BackupRepository {
   async claim(input: ClaimInput): Promise<ClaimResult> {
-    const { data, error } = await supabaseAdmin.rpc('claim_backup_job', {
+    const { data, error } = await db.rpc('claim_backup_job', {
       p_backup_id: input.backupId,
       p_backup_type: input.backupType,
       p_trigger: input.trigger,
@@ -135,18 +137,18 @@ export class SupabaseBackupRepository implements BackupRepository {
   }
 
   async update(backupId: string, patch: JobPatch): Promise<void> {
-    const { error } = await supabaseAdmin.from(TABLE).update(patchToRow(patch)).eq('backup_id', backupId);
+    const { error } = await db.from(TABLE).update(patchToRow(patch)).eq('backup_id', backupId);
     if (error) throw new Error(`backup_jobs update failed: ${error.message}`);
   }
 
   async getByBackupId(backupId: string): Promise<BackupJob | null> {
-    const { data, error } = await supabaseAdmin.from(TABLE).select('*').eq('backup_id', backupId).maybeSingle();
+    const { data, error } = await db.from(TABLE).select('*').eq('backup_id', backupId).maybeSingle();
     if (error) throw error;
     return data ? rowToApi<BackupJob>(data) : null;
   }
 
   async getById(id: string): Promise<BackupJob | null> {
-    const { data, error } = await supabaseAdmin.from(TABLE).select('*').eq('id', id).maybeSingle();
+    const { data, error } = await db.from(TABLE).select('*').eq('id', id).maybeSingle();
     if (error) throw error;
     return data ? rowToApi<BackupJob>(data) : null;
   }
@@ -155,7 +157,7 @@ export class SupabaseBackupRepository implements BackupRepository {
     const out = emptyByType();
     await Promise.all(
       TYPES.map(async (type) => {
-        let q = supabaseAdmin.from(TABLE).select('*').eq('backup_type', type).order('started_at', { ascending: false }).limit(1);
+        let q = db.from(TABLE).select('*').eq('backup_type', type).order('started_at', { ascending: false }).limit(1);
         if (statuses) q = q.in('status', statuses);
         const { data, error } = await q;
         if (error) throw error;
@@ -174,14 +176,14 @@ export class SupabaseBackupRepository implements BackupRepository {
   }
 
   async running(): Promise<BackupJob[]> {
-    const { data, error } = await supabaseAdmin.from(TABLE).select('*').eq('status', 'running').order('started_at', { ascending: false });
+    const { data, error } = await db.from(TABLE).select('*').eq('status', 'running').order('started_at', { ascending: false });
     if (error) throw error;
     return rowToApi<BackupJob[]>(data ?? []);
   }
 
   async history(filter: HistoryFilter): Promise<{ jobs: BackupJob[]; total: number }> {
     const from = (filter.page - 1) * filter.pageSize;
-    let q = supabaseAdmin.from(TABLE).select('*', { count: 'exact' }).order('started_at', { ascending: false }).range(from, from + filter.pageSize - 1);
+    let q = db.from(TABLE).select('*', { count: 'exact' }).order('started_at', { ascending: false }).range(from, from + filter.pageSize - 1);
     if (filter.type) q = q.eq('backup_type', filter.type);
     if (filter.status) q = q.eq('status', filter.status);
     const { data, error, count } = await q;
@@ -190,13 +192,13 @@ export class SupabaseBackupRepository implements BackupRepository {
   }
 
   async verifiedJobs(): Promise<BackupJob[]> {
-    const { data, error } = await supabaseAdmin.from(TABLE).select('*').eq('status', 'verified').order('started_at', { ascending: false });
+    const { data, error } = await db.from(TABLE).select('*').eq('status', 'verified').order('started_at', { ascending: false });
     if (error) throw error;
     return rowToApi<BackupJob[]>(data ?? []);
   }
 
   async countFailedSince(sinceIso: string): Promise<number> {
-    const { count, error } = await supabaseAdmin
+    const { count, error } = await db
       .from(TABLE)
       .select('id', { count: 'exact', head: true })
       .in('status', ['failed', 'stale'])
@@ -206,7 +208,7 @@ export class SupabaseBackupRepository implements BackupRepository {
   }
 
   async recordRestoreTest(input: RestoreTestInput): Promise<BackupRestoreTest> {
-    const { data, error } = await supabaseAdmin
+    const { data, error } = await db
       .from(RESTORE_TABLE)
       .insert({
         backup_job_id: input.backupJobId,
@@ -229,7 +231,7 @@ export class SupabaseBackupRepository implements BackupRepository {
   }
 
   async latestRestoreTest(): Promise<BackupRestoreTest | null> {
-    const { data, error } = await supabaseAdmin.from(RESTORE_TABLE).select('*').order('started_at', { ascending: false }).limit(1);
+    const { data, error } = await db.from(RESTORE_TABLE).select('*').order('started_at', { ascending: false }).limit(1);
     if (error) throw error;
     return data && data[0] ? rowToApi<BackupRestoreTest>(data[0]) : null;
   }

@@ -1,4 +1,4 @@
-import { supabaseAdmin } from '../config/supabase';
+import { dbFor } from '../db';
 import {
   businessDateStr,
   SALES_ANALYTICS_MAX_DAYS,
@@ -10,6 +10,8 @@ import {
   type SalesAnalyticsProduct,
 } from '../shared';
 
+const db = dbFor('sales-analytics');
+
 /**
  * Daily Sales analytics.
  *
@@ -20,7 +22,7 @@ import {
  *
  * **This service depends on migration 100 being applied.** That is the same
  * contract migration 84 (`idempotency_keys`) has with the middleware that uses
- * it — `db push` before the deploy. `callAnalytics` below turns the specific
+ * it — applied before the deploy. `callAnalytics` below turns the specific
  * "function does not exist" failure into a sentence that says so, rather than a
  * masked 500 that reads like the API is down.
  */
@@ -156,7 +158,7 @@ async function callAnalytics(
   branchId: string | null,
   topLimit: number,
 ): Promise<AnalyticsRow> {
-  const { data, error } = await supabaseAdmin.rpc('sales_analytics', {
+  const { data, error } = await db.rpc('sales_analytics', {
     p_from: window.from,
     p_to: window.effectiveTo,
     p_branch_id: branchId,
@@ -167,14 +169,15 @@ async function callAnalytics(
   });
 
   if (error) {
-    // PostgREST answers an unknown function with PGRST202; Postgres itself with
-    // 42883. Either one here means exactly one thing, and saying it plainly is
-    // the difference between a five-minute fix and an afternoon in the logs.
+    // The query layer answers a function it does not know with PGRST202;
+    // Postgres itself with 42883. Either one here means exactly one thing, and
+    // saying it plainly is the difference between a five-minute fix and an
+    // afternoon in the logs.
     if (error.code === 'PGRST202' || error.code === '42883') {
       throw Object.assign(
         new Error(
           'Sales analytics is unavailable: database migration 100 (sales_analytics) ' +
-            'has not been applied. Run `npx supabase db push --linked`.',
+            'has not been applied. Apply the pending database migrations.',
         ),
         { status: 503 },
       );

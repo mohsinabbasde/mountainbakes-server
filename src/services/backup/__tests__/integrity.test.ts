@@ -41,7 +41,8 @@ describe('integrity', () => {
       plan,
       files: [
         { role: 'main', fileName: plan.mainFileName, s3Key: plan.mainKey, fileSize: 100, checksumSha256: 'c'.repeat(64), etag: null },
-        { role: 'auth', fileName: plan.authFileName, s3Key: plan.authKey, fileSize: 10, checksumSha256: 'd'.repeat(64), etag: '"x"' },
+        // A second, "auth" archive: what backups carried while accounts were kept outside `public`.
+        { role: 'auth', fileName: plan.mainFileName.replace('.dump', '-auth.dump'), s3Key: plan.mainKey.replace('.dump', '-auth.dump'), fileSize: 10, checksumSha256: 'd'.repeat(64), etag: '"x"' },
       ],
       startedAt: new Date('2026-09-20T22:00:00Z'),
       completedAt: new Date('2026-09-20T22:03:00Z'),

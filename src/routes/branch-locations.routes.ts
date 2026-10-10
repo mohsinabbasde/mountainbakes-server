@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { supabaseAdmin } from '../config/supabase';
+import { dbFor } from '../db';
 import { authenticate, type AuthRequest } from '../middleware/auth';
 import { requireRole } from '../middleware/requireRole';
 import {
@@ -18,6 +18,8 @@ import {
   positionFromRequest,
 } from '../services/geofence.service';
 import { logAudit, resolveAdminName } from '../services/audit.service';
+
+const db = dbFor('branch-locations');
 
 export const router = Router();
 
@@ -40,12 +42,12 @@ type LocationRow = {
 };
 
 /**
- * numeric columns arrive from supabase-js as STRINGS.
+ * numeric columns are made NUMBERS here, whatever they arrived as.
  *
- * Postgres `numeric` has no lossless JavaScript representation, so PostgREST plays
- * safe and serialises it as text. Left alone it reaches the browser as "24.8607"
- * and every distance calculation silently produces NaN — the geofence then reads as
- * "not configured" and quietly stops enforcing. Converted once, here, at the edge.
+ * Postgres `numeric` has no lossless JavaScript representation, and the row type
+ * above allows a string for each of them. One that reached the browser as "24.8607"
+ * would make every distance calculation silently produce NaN — the geofence then reads
+ * as "not configured" and quietly stops enforcing. Converted once, here, at the edge.
  */
 function toApiLocation(row: LocationRow) {
   return {
@@ -66,8 +68,8 @@ function toApiLocation(row: LocationRow) {
 router.get('/', requireRole('super_admin'), async (_req: AuthRequest, res, next) => {
   try {
     const [branchesRes, locationsRes, settings] = await Promise.all([
-      supabaseAdmin.from('branches').select('id, name, address, is_active').order('name'),
-      supabaseAdmin.from('branch_locations').select('*'),
+      db.from('branches').select('id, name, address, is_active').order('name'),
+      db.from('branch_locations').select('*'),
       getAppSettings(),
     ]);
     if (branchesRes.error) throw branchesRes.error;
@@ -100,7 +102,7 @@ router.get('/', requireRole('super_admin'), async (_req: AuthRequest, res, next)
     const windowMs = settings.geofenceVerifyIntervalMin * 2 * 60_000;
     const since = new Date(Date.now() - windowMs).toISOString();
 
-    const { data: recent, error: recentError } = await supabaseAdmin
+    const { data: recent, error: recentError } = await db
       .from('geofence_logs')
       .select('user_id, allowed, created_at')
       .gte('created_at', since)
@@ -190,7 +192,7 @@ router.get('/me', async (req: AuthRequest, res, next) => {
 router.get('/logs', requireRole('super_admin'), async (req: AuthRequest, res, next) => {
   try {
     const limit = Math.min(Number(req.query['limit']) || 100, 500);
-    let query = supabaseAdmin
+    let query = db
       .from('geofence_logs')
       .select('*')
       .order('created_at', { ascending: false })
@@ -235,7 +237,7 @@ router.put('/:branchId', requireRole('super_admin'), async (req: AuthRequest, re
     }
 
     const branchId = req.params['branchId']!;
-    const { data: branch, error: branchError } = await supabaseAdmin
+    const { data: branch, error: branchError } = await db
       .from('branches')
       .select('id, name')
       .eq('id', branchId)
@@ -245,7 +247,7 @@ router.put('/:branchId', requireRole('super_admin'), async (req: AuthRequest, re
 
     const { latitude, longitude, address, radiusKm, googlePlaceId, isActive } = parsed.data;
 
-    const { data, error } = await supabaseAdmin
+    const { data, error } = await db
       .from('branch_locations')
       .upsert(
         {
@@ -300,7 +302,7 @@ router.patch('/:branchId/status', requireRole('super_admin'), async (req: AuthRe
     }
 
     const branchId = req.params['branchId']!;
-    const { data, error } = await supabaseAdmin
+    const { data, error } = await db
       .from('branch_locations')
       .update({ is_active: parsed.data.isActive })
       .eq('branch_id', branchId)
@@ -326,7 +328,7 @@ router.patch('/:branchId/status', requireRole('super_admin'), async (req: AuthRe
 router.delete('/:branchId', requireRole('super_admin'), async (req: AuthRequest, res, next) => {
   try {
     const branchId = req.params['branchId']!;
-    const { data, error } = await supabaseAdmin
+    const { data, error } = await db
       .from('branch_locations')
       .delete()
       .eq('branch_id', branchId)

@@ -3,8 +3,8 @@ import type { UserRole } from './user.types';
 /**
  * Login History and Active Sessions — one signed-in session.
  *
- * Reported by the client, because the app is a static export that signs in to
- * Supabase directly and the API never sees a login. See the header of migration
+ * Reported by the client: each app opens its own row here once it has signed
+ * in, and keeps it alive with a ping. See the header of migration
  * 20260822000085 for the shape of that arrangement, and 20260901000098 for what
  * was added to make an admin able to act on it rather than only read it.
  *
@@ -51,7 +51,7 @@ export type LoginSessionState = 'active' | 'idle' | 'ended' | 'expired' | 'revok
  * Whether the sign-in this row records succeeded.
  *
  * Always 'SUCCESS' today, and deliberately still a field: `login_sessions` only
- * ever receives a row AFTER Supabase has issued a session, so every row in it is
+ * ever receives a row AFTER a session has been issued, so every row in it is
  * a successful login by construction. A refused attempt has no session and is
  * recorded in `login_attempts` (the Failed Logins board) instead. Carrying the
  * status on the row anyway lets the Login History table show "Login status" and
@@ -85,8 +85,8 @@ export interface LoginSession {
   userCode: string | null;
   /**
    * The activated account — the email address the session actually
-   * authenticated as. Read off the VERIFIED Supabase Auth token on the server,
-   * never off a form or a request body, and a different fact from `userCode`:
+   * authenticated as. Read from the account the verified token belongs to, on
+   * the server, never off a form or a request body, and a different fact from `userCode`:
    * the code is the Mountain Bakes staff ID, this is the sign-in address. The
    * two are never substituted for each other.
    *
@@ -362,10 +362,9 @@ export interface LoginHistoryFilters {
  * is the address that was TYPED, which is not the same thing as an account: it
  * may be a typo, an ex-employee's address, or one that never existed.
  *
- * REPORTED BY THE CLIENT AND THEREFORE FORGEABLE. A static-export app
- * authenticates against Supabase directly, so the API never observes the
- * failure and the browser has to post it — from an endpoint that by definition
- * cannot require a token. Treat a row here as "somebody said this happened",
+ * REPORTED BY THE CLIENT AND THEREFORE FORGEABLE. The app posts the failure
+ * itself, with the reason it showed the person — from an endpoint that by
+ * definition cannot require a token. Treat a row here as "somebody said this happened",
  * which is enough to notice an unexplained burst and not enough to act against
  * an account automatically. Nothing in the app locks anybody out on this.
  *
@@ -406,7 +405,7 @@ export interface LoginAttempt {
  * is built from these codes in the UI.
  *
  * `invalid_credentials` covers a wrong address AND a wrong password, because
- * Supabase deliberately does not say which — and neither should this. Splitting
+ * sign-in deliberately does not say which — and neither should this. Splitting
  * them would turn the failed-login screen into an account-existence oracle for
  * anybody who could read it.
  */

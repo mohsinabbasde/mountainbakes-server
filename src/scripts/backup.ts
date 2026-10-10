@@ -1,6 +1,6 @@
 import 'dotenv/config';
 import type { BackupJob, BackupType } from '../shared';
-import { supabaseAdmin } from '../config/supabase';
+import { dbFor } from '../db';
 import {
   BACKUP_SCHEDULE,
   BackupError,
@@ -15,6 +15,8 @@ import {
   redactSecrets,
   type BackupDeps,
 } from '../services/backup';
+
+const db = dbFor('scripts');
 
 /**
  * Mountain Bakes — database backup CLI (pg_dump → S3).
@@ -34,7 +36,7 @@ import {
  *
  * Every write requires BACKUP_ENABLED=true and a bucket that passes the
  * production/development gate in backupConfig.ts. Nothing here ever prints
- * SUPABASE_DB_URL or an AWS key.
+ * BACKUP_DB_URL or an AWS key.
  *
  * Exit codes:
  *   0  success, or nothing to do (not due / already completed / dry run)
@@ -110,7 +112,7 @@ function describeJob(j: BackupJob | null): string[] {
   return [
     `  Last run:        ${j.startedAt}  [${j.status.toUpperCase()}]${j.errorCategory ? ` ${j.errorCategory}` : ''}`,
     `  Backup ID:       ${j.backupId}`,
-    `  Size:            ${fmtBytes(j.fileSize)} + auth ${fmtBytes(j.authFileSize)}`,
+    `  Size:            ${fmtBytes(j.fileSize)}${j.authFileSize ? ` + auth ${fmtBytes(j.authFileSize)}` : ''}`,
     `  Duration:        ${fmtDuration(j.durationMs)} (dump ${fmtDuration(j.dumpMs)}, upload ${fmtDuration(j.uploadMs)})`,
     `  S3 key:          ${j.s3Key ?? '—'}`,
     `  SHA-256:         ${j.checksumSha256 ?? '—'}`,
@@ -132,7 +134,7 @@ async function cmdStatus(): Promise<number> {
   const health = computeHealth({ latest, latestVerified, recentFailures: failures });
   let dbOk = 'Connected';
   try {
-    const { error } = await supabaseAdmin.rpc('backup_database_info');
+    const { error } = await db.rpc('backup_database_info');
     if (error) dbOk = `ERROR: ${error.message}`;
   } catch (err) {
     dbOk = `ERROR: ${redactSecrets(String(err), deps.config.secrets)}`;
@@ -262,7 +264,7 @@ main()
       console.error(`\n${err.message}`);
       process.exit(2);
     }
-    const secrets = [process.env.SUPABASE_DB_URL, process.env.AWS_SECRET_ACCESS_KEY].filter((s): s is string => !!s);
+    const secrets = [process.env.BACKUP_DB_URL, process.env.AWS_SECRET_ACCESS_KEY].filter((s): s is string => !!s);
     console.error('\nBackup command failed:', redactSecrets(err instanceof Error ? err.message : String(err), secrets));
     process.exit(err instanceof BackupError ? 1 : 1);
   });

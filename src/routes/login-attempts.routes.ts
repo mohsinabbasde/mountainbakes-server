@@ -26,10 +26,10 @@ export const router = Router();
  * Failed sign-ins.
  *
  * THE ONE ROUTER IN THIS API WITH AN UNAUTHENTICATED WRITE, and the reason is
- * structural rather than a shortcut. The app is a static export that
- * authenticates against Supabase directly, so the API is never in the request
- * path of a login — and a login that FAILED produces no token, so there is
- * nothing for the browser to authenticate the report with. Either the failures
+ * structural rather than a shortcut. `/api/auth/login` refuses a bad sign-in
+ * and writes nothing down; the login page that saw the refusal reports it here
+ * — and a login that FAILED produces no token, so there is nothing for the
+ * browser to authenticate the report with. Either the failures
  * go unrecorded, or they are reported by an anonymous call. They are worth
  * recording: a burst of refusals nobody can explain is the single most useful
  * signal a security screen carries, and it was the one thing the Login History

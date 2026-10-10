@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { supabaseAdmin } from '../config/supabase';
+import { dbFor } from '../db';
 import { authenticate, type AuthRequest } from '../middleware/auth';
 import { requireRole } from '../middleware/requireRole';
 import { validate } from '../middleware/validate';
@@ -16,6 +16,8 @@ import { resolveClientBusinessDate } from '../utils/clientBusinessDate';
 import { requireInsideGeofence } from '../middleware/requireInsideGeofence';
 import { getAppSettings } from '../services/settings.service';
 import { rowToApi } from '../utils/case';
+
+const db = dbFor('orders');
 
 export const router = Router();
 
@@ -74,7 +76,7 @@ async function buildOrderItems(
   const productIds = [...new Set(items.map((i) => i.productId))];
 
   // One query for every product on the order, rather than N point reads.
-  const { data, error } = await supabaseAdmin
+  const { data, error } = await db
     .from('products')
     .select('id, name, category_id, category_name, price')
     .in('id', productIds);
@@ -113,7 +115,7 @@ router.get('/production-sales', requireRole('super_admin', 'production_user'), a
     const { from, to } = req.query;
     const branchId = await getProductionBranchId();
 
-    let query = supabaseAdmin
+    let query = db
       .from('orders')
       .select(ORDER_SELECT)
       .eq('branch_id', branchId)
@@ -139,7 +141,7 @@ router.get('/', async (req: AuthRequest, res, next) => {
   try {
     const { status, from, to } = req.query;
 
-    let query = supabaseAdmin
+    let query = db
       .from('orders')
       .select(ORDER_SELECT)
       .order('created_at', { ascending: false })
@@ -193,7 +195,7 @@ router.get('/', async (req: AuthRequest, res, next) => {
 
 router.get('/:id', async (req: AuthRequest, res, next) => {
   try {
-    const { data, error } = await supabaseAdmin
+    const { data, error } = await db
       .from('orders')
       .select(ORDER_SELECT)
       .order('line_no', ORDER_ITEMS_ORDER)
@@ -233,8 +235,8 @@ router.post('/', requireRole('super_admin', ...BRANCH_ROLES), idempotent('order.
     const businessDate = await resolveClientBusinessDate(claimedDate, req.user!.role);
 
     const [branchRes, customerRes, taxRate] = await Promise.all([
-      supabaseAdmin.from('branches').select('name').eq('id', branchId).maybeSingle(),
-      supabaseAdmin.from('customers').select('name, phone, address').eq('id', customerId).maybeSingle(),
+      db.from('branches').select('name').eq('id', branchId).maybeSingle(),
+      db.from('customers').select('name, phone, address').eq('id', customerId).maybeSingle(),
       resolveTaxRate(),
     ]);
     if (branchRes.error) throw branchRes.error;
@@ -255,7 +257,7 @@ router.post('/', requireRole('super_admin', ...BRANCH_ROLES), idempotent('order.
 
     // created_at / updated_at come from column defaults and the orders_touch
     // trigger — do not set them here.
-    const { data: order, error: orderErr } = await supabaseAdmin
+    const { data: order, error: orderErr } = await db
       .from('orders')
       .insert({
         order_number: orderNumber,
@@ -286,7 +288,7 @@ router.post('/', requireRole('super_admin', ...BRANCH_ROLES), idempotent('order.
     // the order insert — unlike the POS path, which goes through commit_sale.
     // A failure here would leave an order with no lines; acceptable for the
     // non-stock path, but see the note on POST /pos below.
-    const { error: itemsErr } = await supabaseAdmin.from('order_items').insert(
+    const { error: itemsErr } = await db.from('order_items').insert(
       orderItems.map((it, idx) => ({
         order_id: order.id,
         product_id: it.productId,
@@ -304,7 +306,7 @@ router.post('/', requireRole('super_admin', ...BRANCH_ROLES), idempotent('order.
 
     // Atomic — a plain read-then-write would lose one of two concurrent orders
     // for the same customer (migration 13).
-    const { error: statsErr } = await supabaseAdmin.rpc('increment_customer_stats', {
+    const { error: statsErr } = await db.rpc('increment_customer_stats', {
       p_customer_id: customerId,
       p_amount: grandTotal,
     });
@@ -360,7 +362,7 @@ router.post('/pos', requireRole('super_admin', ...BRANCH_ROLES), idempotent('sal
     const businessDate = await resolveClientBusinessDate(claimedDate, req.user!.role);
 
     const [branchRes, taxRate] = await Promise.all([
-      supabaseAdmin.from('branches').select('name').eq('id', branchId).maybeSingle(),
+      db.from('branches').select('name').eq('id', branchId).maybeSingle(),
       resolveTaxRate(),
     ]);
     if (branchRes.error) throw branchRes.error;
@@ -519,7 +521,7 @@ router.post('/production-sale', requireRole('super_admin', 'production_user'), v
     await assertBusinessDayOpen(businessDateStr(), req.user!.role);
 
     const [branchRes, taxRate] = await Promise.all([
-      supabaseAdmin.from('branches').select('name').eq('id', branchId).maybeSingle(),
+      db.from('branches').select('name').eq('id', branchId).maybeSingle(),
       resolveTaxRate(),
     ]);
     if (branchRes.error) throw branchRes.error;
@@ -628,7 +630,7 @@ router.put('/:id/status', validate(UpdateOrderStatusSchema), async (req: AuthReq
   try {
     const { status } = req.body;
 
-    const { data: order, error: readErr } = await supabaseAdmin
+    const { data: order, error: readErr } = await db
       .from('orders')
       .select('branch_id, status, order_number')
       .eq('id', req.params['id']!)
@@ -649,7 +651,7 @@ router.put('/:id/status', validate(UpdateOrderStatusSchema), async (req: AuthReq
     }
 
     // updated_at is maintained by the orders_touch trigger — do not set it here.
-    const { error: updErr } = await supabaseAdmin
+    const { error: updErr } = await db
       .from('orders')
       .update({ status })
       .eq('id', req.params['id']!);

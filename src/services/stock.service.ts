@@ -1,4 +1,4 @@
-import { supabaseAdmin } from '../config/supabase';
+import { dbFor } from '../db';
 import {
   businessDateStr,
   hasStockActivity,
@@ -13,6 +13,8 @@ import {
   type StockRow,
 } from '../shared';
 
+const db = dbFor('stock');
+
 /**
  * Derived stock tracking (no cron). We keep a running balance per
  * (branch_id, product_id) in `stock` and append every movement to `stock_history`.
@@ -20,8 +22,8 @@ import {
  *
  * ─── Where the transactions live ─────────────────────────────────────────────
  * The read-validate-write cores are Postgres functions (migration 12), called via
- * .rpc(). PostgREST gives every call its own transaction, so validate-then-write
- * split across two supabase-js calls could not hold `select ... for update`
+ * .rpc(). Every `db` call is its own transaction, so validate-then-write
+ * split across two of them could not hold `select ... for update`
  * between them — which is exactly the multi-cashier race the SQL-function
  * transaction exists to close.
  *
@@ -44,7 +46,7 @@ interface MovementInput {
 
 /** Apply one signed movement. Returns the post-movement balance. */
 export async function applyStockMovement(input: MovementInput): Promise<number> {
-  const { data, error } = await supabaseAdmin.rpc('apply_stock_movement', {
+  const { data, error } = await db.rpc('apply_stock_movement', {
     p_branch_id: input.branchId,
     p_product_id: input.productId,
     p_product_name: input.productName,
@@ -144,7 +146,7 @@ export async function applyStockCorrection(params: {
   ticketId: string;
   businessDate?: string;
 }): Promise<StockCorrectionResult> {
-  const { data, error } = await supabaseAdmin.rpc('apply_stock_correction', {
+  const { data, error } = await db.rpc('apply_stock_correction', {
     p_branch_id: params.branchId,
     p_product_id: params.productId,
     p_product_name: params.productName,
@@ -248,7 +250,7 @@ export async function computeStockRows(
   const [products, stock, history] = await Promise.all([
     preload?.products ?? fetchAllProducts(),
     preload?.stock ?? fetchBranchStock(branchId),
-    supabaseAdmin
+    db
       .from('stock_history')
       .select('product_id, business_date, type, delta')
       .eq('branch_id', branchId)
@@ -400,13 +402,13 @@ export interface StockPreload {
 }
 
 async function fetchAllProducts(): Promise<PreloadedProductRow[]> {
-  const { data, error } = await supabaseAdmin.from('products').select('id, name, stock_code, is_active, price');
+  const { data, error } = await db.from('products').select('id, name, stock_code, is_active, price');
   if (error) throw error;
   return (data ?? []) as PreloadedProductRow[];
 }
 
 async function fetchBranchStock(branchId: string): Promise<PreloadedStockRow[]> {
-  const { data, error } = await supabaseAdmin.from('stock').select('product_id, balance').eq('branch_id', branchId);
+  const { data, error } = await db.from('stock').select('product_id, balance').eq('branch_id', branchId);
   if (error) throw error;
   return (data ?? []) as PreloadedStockRow[];
 }
@@ -429,7 +431,7 @@ export async function computeBranchStockHistory(
   const [products, stock, history] = await Promise.all([
     preload?.products ?? fetchAllProducts(),
     preload?.stock ?? fetchBranchStock(branchId),
-    supabaseAdmin
+    db
       .from('stock_history')
       .select('product_id, business_date, type, delta')
       .eq('branch_id', branchId)
@@ -607,7 +609,7 @@ async function closingBalancesByProduct(
 ): Promise<Map<string, number>> {
   const [stock, history] = await Promise.all([
     preload?.stock ?? fetchBranchStock(branchId),
-    supabaseAdmin
+    db
       .from('stock_history')
       .select('product_id, delta')
       .eq('branch_id', branchId)
@@ -739,7 +741,7 @@ export async function purgeBranchStock(
   // History first: the `stock` row is the thing the UI reads, so if the second
   // delete fails the product still shows and the inconsistency is visible rather
   // than a balance with no ledger behind it.
-  const { data: history, error: histErr } = await supabaseAdmin
+  const { data: history, error: histErr } = await db
     .from('stock_history')
     .delete()
     .eq('branch_id', branchId)
@@ -747,7 +749,7 @@ export async function purgeBranchStock(
     .select('id');
   if (histErr) throw histErr;
 
-  const { data: stock, error: stockErr } = await supabaseAdmin
+  const { data: stock, error: stockErr } = await db
     .from('stock')
     .delete()
     .eq('branch_id', branchId)
@@ -770,8 +772,8 @@ export async function getProductStockFigures(
   date: string = businessDateStr(),
 ): Promise<StockFigures> {
   const [stock, history] = await Promise.all([
-    supabaseAdmin.from('stock').select('balance').eq('branch_id', branchId).eq('product_id', productId).maybeSingle(),
-    supabaseAdmin
+    db.from('stock').select('balance').eq('branch_id', branchId).eq('product_id', productId).maybeSingle(),
+    db
       .from('stock_history')
       .select('type, delta')
       .eq('branch_id', branchId)
@@ -842,7 +844,7 @@ export async function commitBranchReturn(params: {
    */
   businessDate?: string;
 }): Promise<{ before: number; after: number }> {
-  const { data, error } = await supabaseAdmin.rpc('commit_branch_return', {
+  const { data, error } = await db.rpc('commit_branch_return', {
     p_branch_id: params.branchId,
     p_product_id: params.productId,
     p_product_name: params.productName,
@@ -909,7 +911,7 @@ export async function commitSaleTransaction(params: {
    */
   businessDate?: string;
 }): Promise<{ orderId: string; balances: Map<string, SaleBalance> }> {
-  const { data, error } = await supabaseAdmin.rpc('commit_sale', {
+  const { data, error } = await db.rpc('commit_sale', {
     p_order: params.order,
     p_items: params.items,
     p_branch_id: params.branchId,
@@ -955,7 +957,7 @@ export async function logBlockedSale(input: {
 
   // Written outside the failed sale's transaction on purpose (migration 04): the
   // sale rolls back, this must not.
-  const { error } = await supabaseAdmin.from('stock_audit_log').insert(
+  const { error } = await db.from('stock_audit_log').insert(
     input.shortfalls.map((s) => ({
       branch_id: input.branchId,
       branch_name: input.branchName,
@@ -998,7 +1000,7 @@ export async function computeAllBranchesStockSummary(
   days: number,
   today: string = businessDateStr(),
 ): Promise<BranchStockSummaryResult> {
-  const { data, error } = await supabaseAdmin
+  const { data, error } = await db
     .from('branches')
     .select('id, name')
     .eq('is_active', true)

@@ -1,11 +1,13 @@
 import { Router } from 'express';
-import { supabaseAdmin } from '../config/supabase';
+import { dbFor } from '../db';
 import { authenticate, type AuthRequest } from '../middleware/auth';
 import { requireRole } from '../middleware/requireRole';
 import { notify } from '../services/push.service';
 import { getReturnStockTotal } from '../services/return-stock.service';
 import { businessDateStr, businessDaysAgoStr } from '../shared';
 import { rowToApi } from '../utils/case';
+
+const db = dbFor('production');
 
 export const router = Router();
 
@@ -77,32 +79,32 @@ router.get('/overview', async (req, res, next) => {
       // the identical aggregation in SQL instead — same window, same
       // status<>'cancelled' exclusion, same qty column; verified field-for-field
       // against this route's prior Node logic before the swap.
-      supabaseAdmin.rpc('production_demand_overview', {
+      db.rpc('production_demand_overview', {
         p_demand_from: demandFrom, p_day_from: dayFrom, p_last7: last7,
       }),
       // The period block of the dashboard (migration 140; "week" is its
       // default period, the function itself takes any pair of windows).
       // Aggregated in SQL for the same reason as the call above.
-      supabaseAdmin.rpc('production_dashboard_week', {
+      db.rpc('production_dashboard_week', {
         p_from: win.from, p_to: todayStr,
         p_prev_from: win.prevFrom, p_prev_to: win.prevTo,
         p_branch_id: branchId,
       }),
       // 12 months of demand beside output, and today by the hour (migration 141).
-      supabaseAdmin.rpc('production_dashboard_series', {
+      db.rpc('production_dashboard_series', {
         p_month_from: shiftMonthsStr(monthStartStr, -11), p_today: todayStr,
         p_branch_id: branchId,
       }),
-      supabaseAdmin.from('production_stock_history').select('type, delta, business_date').gte('business_date', historyFrom),
+      db.from('production_stock_history').select('type, delta, business_date').gte('business_date', historyFrom),
       // AVAILABLE, not the raw pool balance: goods a branch has already been
       // promised are still on the shelf but are not free to sell or re-promise.
       // One SQL definition (migration 90) shared with the counter sale and the
       // Production Stock page's Balance column, so the card cannot drift from the
       // table it sits above.
-      supabaseAdmin.rpc('production_stock_availability'),
-      supabaseAdmin.from('production_returns').select('qty, status').eq('business_date', todayStr),
-      supabaseAdmin.from('branches').select('id, name').eq('is_active', true).order('name'),
-      supabaseAdmin.from('products').select('id', { count: 'exact', head: true }).eq('is_active', true).eq('is_special', false),
+      db.rpc('production_stock_availability'),
+      db.from('production_returns').select('qty, status').eq('business_date', todayStr),
+      db.from('branches').select('id, name').eq('is_active', true).order('name'),
+      db.from('products').select('id', { count: 'exact', head: true }).eq('is_active', true).eq('is_special', false),
     ]);
     for (const r of [demandRes, weekRes, seriesRes, prepHistRes, availRes, returnsRes, branchesRes, productsRes]) {
       if (r.error) throw r.error;
@@ -165,9 +167,9 @@ router.get('/overview', async (req, res, next) => {
 router.get('/branch-stock', async (_req, res, next) => {
   try {
     const [stockRes, branchesRes, productsRes] = await Promise.all([
-      supabaseAdmin.from('stock').select('branch_id, product_id, balance'),
-      supabaseAdmin.from('branches').select('id, name').eq('is_active', true),
-      supabaseAdmin.from('products').select('id, name').eq('is_active', true),
+      db.from('stock').select('branch_id, product_id, balance'),
+      db.from('branches').select('id, name').eq('is_active', true),
+      db.from('products').select('id, name').eq('is_active', true),
     ]);
     for (const r of [stockRes, branchesRes, productsRes]) {
       if (r.error) throw r.error;
@@ -199,7 +201,7 @@ router.get('/branch-stock', async (_req, res, next) => {
 // GET /api/production/queue — all pending/preparing/ready orders grouped by branch
 router.get('/queue', async (_req, res, next) => {
   try {
-    const { data, error } = await supabaseAdmin
+    const { data, error } = await db
       .from('orders')
       .select('*, items:order_items(product_id, product_name, qty, unit_price, line_total, line_no)')
       .in('status', ['pending', 'preparing', 'ready'])
@@ -243,7 +245,7 @@ router.put('/:id/status', async (req: AuthRequest, res, next) => {
 
     const id = req.params['id']!;
     // updated_at is maintained by the orders_touch trigger.
-    const { data, error } = await supabaseAdmin
+    const { data, error } = await db
       .from('orders')
       .update({ status })
       .eq('id', id)

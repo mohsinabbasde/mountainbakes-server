@@ -10,7 +10,7 @@ import { buildManifest, parseManifest } from './backupManifest';
 import { acquireBackupLock, type BackupLockHandle } from './backupLock';
 import type { BackupRepository } from './backupRepository';
 import type { BackupStorage } from './s3BackupStorage';
-import { AUTH_TABLES, MAIN_SCHEMAS, getPgDumpVersion, probeConnection, runPgDump, type PgDeps } from './postgresBackup';
+import { MAIN_SCHEMAS, getPgDumpVersion, probeConnection, runPgDump, type PgDeps } from './postgresBackup';
 import type { FailureAlert } from './backupAlerts';
 
 /**
@@ -174,14 +174,13 @@ export async function runBackup(type: BackupType, opts: RunOptions, deps: Backup
     await mkdir(config.tmpDir, { recursive: true });
     tmpDir = await mkdtemp(path.join(config.tmpDir, `${plan.backupId}-`));
     const mainFile = path.join(tmpDir, plan.mainFileName);
-    const authFile = path.join(tmpDir, plan.authFileName);
 
     const pgDumpVersion = await getPgDumpVersion(deps.pg);
     log(`[backup] pg_dump ${pgDumpVersion}`);
     const info = await deps.databaseInfo();
     if (info.serverVersion) log(`[backup] server PostgreSQL ${info.serverVersion}, database size ${info.sizeBytes !== null ? fmtBytes(info.sizeBytes) : 'unknown'}`);
 
-    if (!config.dbUrl) throw new BackupError('CONFIG_INVALID', 'SUPABASE_DB_URL is not set');
+    if (!config.dbUrl) throw new BackupError('CONFIG_INVALID', 'BACKUP_DB_URL is not set');
     const dbUrl = config.dbUrl;
     const probe = await withConnectionRetry(() => probeConnection(dbUrl, tmpDir!, deps.pg), 'connection probe', deps);
     log(`[backup] database connectivity OK (${probe.durationMs}ms)`);
@@ -193,30 +192,22 @@ export async function runBackup(type: BackupType, opts: RunOptions, deps: Backup
       deps,
     );
     log(`[backup] pg_dump main completed in ${(main.durationMs / 1000).toFixed(1)}s — ${fmtBytes(main.bytes)} (schemas: ${MAIN_SCHEMAS.join(', ')})`);
-    const auth = await withConnectionRetry(
-      () => runPgDump({ dbUrl, outFile: authFile, tables: AUTH_TABLES, timeoutMs: config.pgDumpTimeoutMs, signal: deps.signal }, deps.pg),
-      'auth dump',
-      deps,
-    );
-    log(`[backup] pg_dump auth completed in ${(auth.durationMs / 1000).toFixed(1)}s — ${fmtBytes(auth.bytes)} (tables: ${AUTH_TABLES.join(', ')})`);
     const dumpMs = Date.now() - dumpStart;
 
-    const [mainSha, authSha, mainSize, authSize] = await Promise.all([sha256File(mainFile), sha256File(authFile), fileSize(mainFile), fileSize(authFile)]);
-    if (mainSize === 0 || authSize === 0) throw new BackupError('DUMP_EMPTY', 'a dump file is empty');
-    log(`[backup] checksum calculated — main sha256 ${mainSha.slice(0, 16)}…, auth sha256 ${authSha.slice(0, 16)}…`);
+    const [mainSha, mainSize] = await Promise.all([sha256File(mainFile), fileSize(mainFile)]);
+    if (mainSize === 0) throw new BackupError('DUMP_EMPTY', 'the dump file is empty');
+    log(`[backup] checksum calculated — sha256 ${mainSha.slice(0, 16)}…`);
 
     const uploadStart = Date.now();
     const uploadMeta = { backupId: plan.backupId, backupType: type, retentionUntil: plan.retentionUntil, signal: deps.signal };
     let mainUp: { etag: string | null; attempts: number };
-    let authUp: { etag: string | null; attempts: number };
     try {
       mainUp = await deps.storage.uploadFile(plan.mainKey, mainFile, { ...uploadMeta, sha256: mainSha });
-      authUp = await deps.storage.uploadFile(plan.authKey, authFile, { ...uploadMeta, sha256: authSha });
     } catch (err) {
       if (deps.signal?.aborted) throw new BackupError('INTERRUPTED', 'upload interrupted');
       throw new BackupError('S3_UPLOAD_FAILED', `S3 upload failed after retries: ${errorMessage(err)}`, { cause: err });
     }
-    attempts = Math.max(mainUp.attempts, authUp.attempts);
+    attempts = mainUp.attempts;
     const uploadMs = Date.now() - uploadStart;
     log(`[backup] uploaded in ${(uploadMs / 1000).toFixed(1)}s`);
 
@@ -224,8 +215,6 @@ export async function runBackup(type: BackupType, opts: RunOptions, deps: Backup
     const checks: BackupVerifyCheck[] = [];
     const mainHead = await deps.storage.head(plan.mainKey);
     checks.push(...compareObject(mainHead, { size: mainSize, sha256: mainSha }, 'main'));
-    const authHead = await deps.storage.head(plan.authKey);
-    checks.push(...compareObject(authHead, { size: authSize, sha256: authSha }, 'auth'));
     const failedChecks = checks.filter((c) => !c.ok);
     if (failedChecks.length > 0) {
       throw new BackupError('S3_VERIFY_FAILED', `S3 verification failed: ${failedChecks.map((c) => `${c.name}${c.detail ? ` (${c.detail})` : ''}`).join('; ')}`);
@@ -234,7 +223,6 @@ export async function runBackup(type: BackupType, opts: RunOptions, deps: Backup
 
     const files: BackupManifestFile[] = [
       { role: 'main', fileName: plan.mainFileName, s3Key: plan.mainKey, fileSize: mainSize, checksumSha256: mainSha, etag: mainHead?.etag ?? null },
-      { role: 'auth', fileName: plan.authFileName, s3Key: plan.authKey, fileSize: authSize, checksumSha256: authSha, etag: authHead?.etag ?? null },
     ];
     const completedAt = deps.now();
     const manifest = buildManifest({
@@ -266,12 +254,12 @@ export async function runBackup(type: BackupType, opts: RunOptions, deps: Backup
       dumpMs,
       uploadMs,
       s3Key: plan.mainKey,
-      authS3Key: plan.authKey,
+      authS3Key: null,
       manifestS3Key: plan.manifestKey,
       fileSize: mainSize,
-      authFileSize: authSize,
+      authFileSize: null,
       checksumSha256: mainSha,
-      authChecksumSha256: authSha,
+      authChecksumSha256: null,
       retentionUntil: plan.retentionUntil.toISOString(),
       pgDumpVersion,
       databaseVersion: info.serverVersion,
@@ -323,8 +311,10 @@ export async function verifyBackup(job: BackupJob, deps: Pick<BackupDeps, 'stora
   const expected: { role: 'main' | 'auth'; key: string | null; size: number | null; sha: string | null }[] = manifest
     ? manifest.files.map((f) => ({ role: f.role, key: f.s3Key, size: f.fileSize, sha: f.checksumSha256 }))
     : [
-        { role: 'main', key: job.s3Key, size: job.fileSize, sha: job.checksumSha256 },
-        { role: 'auth', key: job.authS3Key, size: job.authFileSize, sha: job.authChecksumSha256 },
+        { role: 'main' as const, key: job.s3Key, size: job.fileSize, sha: job.checksumSha256 },
+        // Backups taken while accounts were kept outside `public` carry a
+        // second archive; one is expected only where the job recorded it.
+        ...(job.authS3Key ? [{ role: 'auth' as const, key: job.authS3Key, size: job.authFileSize, sha: job.authChecksumSha256 }] : []),
       ];
   for (const e of expected) {
     if (!e.key || e.size === null || !e.sha) {

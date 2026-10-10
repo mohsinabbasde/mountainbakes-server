@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { randomUUID } from 'crypto';
-import { supabaseAdmin } from '../config/supabase';
+import { dbFor } from '../db';
 import { authenticate, type AuthRequest } from '../middleware/auth';
 import { requireRole } from '../middleware/requireRole';
 import { validate } from '../middleware/validate';
@@ -20,6 +20,8 @@ import {
   CorrectionUnavailableError,
 } from '../services/production-stock.service';
 import { getStockLedger, getProductDayLedger } from '../services/production-ledger.service';
+
+const db = dbFor('production-stock');
 
 export const router = Router();
 
@@ -44,7 +46,7 @@ router.post('/prepare', validate(PrepareProductionSchema), async (req: AuthReque
     // Resolve product names server-side (names/prices are Admin-owned). One query
     // rather than N point reads.
     const productIds = [...new Set(items.map((i) => i.productId))];
-    const { data: products, error: prodErr } = await supabaseAdmin
+    const { data: products, error: prodErr } = await db
       .from('products')
       .select('id, name')
       .in('id', productIds);
@@ -132,7 +134,7 @@ router.post('/adjustment', validate(CreateProductionAdjustmentSchema), async (re
 
     // The name is resolved here, not taken from the client — the ledger keeps a
     // name snapshot and it should read as the name at the time of the adjustment.
-    const { data: product, error: prodErr } = await supabaseAdmin
+    const { data: product, error: prodErr } = await db
       .from('products')
       .select('id, name')
       .eq('id', body.productId)

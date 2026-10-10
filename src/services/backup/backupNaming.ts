@@ -31,9 +31,7 @@ export interface BackupPlan {
   /** 'YYYY/MM' folder segment. */
   folder: string;
   mainFileName: string;
-  authFileName: string;
   mainKey: string;
-  authKey: string;
   manifestKey: string;
   /** Karachi date the run is attributed to. */
   runDate: string;
@@ -99,7 +97,6 @@ export function buildBackupPlan(
   const folder = folderFor(type, label, runDate);
   const backupId = `backup-${type}-${label}`;
   const mainFileName = `${FILE_STEM}-${type}-${label}.dump`;
-  const authFileName = `${FILE_STEM}-${type}-${label}-auth.dump`;
   const retentionDays = cfg.retentionDays[type];
   return {
     backupId,
@@ -107,9 +104,7 @@ export function buildBackupPlan(
     label,
     folder,
     mainFileName,
-    authFileName,
     mainKey: `${cfg.prefix}/${type}/${folder}/${mainFileName}`,
-    authKey: `${cfg.prefix}/${type}/${folder}/${authFileName}`,
     manifestKey: `${cfg.prefix}/manifests/${type}/${folder}/${backupId}.json`,
     runDate,
     retentionDays,

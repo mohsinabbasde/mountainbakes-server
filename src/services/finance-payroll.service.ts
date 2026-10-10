@@ -1,4 +1,4 @@
-import { supabaseAdmin } from '../config/supabase';
+import { dbFor } from '../db';
 import {
   businessDateStr,
   EDITABLE_DOC_STATUSES,
@@ -24,6 +24,8 @@ import { withoutDeleted } from '../utils/softDelete';
 import { bindAttachments, listAttachments, listAttachmentsFor } from './attachments.service';
 import { approveDocument, rejectDocument } from './finance-documents.service';
 import { getLedgerHeadByCode, round2 } from './finance-settings.service';
+
+const db = dbFor('finance-payroll');
 
 /**
  * Canonicalizes a free-text department name: trims, collapses internal
@@ -70,7 +72,7 @@ export async function listEmployees(opts: {
   includeInactive?: boolean;
   search?: string;
 }): Promise<FinanceEmployee[]> {
-  let query = supabaseAdmin
+  let query = db
     .from('finance_employees')
     .select('*')
     .order('department', { ascending: true })
@@ -108,7 +110,7 @@ export async function listEmployees(opts: {
 async function applyEffectiveSalary(employees: FinanceEmployee[]): Promise<FinanceEmployee[]> {
   if (employees.length === 0) return employees;
 
-  const { data, error } = await supabaseAdmin
+  const { data, error } = await db
     .from('salary_revisions')
     .select('employee_id, new_salary, effective_from, reason')
     .in('employee_id', employees.map((e) => e.id))
@@ -144,7 +146,7 @@ async function applyEffectiveSalary(employees: FinanceEmployee[]): Promise<Finan
 
 export async function createEmployee(input: CreateEmployeeInput): Promise<FinanceEmployee> {
   const branch = await resolveBranch(input.branchId);
-  const { data, error } = await supabaseAdmin
+  const { data, error } = await db
     .from('finance_employees')
     .insert({
       name: input.name,
@@ -176,7 +178,7 @@ export async function updateEmployee(id: string, input: UpdateEmployeeInput): Pr
     row['branch_name'] = branch?.name ?? null;
   }
 
-  const { data, error } = await supabaseAdmin
+  const { data, error } = await db
     .from('finance_employees')
     .update(row)
     .eq('id', id)
@@ -204,7 +206,7 @@ export async function reviseEmployeeSalary(
   input: CreateSalaryRevisionInput,
   actor: { uid: string; name: string },
 ): Promise<{ employee: FinanceEmployee; revision: SalaryRevision }> {
-  const { data: empRow, error: empErr } = await supabaseAdmin
+  const { data: empRow, error: empErr } = await db
     .from('finance_employees')
     .select('*')
     .eq('id', employeeId)
@@ -217,7 +219,7 @@ export async function reviseEmployeeSalary(
     { ...employee, baseSalary: num(employee.baseSalary), pendingRevision: null },
   ]);
 
-  const { data: revRow, error: revErr } = await supabaseAdmin
+  const { data: revRow, error: revErr } = await db
     .from('salary_revisions')
     .insert({
       employee_id: employeeId,
@@ -248,7 +250,7 @@ function normaliseRevision(r: SalaryRevision): SalaryRevision {
 }
 
 export async function listSalaryRevisions(employeeId: string): Promise<SalaryRevision[]> {
-  const { data, error } = await supabaseAdmin
+  const { data, error } = await db
     .from('salary_revisions')
     .select('*')
     .eq('employee_id', employeeId)
@@ -311,7 +313,7 @@ export async function listSalaryPayments(
   const ascending = q.sortDir === 'asc';
 
   let query = withoutDeleted(
-    supabaseAdmin
+    db
       .from('salary_payments')
       .select('*', { count: 'exact' })
       .order(sortCol, { ascending })
@@ -353,7 +355,7 @@ function normalise(s: SalaryPayment): SalaryPayment {
 
 export async function getSalaryPayment(id: string): Promise<SalaryPayment | null> {
   const { data, error } = await withoutDeleted(
-    supabaseAdmin.from('salary_payments').select('*').eq('id', id),
+    db.from('salary_payments').select('*').eq('id', id),
   ).maybeSingle();
   if (error) throw error;
   if (!data) return null;
@@ -367,7 +369,7 @@ export async function createSalaryPayment(
   input: CreateSalaryPaymentInput,
   actor: { uid: string; name: string },
 ): Promise<SalaryPayment> {
-  const { data: employee, error: empErr } = await supabaseAdmin
+  const { data: employee, error: empErr } = await db
     .from('finance_employees')
     .select('id, name, department, designation, is_active')
     .eq('id', input.employeeId)
@@ -380,7 +382,7 @@ export async function createSalaryPayment(
 
   const netSalary = round2(input.grossSalary + input.bonus - input.deductions);
 
-  const { data, error } = await supabaseAdmin
+  const { data, error } = await db
     .from('salary_payments')
     .insert({
       employee_id: employee.id,
@@ -436,7 +438,7 @@ export async function createSalaryPayment(
     // ago that no other request has been able to see. Stamping it instead would
     // leave a permanent "deleted salary payment" in the audit view for a payslip
     // that never existed, which is noise an auditor has to learn to ignore.
-    await supabaseAdmin.from('salary_payments').delete().eq('id', salary.id);
+    await db.from('salary_payments').delete().eq('id', salary.id);
     throw Object.assign(
       new Error(
         `Some of ${employee.name}'s advances were recovered by another payslip while this one was being saved. Reopen the form to pick up the current balance.`,
@@ -488,7 +490,7 @@ export async function updateSalaryPayment(id: string, input: UpdateSalaryPayment
   }
 
   const { data, error } = await withoutDeleted(
-    supabaseAdmin.from('salary_payments').update(row).eq('id', id).in('status', EDITABLE_DOC_STATUSES),
+    db.from('salary_payments').update(row).eq('id', id).in('status', EDITABLE_DOC_STATUSES),
   )
     .select('*')
     .single();
@@ -498,7 +500,7 @@ export async function updateSalaryPayment(id: string, input: UpdateSalaryPayment
 
 export async function submitSalaryPayment(id: string): Promise<SalaryPayment> {
   const { data, error } = await withoutDeleted(
-    supabaseAdmin
+    db
       .from('salary_payments')
       .update({ status: 'pending_approval', rejection_reason: null })
       .eq('id', id)
@@ -552,7 +554,7 @@ export async function approveSalaryPayment(
   // says the money moved today, and the payslip must agree with it.
   if (!doc.paymentDate) {
     await withoutDeleted(
-      supabaseAdmin.from('salary_payments').update({ payment_date: entry.entryDate }).eq('id', id),
+      db.from('salary_payments').update({ payment_date: entry.entryDate }).eq('id', id),
     );
   }
 
@@ -562,7 +564,7 @@ export async function approveSalaryPayment(
   // Left as a stamp on the existing claim rather than a fresh one, so approving
   // twice cannot double-count and a failure here cannot un-recover anything.
   const { error: recoverErr } = await withoutDeleted(
-    supabaseAdmin
+    db
       .from('employee_advances')
       .update({ recovered_at: new Date().toISOString() })
       .eq('recovered_by_salary_id', id)
@@ -686,7 +688,7 @@ async function withRecovery(rows: EmployeeAdvance[]): Promise<EmployeeAdvance[]>
   }
 
   const { data, error } = await withoutDeleted(
-    supabaseAdmin.from('salary_payments').select('id, salary_no, status').in('id', salaryIds),
+    db.from('salary_payments').select('id, salary_no, status').in('id', salaryIds),
   );
   if (error) throw error;
 
@@ -718,7 +720,7 @@ export async function listEmployeeAdvances(
   const ascending = q.sortDir === 'asc';
 
   let query = withoutDeleted(
-    supabaseAdmin
+    db
       .from('employee_advances')
       .select('*', { count: 'exact' })
       .order(sortCol, { ascending }),
@@ -776,7 +778,7 @@ export async function listEmployeeAdvances(
 
 export async function getEmployeeAdvance(id: string): Promise<EmployeeAdvance | null> {
   const { data, error } = await withoutDeleted(
-    supabaseAdmin.from('employee_advances').select('*').eq('id', id),
+    db.from('employee_advances').select('*').eq('id', id),
   ).maybeSingle();
   if (error) throw error;
   if (!data) return null;
@@ -794,7 +796,7 @@ export async function getEmployeeAdvance(id: string): Promise<EmployeeAdvance | 
  * two is wrong.
  */
 export async function getEmployeeAdvanceSummary(employeeId: string): Promise<EmployeeAdvanceSummary> {
-  const { data: emp, error: empErr } = await supabaseAdmin
+  const { data: emp, error: empErr } = await db
     .from('finance_employees')
     .select('id, name')
     .eq('id', employeeId)
@@ -803,7 +805,7 @@ export async function getEmployeeAdvanceSummary(employeeId: string): Promise<Emp
   if (!emp) throw Object.assign(new Error('Employee not found'), { status: 404 });
 
   const { data, error } = await withoutDeleted(
-    supabaseAdmin
+    db
       .from('employee_advances')
       .select('*')
       .eq('employee_id', employeeId)
@@ -837,7 +839,7 @@ export async function createEmployeeAdvance(
   input: CreateEmployeeAdvanceInput,
   actor: { uid: string; name: string },
 ): Promise<EmployeeAdvance> {
-  const { data: employee, error: empErr } = await supabaseAdmin
+  const { data: employee, error: empErr } = await db
     .from('finance_employees')
     .select('id, name, department, designation, is_active')
     .eq('id', input.employeeId)
@@ -855,7 +857,7 @@ export async function createEmployeeAdvance(
   // compares stored column to stored column, and 0.005 either way fails it.
   const totalAmount = round2(advanceAmount + bonusAmount + loanAmount);
 
-  const { data, error } = await supabaseAdmin
+  const { data, error } = await db
     .from('employee_advances')
     .insert({
       employee_id: employee['id'],
@@ -928,7 +930,7 @@ export async function updateEmployeeAdvance(
   }
 
   const { data, error } = await withoutDeleted(
-    supabaseAdmin.from('employee_advances').update(row).eq('id', id).in('status', EDITABLE_DOC_STATUSES),
+    db.from('employee_advances').update(row).eq('id', id).in('status', EDITABLE_DOC_STATUSES),
   )
     .select('*')
     .single();
@@ -939,7 +941,7 @@ export async function updateEmployeeAdvance(
 
 export async function submitEmployeeAdvance(id: string): Promise<EmployeeAdvance> {
   const { data, error } = await withoutDeleted(
-    supabaseAdmin
+    db
       .from('employee_advances')
       .update({ status: 'pending_approval', rejection_reason: null })
       .eq('id', id)
@@ -1025,7 +1027,7 @@ async function claimAdvancesForSalary(
   // Which of the currently-held ones are held by a rejected payslip, and so are
   // fair game. Resolved first because the filter below has to name them.
   const { data: held, error: heldErr } = await withoutDeleted(
-    supabaseAdmin
+    db
       .from('employee_advances')
       .select('recovered_by_salary_id')
       .in('id', advanceIds)
@@ -1039,14 +1041,14 @@ async function claimAdvancesForSalary(
   let releasable: string[] = [];
   if (heldBy.length > 0) {
     const { data: claimers, error: claimerErr } = await withoutDeleted(
-      supabaseAdmin.from('salary_payments').select('id, status').in('id', heldBy).eq('status', 'rejected'),
+      db.from('salary_payments').select('id, status').in('id', heldBy).eq('status', 'rejected'),
     );
     if (claimerErr) throw claimerErr;
     releasable = (claimers ?? []).map((r) => r['id'] as string);
   }
 
   let update = withoutDeleted(
-    supabaseAdmin
+    db
       .from('employee_advances')
       .update({ recovered_by_salary_id: salaryId })
       .in('id', advanceIds)
@@ -1066,7 +1068,7 @@ async function claimAdvancesForSalary(
 
 async function resolveBranch(branchId?: string | null): Promise<{ id: string; name: string } | null> {
   if (!branchId) return null;
-  const { data, error } = await supabaseAdmin.from('branches').select('id, name').eq('id', branchId).maybeSingle();
+  const { data, error } = await db.from('branches').select('id, name').eq('id', branchId).maybeSingle();
   if (error) throw error;
   return data ? { id: data.id as string, name: data.name as string } : null;
 }

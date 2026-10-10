@@ -40,15 +40,10 @@ export const SOFT_DELETABLE_FINANCE_TABLES = [
 export type SoftDeletableFinanceTable = (typeof SOFT_DELETABLE_FINANCE_TABLES)[number];
 
 /**
- * The one method this helper needs from a PostgREST builder.
+ * The one method this helper needs from a query builder.
  *
- * Structural, rather than importing `PostgrestFilterBuilder`:
- * `@supabase/postgrest-js` is a transitive dependency of `@supabase/supabase-js`
- * and NOT a direct one, so under pnpm's isolated node_modules it does not
- * resolve from app code — the same trap `table-meta.ts` documents on the
- * frontend for `@tanstack/table-core`. Adding it to package.json to get one type
- * would pin a second copy of the client's internals against the one the SDK
- * actually uses.
+ * Structural, rather than the query layer's own builder type, so the helper
+ * asks for nothing it does not use and works on any chain that can filter.
  */
 interface NullFilterable {
   is(column: string, value: null): unknown;
@@ -57,9 +52,10 @@ interface NullFilterable {
 /**
  * Exclude soft-deleted rows.
  *
- * `.is('deleted_at', null)` rather than `.eq(...)`: PostgREST renders `eq.null`
- * as a comparison against the literal string "null", which matches nothing and
- * would silently empty every finance screen.
+ * `.is('deleted_at', null)` rather than `.eq(...)`: the query layer keeps
+ * PostgREST's filter grammar, in which `eq.null` is a comparison against the
+ * literal string "null" — never an `is null` test, so it would not find the
+ * live rows and every finance screen would lose them.
  *
  * Generic in the builder's own type so it is transparent in a chain —
  * `withoutDeleted(q).eq('status', 'posted')` keeps working, and so does

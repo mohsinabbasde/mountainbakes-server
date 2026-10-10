@@ -12,13 +12,15 @@
  * `count: 'exact'` head request answers it, so that case works before the
  * migration is applied.
  */
-import { supabaseAdmin } from '../config/supabase';
+import { dbFor } from '../db';
 import { AGGREGATE_METRICS, type AggregateMetric, type AggregateResponse, type AggregateRow } from '../shared';
 import { camelToSnake, snakeToCamel } from '../utils/case';
 import { ListQueryError, columnOf } from './parseListQuery';
 import { resolveScope } from './queryBuilder';
 import type { AuthUser, ResolvedListQuery, ResourceConfig } from './types';
 import { applyCondition, buildCondition, type FilterableQuery } from './where';
+
+const db = dbFor('data-engine');
 
 export interface ParsedAggregate {
   metrics: Array<{ metric: AggregateMetric; column?: string; key: string }>;
@@ -76,14 +78,14 @@ export async function runAggregate<Row>(
 
   // The cheap path: a bare count is a HEAD request, no SQL function needed.
   if (agg.groupBy.length === 0 && agg.metrics.length === 1 && agg.metrics[0]!.metric === 'count') {
-    const base = supabaseAdmin.from(config.table).select('id', { count: 'exact', head: true });
+    const base = db.from(config.table).select('id', { count: 'exact', head: true });
     const query = applyCondition(base as unknown as FilterableQuery, where);
     const { count, error } = await (query as unknown as typeof base);
     if (error) throw error;
     return { rows: [{ values: { count: count ?? 0 } }] };
   }
 
-  const { data, error } = await supabaseAdmin.rpc('data_engine_aggregate', {
+  const { data, error } = await db.rpc('data_engine_aggregate', {
     p_table: config.table,
     p_where: where,
     p_metrics: agg.metrics.map((m) => ({ metric: m.metric, column: m.column ?? null })),

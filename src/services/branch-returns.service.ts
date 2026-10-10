@@ -1,10 +1,12 @@
 import { randomUUID } from 'crypto';
-import { supabaseAdmin } from '../config/supabase';
+import { dbFor } from '../db';
 import type { ProductionReturn } from '../shared';
 import { rowToApi } from '../utils/case';
 import { getAttachmentsByIds } from './attachments.service';
 import { applyStockMovement, commitBranchReturn } from './stock.service';
 import { isBusinessDayClosed } from './daily-closing.service';
+
+const db = dbFor('branch-returns');
 
 /**
  * Branch → Return Stock: reading, correcting, resubmitting and withdrawing a
@@ -160,7 +162,7 @@ export async function listBranchReturns(
   const sortCol = (opts.sortBy && BRANCH_RETURN_SORTABLE_COLUMNS[opts.sortBy]) || 'created_at';
   const ascending = opts.sortDir === 'asc';
 
-  let q = supabaseAdmin
+  let q = db
     .from('production_returns')
     .select('*', { count: 'exact' })
     .eq('branch_id', branchId)
@@ -219,7 +221,7 @@ export async function listBranchReturns(
  * `businessDateStr()` itself and takes no date.
  */
 async function loadEditable(id: string, branchId: string | null): Promise<ReturnRow> {
-  const { data, error } = await supabaseAdmin
+  const { data, error } = await db
     .from('production_returns')
     .select('id, branch_id, product_id, product_name, qty, status, source, business_date')
     .eq('id', id)
@@ -352,7 +354,7 @@ export async function reviseBranchReturn(params: {
   if (params.reason !== undefined) patch['reason'] = params.reason;
   if (row.status === 'returned') Object.assign(patch, backToPendingPatch());
 
-  const { data, error } = await supabaseAdmin
+  const { data, error } = await db
     .from('production_returns')
     .update(patch)
     .eq('id', params.id)
@@ -386,7 +388,7 @@ export async function resubmitBranchReturn(id: string, branchId: string | null):
   // Guarded on `status = 'returned'` rather than on the id alone, so a double
   // submit cannot walk a row Production has since decided back to pending. A
   // zero-row result means they got there first between the load and this update.
-  const { data, error } = await supabaseAdmin
+  const { data, error } = await db
     .from('production_returns')
     .update(backToPendingPatch())
     .eq('id', id)
@@ -425,6 +427,6 @@ export async function withdrawBranchReturn(id: string, branchId: string | null):
   const row = await loadEditable(id, branchId);
   await giveUnitsBackToBranch(row, row.branch_id, Number(row.qty));
 
-  const { error } = await supabaseAdmin.from('production_returns').delete().eq('id', id);
+  const { error } = await db.from('production_returns').delete().eq('id', id);
   if (error) throw error;
 }

@@ -1,4 +1,4 @@
-import { supabaseAdmin } from '../config/supabase';
+import { dbFor } from '../db';
 import {
   businessDateStr,
   type FinanceDashboardDay,
@@ -11,6 +11,8 @@ import {
   type FinanceMonthlyDashboard,
 } from '../shared';
 import { round2 } from './finance-settings.service';
+
+const db = dbFor('finance-monthly-dashboard');
 
 /**
  * The monthly Finance Dashboard — production income against ledger receipts,
@@ -48,7 +50,7 @@ interface RawDashboard {
 }
 
 async function callDashboard(from: string, to: string, branchId: string | null, includeHeads: boolean): Promise<RawDashboard> {
-  const { data, error } = await supabaseAdmin.rpc('finance_monthly_dashboard', {
+  const { data, error } = await db.rpc('finance_monthly_dashboard', {
     p_from: from,
     p_to: to,
     p_branch_id: branchId,
@@ -105,8 +107,8 @@ export async function getFinanceMonthlyDashboard(params: {
   const [current, window6, ledgerTotals, branchesRes] = await Promise.all([
     callDashboard(from, to, branchId, true),
     callDashboard(trendFrom, bounds.last, branchId, false),
-    supabaseAdmin.rpc('finance_ledger_totals', { p_from: from, p_to: to, p_branch_id: branchId }),
-    supabaseAdmin.from('branches').select('id, name, is_active').order('name'),
+    db.rpc('finance_ledger_totals', { p_from: from, p_to: to, p_branch_id: branchId }),
+    db.from('branches').select('id, name, is_active').order('name'),
   ]);
   if (ledgerTotals.error) throw ledgerTotals.error;
   if (branchesRes.error) throw branchesRes.error;
@@ -206,7 +208,7 @@ export async function getFinanceDashboardRecords(params: {
   page: number;
   pageSize: number;
 }): Promise<FinanceDashboardRecordsPage> {
-  const { data, error } = await supabaseAdmin.rpc('finance_dashboard_records', {
+  const { data, error } = await db.rpc('finance_dashboard_records', {
     p_metric: params.metric,
     p_from: params.from,
     p_to: params.to,

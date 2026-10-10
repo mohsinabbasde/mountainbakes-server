@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { supabaseAdmin } from '../config/supabase';
+import { dbFor } from '../db';
 import { authenticate, type AuthRequest } from '../middleware/auth';
 import { requireRole } from '../middleware/requireRole';
 import { getSalesAnalytics, type SalesAnalyticsParams } from '../services/sales-analytics.service';
@@ -9,6 +9,8 @@ import {
   salesAnalyticsPDF,
 } from '../services/sales-analytics-export.service';
 import { businessDateStr, isBranchRole, SALES_TOP_PRODUCT_LIMITS } from '../shared';
+
+const db = dbFor('sales-analytics');
 
 /**
  * Daily Sales analytics — `/api/sales-analytics`.
@@ -55,7 +57,7 @@ async function resolveScope(req: AuthRequest): Promise<{ branchId: string | null
   // The name is for the export header and the card's subtitle. A branch id that
   // does not exist returns no rows from the RPC anyway; the lookup simply leaves
   // the name null rather than inventing one.
-  const { data, error } = await supabaseAdmin
+  const { data, error } = await db
     .from('branches')
     .select('id, name')
     .eq('id', requested)

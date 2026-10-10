@@ -1,4 +1,4 @@
-import { supabaseAdmin } from '../config/supabase';
+import { dbFor } from '../db';
 import {
   CASH_DEPOSITS_PER_DAY,
   DEFAULT_RESTRICTION_RULES,
@@ -38,6 +38,8 @@ import { rowToApi } from '../utils/case';
 import { withoutDeleted } from '../utils/softDelete';
 import { getAppSettings } from './settings.service';
 import { computeBranchStockDay } from './stock.service';
+
+const db = dbFor('restriction');
 /**
  * Restriction Rules — the I/O half. Loads configuration and the facts each rule
  * needs, hands them to the pure evaluators in shared/utils/restriction.ts, and owns the
@@ -103,7 +105,7 @@ async function loadRules(): Promise<StoredRules> {
     RESTRICTION_GROUPS.map((g) => [g, { updatedAt: null, updatedByName: null }]),
   ) as RestrictionRulesState['saved'];
 
-  const { data, error } = await supabaseAdmin
+  const { data, error } = await db
     .from('restriction_rules')
     .select('group_key, config, updated_at, updated_by_name');
   if (error) {
@@ -143,7 +145,7 @@ export async function getRestrictionRulesState(): Promise<RestrictionRulesState>
 
 /** Replace one group's configuration. `config` has already been through its Zod schema. */
 export async function saveRestrictionGroup(group: RestrictionGroup, config: unknown, actor: Actor): Promise<void> {
-  const { error } = await supabaseAdmin.from('restriction_rules').upsert(
+  const { error } = await db.from('restriction_rules').upsert(
     {
       group_key: group,
       config,
@@ -186,7 +188,7 @@ interface EventInput {
  */
 export async function logRestrictionEvent(input: EventInput): Promise<void> {
   try {
-    const { error } = await supabaseAdmin.from('restriction_events').insert({
+    const { error } = await db.from('restriction_events').insert({
       rule_code: input.ruleCode,
       branch_id: input.branch?.id ?? null,
       branch_name: input.branch?.name ?? null,
@@ -216,7 +218,7 @@ function auditFigures(r: Restriction): { currentValue: string | null; threshold:
 }
 
 export async function listRestrictionEvents(q: { ruleCode?: string; limit?: number }): Promise<RestrictionEvent[]> {
-  let query = supabaseAdmin
+  let query = db
     .from('restriction_events')
     .select('id, event_no, rule_code, branch_name, user_name, ref, current_value, threshold, action, result, approval_no, created_at')
     .order('created_at', { ascending: false })
@@ -256,7 +258,7 @@ const bindings = {
  * approval is history: the next attempt starts from "no request".
  */
 async function openRequest(type: RestrictionRequestType, bindingKey: string): Promise<RestrictionRequest | null> {
-  const { data, error } = await supabaseAdmin
+  const { data, error } = await db
     .from('restriction_requests')
     .select(REQUEST_COLUMNS)
     .eq('type', type)
@@ -276,7 +278,7 @@ export async function listRestrictionRequests(q: {
   branchId?: string;
   limit?: number;
 }): Promise<RestrictionRequest[]> {
-  let query = supabaseAdmin
+  let query = db
     .from('restriction_requests')
     .select(REQUEST_COLUMNS)
     .order('requested_at', { ascending: false })
@@ -291,7 +293,7 @@ export async function listRestrictionRequests(q: {
 }
 
 export async function countPendingRestrictionRequests(): Promise<number> {
-  const { count, error } = await supabaseAdmin
+  const { count, error } = await db
     .from('restriction_requests')
     .select('id', { count: 'exact', head: true })
     .eq('status', 'pending');
@@ -358,7 +360,7 @@ export async function createRestrictionRequest(
     }
   }
 
-  const { data, error } = await supabaseAdmin
+  const { data, error } = await db
     .from('restriction_requests')
     .insert({
       type: input.type,
@@ -404,7 +406,7 @@ export async function decideRestrictionRequest(
   reason: string | undefined,
   admin: Actor,
 ): Promise<RestrictionRequest> {
-  const { data, error } = await supabaseAdmin.rpc('decide_restriction_request', {
+  const { data, error } = await db.rpc('decide_restriction_request', {
     p_id: id,
     p_decision: decision,
     p_reason: reason ?? null,
@@ -431,14 +433,14 @@ export async function decideRestrictionRequest(
 // ─── Fact loaders ────────────────────────────────────────────────────────────
 
 async function branchRef(branchId: string): Promise<BranchRef> {
-  const { data, error } = await supabaseAdmin.from('branches').select('id, name').eq('id', branchId).maybeSingle();
+  const { data, error } = await db.from('branches').select('id, name').eq('id', branchId).maybeSingle();
   if (error) throw error;
   if (!data) throw clientError(400, 'Branch not found');
   return { id: data.id as string, name: data.name as string };
 }
 
 async function ledgerHead(id: string): Promise<{ id: string; name: string; type: string; code: string }> {
-  const { data, error } = await supabaseAdmin.from('ledger_heads').select('id, name, type, code').eq('id', id).maybeSingle();
+  const { data, error } = await db.from('ledger_heads').select('id, name, type, code').eq('id', id).maybeSingle();
   if (error) throw error;
   if (!data) throw clientError(404, 'Ledger head not found');
   return data as { id: string; name: string; type: string; code: string };
@@ -453,7 +455,7 @@ async function ledgerHead(id: string): Promise<{ id: string; name: string; type:
  * on it.
  */
 async function pendingDemands(branchId?: string): Promise<{ branchId: string; demandNumber: string; submittedAt: string }[]> {
-  let query = supabaseAdmin
+  let query = db
     .from('production_orders')
     .select('branch_id, demand_number, submitted_at')
     .eq('status', 'awaiting_verification')
@@ -472,7 +474,7 @@ async function pendingDemands(branchId?: string): Promise<{ branchId: string; de
  * daily limit"; cash-transfers.service.ts enforces through here.
  */
 export async function liveDepositNumbers(branchId: string, businessDate: string): Promise<string[]> {
-  const { data, error } = await withoutDeleted(supabaseAdmin.from('cash_transfers').select('transfer_no'))
+  const { data, error } = await withoutDeleted(db.from('cash_transfers').select('transfer_no'))
     .eq('branch_id', branchId)
     .eq('business_date', businessDate)
     .neq('status', 'rejected')
@@ -571,7 +573,7 @@ export async function checkSale(input: { branchId: string; now?: Date }): Promis
   const hour = currentHour(input.now ?? new Date());
   // created_at, not business_date: the rule is about when entries were keyed,
   // by the server's clock. A device's own idea of the time has no say.
-  const { count, error } = await supabaseAdmin
+  const { count, error } = await db
     .from('orders')
     .select('id', { count: 'exact', head: true })
     .eq('branch_id', input.branchId)
@@ -688,7 +690,7 @@ export async function enforceRestrictions(
   const spent: RestrictionRequest[] = [];
   const release = async () => {
     if (spent.length === 0) return;
-    const { error } = await supabaseAdmin
+    const { error } = await db
       .from('restriction_requests')
       .update({ consumed_at: null, consumed_ref: null })
       .in('id', spent.map((r) => r.id));
@@ -697,7 +699,7 @@ export async function enforceRestrictions(
   };
 
   for (const approval of ev.approvals) {
-    const { data, error } = await supabaseAdmin
+    const { data, error } = await db
       .from('restriction_requests')
       .update({ consumed_at: new Date().toISOString() })
       .eq('id', approval.id)
@@ -733,7 +735,7 @@ export async function enforceRestrictions(
     release,
     commit: async (ref: string) => {
       if (spent.length > 0) {
-        const { error } = await supabaseAdmin
+        const { error } = await db
           .from('restriction_requests')
           .update({ consumed_ref: ref })
           .in('id', spent.map((r) => r.id));
@@ -775,10 +777,10 @@ export async function getRestrictionMonitor(): Promise<RestrictionMonitorRow[]> 
 
   const [rules, branchesRes, pending, salesRes, depositsRes] = await Promise.all([
     getRestrictionRules(),
-    supabaseAdmin.from('branches').select('id, name').eq('is_active', true).order('name'),
+    db.from('branches').select('id, name').eq('is_active', true).order('name'),
     pendingDemands(),
-    supabaseAdmin.from('orders').select('branch_id').eq('status', 'delivered').gte('created_at', hour.fromISO).limit(5000),
-    withoutDeleted(supabaseAdmin.from('cash_transfers').select('branch_id'))
+    db.from('orders').select('branch_id').eq('status', 'delivered').gte('created_at', hour.fromISO).limit(5000),
+    withoutDeleted(db.from('cash_transfers').select('branch_id'))
       .eq('business_date', today)
       .neq('status', 'rejected')
       .limit(5000),

@@ -1,5 +1,7 @@
 import 'dotenv/config';
-import { supabaseAdmin } from '../config/supabase';
+import { dbFor } from '../db';
+
+const db = dbFor('scripts');
 
 /**
  * One-time maintenance script: permanently delete EVERY row in
@@ -24,7 +26,7 @@ async function main() {
   console.log('Mountain Bakes ERP — Purge Price History');
   console.log('========================================');
 
-  const { count, error: countErr } = await supabaseAdmin
+  const { count, error: countErr } = await db
     .from(TABLE)
     .select('*', { count: 'exact', head: true });
   if (countErr) throw countErr;
@@ -46,7 +48,7 @@ async function main() {
 
   // PostgREST refuses an unfiltered delete; `id is not null` matches every row
   // (id is the non-null primary key).
-  const { error: delErr } = await supabaseAdmin.from(TABLE).delete().not('id', 'is', null);
+  const { error: delErr } = await db.from(TABLE).delete().not('id', 'is', null);
   if (delErr) throw delErr;
 
   console.log(`\n✔ Deleted ${total} price-history records.`);

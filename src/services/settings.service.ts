@@ -1,4 +1,4 @@
-import { supabaseAdmin } from '../config/supabase';
+import { dbFor } from '../db';
 import {
   DEFAULT_BUSINESS_HOURS,
   DEFAULT_GEOFENCE_SETTINGS,
@@ -8,6 +8,8 @@ import {
   type AppSettings,
 } from '../shared';
 import { getCached, setCached } from '../utils/cache';
+
+const db = dbFor('settings');
 
 /** Full defaults — used when the settings/app doc is missing or partially populated. */
 const FULL_DEFAULTS: AppSettings = {
@@ -85,7 +87,7 @@ export async function getAppSettings(): Promise<AppSettings> {
   const hit = getCached<AppSettings>('settings');
   if (hit) return hit;
 
-  const { data, error } = await supabaseAdmin.from('settings').select('*').maybeSingle();
+  const { data, error } = await db.from('settings').select('*').maybeSingle();
   if (error) throw new Error(`Failed to load app settings: ${error.message}`);
 
   const settings: AppSettings = { ...FULL_DEFAULTS };
@@ -103,11 +105,10 @@ export async function getAppSettings(): Promise<AppSettings> {
 /**
  * Restore a value's declared type, using FULL_DEFAULTS as the schema.
  *
- * supabase-js hands back every `numeric` column as a STRING — Postgres numerics
- * have no lossless JavaScript representation, so PostgREST serialises them as text
- * rather than risk a silent rounding. `gst_rate` and `geofence_default_radius_km`
- * are both numeric, so without this an AppSettings claiming `gstRate: number`
- * actually carries `"0.000"`.
+ * `gst_rate` and `geofence_default_radius_km` are both `numeric` columns, and
+ * Postgres numerics have no lossless JavaScript representation. If one reaches
+ * this code as text rather than as a number, then without this an AppSettings
+ * claiming `gstRate: number` actually carries `"0.000"`.
  *
  * That is worse than a cosmetic type lie. Loose comparison hides it in some places
  * ("50" > 0 is true) and not in others: the geofence rule tests `typeof === 'number'`

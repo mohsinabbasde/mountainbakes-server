@@ -1,33 +1,25 @@
 /**
- * Mountain Bakes — Supabase seed.
+ * Mountain Bakes — seed.
  *
- * Auth is Supabase and the data lives in Postgres, so this writes to `auth.users`
- * via the Admin API and to the tables created by supabase/migrations/*.sql.
+ * Reference data and the first logins, written to the database named by
+ * DATABASE_URL: accounts are rows in `users` with a password in
+ * `user_credentials`, exactly as POST /api/users creates them.
  *
- * Run:  node scripts/seed.js        (reads .env — needs SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY)
+ * Run:  pnpm seed        (reads .env — needs DATABASE_URL)
  *
  * IDEMPOTENT. Every step is insert-if-absent; re-running never overwrites data you
  * have edited by hand, and never resets the order counter.
  */
-require('dotenv').config();
+const { randomUUID } = require('node:crypto');
+const { dbFor, disconnectPrisma } = require('../src/db');
+const { createCredentials } = require('../src/services/auth/auth.service');
 
-const { createClient } = require('@supabase/supabase-js');
-
-const url = process.env.SUPABASE_URL;
-const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-if (!url || !serviceRoleKey) {
-  console.error(
-    'Missing SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY.\n' +
-      'This must be the SECRET service-role key, not the anon/publishable one.'
-  );
+if (!(process.env.DATABASE_URL || '').trim()) {
+  console.error('Missing DATABASE_URL — the Postgres connection to seed.');
   process.exit(1);
 }
 
-// service_role bypasses RLS, which is what lets this script write reference data.
-const db = createClient(url, serviceRoleKey, {
-  auth: { autoRefreshToken: false, persistSession: false },
-});
+const db = dbFor('scripts');
 
 const SUPER_ADMIN_EMAIL = process.env.SEED_ADMIN_EMAIL || 'admin@mountainbakes.com';
 const SUPER_ADMIN_PASSWORD = process.env.SEED_ADMIN_PASSWORD || 'Admin@123';
@@ -101,8 +93,8 @@ const PRODUCTS = [
  *
  * Sign-in is by EMAIL — there is no separate "branch id" login. A branch manager
  * is a normal account whose branch_id links them to a branch; that link is what
- * scopes their orders, stock and reports, and it is mirrored into app_metadata so
- * the JWT claims (and therefore the RLS policies) agree with the profile row.
+ * scopes their orders, stock and reports, and the API reads it from the row on
+ * every request.
  *
  * `branch` is a BRANCHES slug, resolved to the real uuid at run time.
  * Passwords are overridable via env; the defaults are development-only.
@@ -136,62 +128,52 @@ function bail(step, error) {
   process.exit(1);
 }
 
-/** supabase-js has no getUserByEmail — page through the admin list to find one. */
-async function findAuthUserByEmail(email) {
-  const target = email.toLowerCase();
-  for (let page = 1; ; page++) {
-    const { data, error } = await db.auth.admin.listUsers({ page, perPage: 200 });
-    if (error) bail('listUsers', error);
-    const hit = data.users.find(u => (u.email || '').toLowerCase() === target);
-    if (hit) return hit;
-    if (data.users.length < 200) return null;
-  }
+/** The account with this email, whatever its capitalisation, or null. */
+async function findUserByEmail(email) {
+  const { data, error } = await db
+    .from('users')
+    .select('id')
+    .ilike('email', email.replace(/[\\%_]/g, c => `\\${c}`))
+    .maybeSingle();
+  if (error) bail('users read', error);
+  return data;
+}
+
+/**
+ * Create an account — its row, then its password — unless the email already
+ * has one, which is left exactly as it is (password included). Returns the id.
+ */
+async function ensureAccount({ email, password, display_name, role, branch }) {
+  const existing = await findUserByEmail(email);
+  if (existing) return { id: existing.id, created: false };
+
+  const id = randomUUID();
+  const { error } = await db.from('users').insert({
+    id,
+    email,
+    display_name,
+    role,
+    branch_id: branch ? branch.id : null,
+    branch_name: branch ? branch.name : null,
+    status: 'active',
+  });
+  if (error) bail(`users row ${email}`, error);
+  await createCredentials(id, password);
+  return { id, created: true };
 }
 
 async function createSuperAdmin() {
   console.log('\n── Super Admin ──────────────────────────');
 
-  let user = await findAuthUserByEmail(SUPER_ADMIN_EMAIL);
-  if (user) {
-    console.log(`  Already exists: ${user.id}`);
-  } else {
-    const { data, error } = await db.auth.admin.createUser({
-      email: SUPER_ADMIN_EMAIL,
-      password: SUPER_ADMIN_PASSWORD,
-      email_confirm: true,
-      user_metadata: { display_name: SUPER_ADMIN_NAME },
-    });
-    if (error) bail('createUser', error);
-    user = data.user;
-    console.log(`  Created: ${user.id}`);
-  }
-
-  // Role/branch live in app_metadata → embedded in the JWT → read by
-  // middleware/auth.ts and by the RLS policies (app.jwt_role / app.jwt_branch_id).
-  // These keys are camelCase on purpose; the SQL accessors look them up verbatim.
-  const { error: claimsError } = await db.auth.admin.updateUserById(user.id, {
-    app_metadata: { role: 'super_admin', branchId: null, branchName: null },
+  const { id, created } = await ensureAccount({
+    email: SUPER_ADMIN_EMAIL,
+    password: SUPER_ADMIN_PASSWORD,
+    display_name: SUPER_ADMIN_NAME,
+    role: 'super_admin',
+    branch: null,
   });
-  if (claimsError) bail('setClaims', claimsError);
-  console.log('  ✔ app_metadata claims set (role: super_admin)');
-
-  // public.users mirrors the claims and is the source of truth for them.
-  const { error: rowError } = await db.from('users').upsert(
-    {
-      id: user.id,
-      email: SUPER_ADMIN_EMAIL,
-      display_name: SUPER_ADMIN_NAME,
-      role: 'super_admin',
-      branch_id: null,
-      branch_name: null,
-      status: 'active',
-    },
-    { onConflict: 'id' }
-  );
-  if (rowError) bail('users row', rowError);
-  console.log('  ✔ public.users profile row upserted');
-
-  return user.id;
+  console.log(created ? `  Created: ${id}` : `  Already exists: ${id}`);
+  return id;
 }
 
 /** Insert-if-absent on a natural key; never clobbers rows already there. */
@@ -268,48 +250,10 @@ async function seedStaff() {
       if (!branch) bail('staff branch lookup', new Error(`No branch with slug "${person.branch}" for ${person.email}`));
     }
 
-    const existing = await findAuthUserByEmail(person.email);
-    let uid;
-
-    if (existing) {
-      uid = existing.id;
-      console.log(`  Skipping (exists): ${person.email}`);
-    } else {
-      const { data, error: createError } = await db.auth.admin.createUser({
-        email: person.email,
-        password: person.password,
-        email_confirm: true,
-        user_metadata: { displayName: person.display_name },
-      });
-      if (createError) bail(`createUser ${person.email}`, createError);
-      uid = data.user.id;
-      console.log(`  + ${person.email}  (${person.role}${branch ? ` @ ${branch.name}` : ''})`);
-    }
-
-    // Claims are refreshed even for an existing account, so a branch that was
-    // renamed or re-pointed does not leave a stale branchId in the JWT.
-    const { error: claimsError } = await db.auth.admin.updateUserById(uid, {
-      app_metadata: {
-        role: person.role,
-        branchId: branch ? branch.id : null,
-        branchName: branch ? branch.name : null,
-      },
-    });
-    if (claimsError) bail(`setClaims ${person.email}`, claimsError);
-
-    const { error: rowError } = await db.from('users').upsert(
-      {
-        id: uid,
-        email: person.email,
-        display_name: person.display_name,
-        role: person.role,
-        branch_id: branch ? branch.id : null,
-        branch_name: branch ? branch.name : null,
-        status: 'active',
-      },
-      { onConflict: 'id' }
-    );
-    if (rowError) bail(`users row ${person.email}`, rowError);
+    const { created } = await ensureAccount({ ...person, branch });
+    console.log(created
+      ? `  + ${person.email}  (${person.role}${branch ? ` @ ${branch.name}` : ''})`
+      : `  Skipping (exists): ${person.email}`);
   }
 
   console.log(`  ✔ Staff logins ready (${STAFF.length} accounts)`);
@@ -328,8 +272,8 @@ async function checkOrderCounter() {
     return;
   }
 
-  // Deliberately NOT reset. The migration seeds this at 124 to continue the
-  // supabase order numbering; zeroing it would re-issue MB-000001… and collide
+  // Deliberately NOT reset. The schema starts this at 124 to continue the
+  // order numbering the business already had; zeroing it would re-issue MB-000001… and collide
   // with orders that already exist.
   console.log(`  Left untouched at ${data.count} (next order: MB-${String(data.count + 1).padStart(6, '0')})`);
 }
@@ -368,9 +312,10 @@ async function initSettings() {
 }
 
 async function main() {
-  console.log('Mountain Bakes — Supabase Seed');
+  const target = new URL(process.env.DATABASE_URL);
+  console.log('Mountain Bakes — Seed');
   console.log('====================================');
-  console.log(`Target: ${url}`);
+  console.log(`Target: ${target.hostname}${target.pathname}`);
 
   await createSuperAdmin();
   await seedTable('Branches', 'branches', BRANCHES, 'slug');
@@ -389,10 +334,11 @@ async function main() {
   }
   console.log('\n  ⚠ Development credentials. Change them before exposing the app publicly.');
   console.log('\nNext: open http://localhost:3000/login and sign in.\n');
-  process.exit(0);
 }
 
-main().catch(e => {
-  console.error('\nSeed failed:', e.message);
-  process.exit(1);
-});
+main()
+  .catch(e => {
+    console.error('\nSeed failed:', e.message);
+    process.exitCode = 1;
+  })
+  .finally(() => disconnectPrisma());

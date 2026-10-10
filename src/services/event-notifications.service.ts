@@ -1,4 +1,4 @@
-import { supabaseAdmin } from '../config/supabase';
+import { dbFor } from '../db';
 import {
   addDaysToDateStr,
   branchReminderOffsets,
@@ -15,6 +15,8 @@ import { getAppSettings } from './settings.service';
 import { notify } from './push.service';
 import { getMessageProvider, getRetryPolicy, sendWithRetry, type OutboundChannel } from './messaging';
 import { getParticipatingBranchIds } from './special-events.service';
+
+const db = dbFor('event-notifications');
 
 /**
  * Special Event reminders: the schedule, and the dispatcher that drains it.
@@ -247,7 +249,7 @@ export async function generateEventNotificationSchedule(
   const settings = await getAppSettings();
   const companyName = settings.companyName || 'Mountain Bakes';
 
-  const { data: eventData, error: eventErr } = await supabaseAdmin
+  const { data: eventData, error: eventErr } = await db
     .from(EVENTS)
     .select('id, name, event_date, event_end_date, demand_due_date, confirmed_date, status, is_active, applies_to_all_branches, priority, reminder_lead_days')
     .eq('id', eventId)
@@ -257,7 +259,7 @@ export async function generateEventNotificationSchedule(
 
   const event = eventData as EventRow;
 
-  const { data: existingRows, error: exErr } = await supabaseAdmin
+  const { data: existingRows, error: exErr } = await db
     .from(SCHEDULE)
     .select('id, audience, branch_id, reminder_kind, offset_days, scheduled_for, status')
     .eq('event_id', eventId);
@@ -308,7 +310,7 @@ export async function generateEventNotificationSchedule(
     const prior = existing.get(key);
 
     if (!prior) {
-      const { error } = await supabaseAdmin.from(SCHEDULE).insert({
+      const { error } = await db.from(SCHEDULE).insert({
         event_id: eventId,
         audience: reminder.audience,
         branch_id: reminder.branchId,
@@ -332,7 +334,7 @@ export async function generateEventNotificationSchedule(
 
     if (prior.scheduled_for === reminder.scheduledFor && !isPast) continue;
 
-    const { error } = await supabaseAdmin
+    const { error } = await db
       .from(SCHEDULE)
       .update({
         scheduled_for: reminder.scheduledFor,
@@ -357,7 +359,7 @@ export async function generateEventNotificationSchedule(
     .map(([, row]) => row.id);
 
   if (orphanIds.length > 0) {
-    const { error } = await supabaseAdmin
+    const { error } = await db
       .from(SCHEDULE)
       .update({ status: 'cancelled' })
       .in('id', orphanIds)
@@ -371,7 +373,7 @@ export async function generateEventNotificationSchedule(
 
 /** Cancel every pending reminder for an event (soft delete / cancellation path). */
 export async function cancelEventNotifications(eventId: string): Promise<number> {
-  const { data, error } = await supabaseAdmin
+  const { data, error } = await db
     .from(SCHEDULE)
     .update({ status: 'cancelled' })
     .eq('event_id', eventId)
@@ -405,7 +407,7 @@ interface ScheduleRow {
 /** Return dead claims to the queue before a run picks up work. */
 async function sweepStaleClaims(): Promise<number> {
   const cutoff = new Date(Date.now() - STALE_CLAIM_MINUTES * 60_000).toISOString();
-  const { data, error } = await supabaseAdmin
+  const { data, error } = await db
     .from(SCHEDULE)
     .update({ status: 'pending' })
     .eq('status', 'sending')
@@ -449,7 +451,7 @@ export async function dispatchDueEventNotifications(opts: {
 
   await sweepStaleClaims();
 
-  const { data: dueRows, error: dueErr } = await supabaseAdmin
+  const { data: dueRows, error: dueErr } = await db
     .from(SCHEDULE)
     .select('id, event_id, audience, branch_id, reminder_kind, offset_days, scheduled_for, title, message')
     .eq('status', 'pending')
@@ -464,7 +466,7 @@ export async function dispatchDueEventNotifications(opts: {
     return { ...empty, dispatched: due.length, skipped: 'dry run — nothing was sent' };
   }
 
-  const { data: recipientRows, error: recErr } = await supabaseAdmin
+  const { data: recipientRows, error: recErr } = await db
     .from(RECIPIENTS)
     .select('id, branch_id, department, recipient_name, mobile_number, channel')
     .eq('active', true);
@@ -484,7 +486,7 @@ export async function dispatchDueEventNotifications(opts: {
   for (const row of due) {
     // Check-and-set claim. Zero rows back means another process (the cron job, a
     // second admin click) already owns this reminder.
-    const { data: claimed, error: claimErr } = await supabaseAdmin
+    const { data: claimed, error: claimErr } = await db
       .from(SCHEDULE)
       .update({ status: 'sending', claimed_at: new Date().toISOString() })
       .eq('id', row.id)
@@ -539,7 +541,7 @@ export async function dispatchDueEventNotifications(opts: {
           policy.baseDelayMs,
         );
 
-        await supabaseAdmin.from(LOGS).insert({
+        await db.from(LOGS).insert({
           report_id: null,
           event_notification_id: row.id,
           recipient_id: recipient.id,
@@ -566,7 +568,7 @@ export async function dispatchDueEventNotifications(opts: {
     // outbound message bounced — those are visible in notification_logs and must
     // not hide the reminder from the branch's bell.
     const ok = inAppError === null;
-    const { error: finishErr } = await supabaseAdmin
+    const { error: finishErr } = await db
       .from(SCHEDULE)
       .update({
         status: ok ? 'sent' : 'failed',
@@ -629,7 +631,7 @@ async function escalate(
   ].join('\n');
 
   try {
-    const { data: ticket, error } = await supabaseAdmin
+    const { data: ticket, error } = await db
       .from('support_tickets')
       .insert({
         reference_type: 'system',

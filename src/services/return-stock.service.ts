@@ -1,4 +1,4 @@
-import { supabaseAdmin } from '../config/supabase';
+import { dbFor } from '../db';
 import {
   businessDateStr,
   type ProductionReturnDisposition,
@@ -6,6 +6,8 @@ import {
   type ReturnStockMovementType,
   type ReturnStockRow,
 } from '../shared';
+
+const db = dbFor('return-stock');
 
 /**
  * Branch Return Stock — the inventory of goods branches have sent back.
@@ -40,7 +42,7 @@ export async function acceptReturnIntoReturnStock(params: {
   actorId: string;
   actorName: string;
 }): Promise<AcceptedReturn | null> {
-  const { data, error } = await supabaseAdmin.rpc('accept_production_return', {
+  const { data, error } = await db.rpc('accept_production_return', {
     p_return_id: params.returnId,
     p_disposition: params.disposition,
     p_disposition_note: params.dispositionNote ?? null,
@@ -93,7 +95,7 @@ export async function transferReturnStockToProduction(params: {
   actorId?: string | null;
   actorName?: string | null;
 }): Promise<{ returnStock: number; productionStock: number; duplicate: boolean }> {
-  const { data, error } = await supabaseAdmin.rpc('transfer_return_stock_to_production', {
+  const { data, error } = await db.rpc('transfer_return_stock_to_production', {
     p_product_id: params.productId,
     p_product_name: params.productName,
     p_qty: params.qty,
@@ -131,9 +133,9 @@ export async function transferReturnStockToProduction(params: {
  */
 export async function getReturnStockRows(date: string = businessDateStr()): Promise<ReturnStockRow[]> {
   const [products, prior, history] = await Promise.all([
-    supabaseAdmin.from('products').select('id, name, stock_code, category_id, category_name'),
-    supabaseAdmin.from('return_stock_history').select('product_id, delta').lt('business_date', date),
-    supabaseAdmin
+    db.from('products').select('id, name, stock_code, category_id, category_name'),
+    db.from('return_stock_history').select('product_id, delta').lt('business_date', date),
+    db
       .from('return_stock_history')
       .select('product_id, product_name, type, delta')
       .eq('business_date', date),
@@ -192,7 +194,7 @@ export async function getReturnStockRows(date: string = businessDateStr()): Prom
 
 /** Total Branch Return Stock on hand right now, across all products. */
 export async function getReturnStockTotal(): Promise<number> {
-  const { data, error } = await supabaseAdmin.from('return_stock').select('balance');
+  const { data, error } = await db.from('return_stock').select('balance');
   if (error) throw error;
   return ((data ?? []) as { balance: number | string }[]).reduce((s, r) => s + Number(r.balance ?? 0), 0);
 }
@@ -212,7 +214,7 @@ export async function getReturnStockMovements(query: {
   const limit = Math.min(Math.max(query.limit ?? 50, 1), MOVEMENT_PAGE_MAX);
   const offset = Math.max(query.offset ?? 0, 0);
 
-  let q = supabaseAdmin
+  let q = db
     .from('return_stock_history')
     .select(
       'id, created_at, business_date, product_id, product_name, type, delta, balance_after, branch_id, production_return_id, ref_id, created_by_name, reason, branch:branches(name)',

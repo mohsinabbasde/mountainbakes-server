@@ -1,7 +1,9 @@
 import { Router } from 'express';
-import { supabaseAdmin } from '../config/supabase';
+import { dbFor } from '../db';
 import { authenticate, type AuthRequest } from '../middleware/auth';
 import { isBranchRole } from '../shared';
+
+const db = dbFor('search');
 
 export const router = Router();
 
@@ -21,7 +23,7 @@ router.get('/', async (req: AuthRequest, res, next) => {
 
     // Build orders query: apply branch filter in DB for branch managers (avoids in-memory
     // truncation when total orders exceed the limit), restrict production users to active statuses.
-    let ordersQuery = supabaseAdmin
+    let ordersQuery = db
       .from('orders')
       .select('id, order_number, customer_name, status, branch_id');
     if (isBranchScoped && branchId) {
@@ -35,16 +37,16 @@ router.get('/', async (req: AuthRequest, res, next) => {
     const [ordersRes, productsRes, customersRes, packingRes] = await Promise.all([
       ordersQuery,
       // Catalogue products only — a Special Order's temporary item is not a product to look up.
-      supabaseAdmin.from('products').select('id, name, sku, price').eq('is_active', true).eq('is_special', false).limit(200),
+      db.from('products').select('id, name, sku, price').eq('is_active', true).eq('is_special', false).limit(200),
       // Production users have no access to customer data.
       isProductionUser
         ? Promise.resolve(null)
         : isBranchScoped && branchId
-          ? supabaseAdmin.from('customers').select('id, name, phone').eq('branch_id', branchId).limit(200)
-          : supabaseAdmin.from('customers').select('id, name, phone').limit(200),
+          ? db.from('customers').select('id, name, phone').eq('branch_id', branchId).limit(200)
+          : db.from('customers').select('id, name, phone').limit(200),
       // Active only: an inactive material cannot be requested, so surfacing it in
       // search would just be a dead end.
-      supabaseAdmin
+      db
         .from('packing_materials')
         .select('id, material_code, material_name, category')
         .eq('is_active', true)

@@ -1,5 +1,5 @@
 /**
- * Data Engine — build and run the Supabase query for a resolved list query.
+ * Data Engine — build and run the database query for a resolved list query.
  *
  * Order of application is the security argument:
  *
@@ -11,11 +11,13 @@
  * every field to the column the resource config declared, and `where.ts`
  * turns the lot into one condition tree.
  */
-import { supabaseAdmin } from '../config/supabase';
+import { dbFor } from '../db';
 import type { PaginatedResponse } from '../shared';
 import { rowToApi } from '../utils/case';
 import type { AuthUser, ResolvedListQuery, ResourceConfig, ScopeRule } from './types';
 import { applyCondition, buildCondition, type FilterableQuery } from './where';
+
+const db = dbFor('data-engine');
 
 export type { FilterableQuery } from './where';
 
@@ -39,8 +41,8 @@ export function buildFilteredQuery<Q extends FilterableQuery, Row>(
   query = applyCondition(query, buildCondition(config, resolved, scopeRules));
 
   // `sort: false` is the count-only shape (HEAD, `select id`): no ordering at
-  // all, including embedded relations — PostgREST refuses an order on an
-  // embed the select does not include.
+  // all, including embedded relations — a count needs none, and an embed
+  // order has nothing to apply to when the select does not include the embed.
   if (opts.sort === false) return query;
 
   if (resolved.sort) {
@@ -78,7 +80,7 @@ export async function runListQuery<Row>(
   user: AuthUser,
 ): Promise<PaginatedResponse<Row>> {
   const scopeRules = await resolveScope(config, user);
-  const base = supabaseAdmin.from(config.table).select(config.select ?? '*', { count: 'exact' });
+  const base = db.from(config.table).select(config.select ?? '*', { count: 'exact' });
   let query = buildFilteredQuery(base as unknown as FilterableQuery, config, resolved, scopeRules);
 
   const fromRow = (resolved.page - 1) * resolved.pageSize;
@@ -90,7 +92,7 @@ export async function runListQuery<Row>(
     // pager that still points at page 6. That is an empty page with an honest
     // total, not a failure; the client resets to a page that exists.
     if ((error as { code?: string }).code === 'PGRST103' && resolved.page > 1) {
-      const head = supabaseAdmin.from(config.table).select('id', { count: 'exact', head: true });
+      const head = db.from(config.table).select('id', { count: 'exact', head: true });
       const counted = buildFilteredQuery(head as unknown as FilterableQuery, config, resolved, scopeRules, { sort: false });
       const { count: total, error: countError } = await (counted as unknown as typeof head);
       if (countError) throw countError;
@@ -108,8 +110,9 @@ export async function runListQuery<Row>(
 
 /**
  * Every row of the filtered set, for exports. Walks the result in 1 000-row
- * windows (PostgREST's default max) up to `maxRows`, so a 9 000-row export is
- * nine requests rather than one that the API's row limit silently truncates.
+ * windows (the query layer's default cap on one read) up to `maxRows`, so a
+ * 9 000-row export is nine queries rather than one that the cap silently
+ * truncates.
  */
 export async function runFullQuery<Row>(
   config: ResourceConfig<Row>,
@@ -122,7 +125,7 @@ export async function runFullQuery<Row>(
   const scopeRules = await resolveScope(config, user);
 
   for (let offset = 0; offset < maxRows; offset += WINDOW) {
-    const base = supabaseAdmin.from(config.table).select(config.select ?? '*');
+    const base = db.from(config.table).select(config.select ?? '*');
     let query = buildFilteredQuery(base as unknown as FilterableQuery, config, resolved, scopeRules);
     const windowEnd = Math.min(offset + WINDOW, maxRows);
     query = query.range(offset, windowEnd - 1);

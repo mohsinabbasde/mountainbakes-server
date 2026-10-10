@@ -1,8 +1,10 @@
-import { supabaseAdmin } from '../config/supabase';
+import { dbFor } from '../db';
 import { getAppSettings } from './settings.service';
 import { getMessageProvider, getRetryPolicy, sendWithRetry, type OutboundChannel } from './messaging';
 import { money } from './closing-report.service';
 import { toE164 } from '../utils/phone';
+
+const db = dbFor('order-notifications');
 
 const LOGS = 'notification_logs';
 
@@ -76,7 +78,7 @@ export async function sendOrderConfirmation(input: OrderConfirmationInput): Prom
     // enforces this at the database, but that only fires on the INSERT — i.e.
     // after the message has been sent and billed. Checking first is what actually
     // prevents the duplicate SMS; the index is the backstop for a race.
-    const { data: prior, error: priorErr } = await supabaseAdmin
+    const { data: prior, error: priorErr } = await db
       .from(LOGS)
       .select('id')
       .eq('order_id', input.orderId)
@@ -180,7 +182,7 @@ async function writeLog(
   errorMessage: string | null,
   retryCount: number,
 ): Promise<void> {
-  const { error } = await supabaseAdmin.from(LOGS).insert({
+  const { error } = await db.from(LOGS).insert({
     order_id: orderId,
     // Null on purpose: these two point at the daily-closing tables, which an
     // order confirmation has nothing to do with (see migration 32).

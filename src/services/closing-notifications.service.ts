@@ -1,4 +1,4 @@
-import { supabaseAdmin } from '../config/supabase';
+import { dbFor } from '../db';
 import {
   businessDaysAgoStr,
   type ClosingReport,
@@ -14,6 +14,8 @@ import {
   formatProductionMessage,
   formatCompanyMessage,
 } from './closing-report.service';
+
+const db = dbFor('closing-notifications');
 
 const REPORTS = 'daily_closing_reports';
 const RECIPIENTS = 'notification_recipients';
@@ -91,7 +93,7 @@ export async function dispatchClosingSummaries(opts: DispatchOptions): Promise<C
     // delete-and-reinsert. The row id is what notification_logs points at and what
     // the "already sent" guard keys on — minting fresh ids on every run would
     // orphan the logs (report_id is ON DELETE SET NULL) and re-send to everyone.
-    const { data: existingRows, error: exErr } = await supabaseAdmin
+    const { data: existingRows, error: exErr } = await db
       .from(REPORTS)
       .select('id, scope, branch_id')
       .eq('business_date', businessDate);
@@ -109,14 +111,14 @@ export async function dispatchClosingSummaries(opts: DispatchOptions): Promise<C
       const existingId = existing.get(keyOf(d.scope, d.branchId));
       let reportId: string;
       if (existingId) {
-        const { error } = await supabaseAdmin
+        const { error } = await db
           .from(REPORTS)
           .update({ report_json: d.json, generated_at: new Date().toISOString() })
           .eq('id', existingId);
         if (error) throw error;
         reportId = existingId;
       } else {
-        const { data, error } = await supabaseAdmin
+        const { data, error } = await db
           .from(REPORTS)
           .insert({
             business_date: businessDate, scope: d.scope, branch_id: d.branchId,
@@ -134,7 +136,7 @@ export async function dispatchClosingSummaries(opts: DispatchOptions): Promise<C
     // Drop reports that no longer apply (e.g. a branch deactivated since last run).
     const stale = ((existingRows ?? []) as { id: string }[]).map((r) => r.id).filter((id) => !keptIds.has(id));
     if (stale.length > 0) {
-      const { error } = await supabaseAdmin.from(REPORTS).delete().in('id', stale);
+      const { error } = await db.from(REPORTS).delete().in('id', stale);
       if (error) throw error;
     }
   } catch (err) {
@@ -144,7 +146,7 @@ export async function dispatchClosingSummaries(opts: DispatchOptions): Promise<C
   }
 
   // ── 2. Fan out to recipients ─────────────────────────────────────────────
-  const { data: recipientRows, error: recErr } = await supabaseAdmin
+  const { data: recipientRows, error: recErr } = await db
     .from(RECIPIENTS)
     .select('id, branch_id, department, recipient_name, mobile_number, channel')
     .eq('active', true);
@@ -154,7 +156,7 @@ export async function dispatchClosingSummaries(opts: DispatchOptions): Promise<C
   // Already-delivered pairs, so a re-run does not spam anyone.
   const alreadySent = new Set<string>();
   if (!opts.resend) {
-    const { data: sentLogs } = await supabaseAdmin
+    const { data: sentLogs } = await db
       .from(LOGS)
       .select('recipient_id, report_id, channel')
       .eq('business_date', businessDate)
@@ -194,7 +196,7 @@ export async function dispatchClosingSummaries(opts: DispatchOptions): Promise<C
           policy.baseDelayMs,
         );
 
-        await supabaseAdmin.from(LOGS).insert({
+        await db.from(LOGS).insert({
           report_id: target.reportId,
           recipient_id: recipient.id,
           business_date: businessDate,
@@ -249,7 +251,7 @@ async function escalate(businessDate: string, title: string, detail: string, ret
   ].join('\n');
 
   try {
-    const { data: ticket, error } = await supabaseAdmin
+    const { data: ticket, error } = await db
       .from('support_tickets')
       .insert({
         reference_type: 'system',

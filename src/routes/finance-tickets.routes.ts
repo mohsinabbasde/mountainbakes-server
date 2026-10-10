@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { supabaseAdmin } from '../config/supabase';
+import { dbFor } from '../db';
 import { authenticate, type AuthRequest } from '../middleware/auth';
 import {
   requireFinance,
@@ -63,6 +63,8 @@ import {
 import { bindAttachments, listAttachments, listAttachmentsFor } from '../services/attachments.service';
 import { rowToApi } from '../utils/case';
 import { withoutDeleted } from '../utils/softDelete';
+
+const db = dbFor('finance-tickets');
 
 /**
  * /api/finance/tickets — the Finance Help Desk.
@@ -166,7 +168,7 @@ async function resolveReference(refRaw: string): Promise<FinanceTicketReferenceL
   }
 
   const { table, refColumn, label } = FINANCE_TICKET_REFERENCES[referenceType];
-  const { data, error } = await supabaseAdmin
+  const { data, error } = await db
     .from(table)
     .select('*')
     .eq(refColumn, referenceNo)
@@ -190,13 +192,13 @@ async function liveReference(
 ): Promise<Record<string, unknown> | null> {
   if (!referenceType || !referenceId) return null;
   const { table } = FINANCE_TICKET_REFERENCES[referenceType];
-  const { data, error } = await supabaseAdmin.from(table).select('*').eq('id', referenceId).maybeSingle();
+  const { data, error } = await db.from(table).select('*').eq('id', referenceId).maybeSingle();
   if (error) throw error;
   return data ? (rowToApi(data) as Record<string, unknown>) : null;
 }
 
 async function getTicket(id: string) {
-  const { data, error } = await supabaseAdmin
+  const { data, error } = await db
     .from('finance_tickets')
     .select('*')
     .eq('id', id)
@@ -362,7 +364,7 @@ async function recordVersion(
   const currentVersion = Number(after['version'] ?? before['version'] ?? 1);
   const nextVersion = currentVersion + 1;
 
-  const { data: bumped, error: bumpErr } = await supabaseAdmin
+  const { data: bumped, error: bumpErr } = await db
     .from('finance_tickets')
     .update({ version: nextVersion })
     .eq('id', after['id'] as string)
@@ -379,7 +381,7 @@ async function recordVersion(
 
   const changes = [...diffRows(before, bumped), ...extraChanges];
 
-  const { error } = await supabaseAdmin.from('finance_ticket_versions').insert({
+  const { error } = await db.from('finance_ticket_versions').insert({
     ticket_id: bumped['id'],
     query_no: bumped['query_no'],
     version: nextVersion,
@@ -403,7 +405,7 @@ async function recordFirstVersion(
   action: 'created' | 'recreated',
   reason: string | null,
 ): Promise<void> {
-  const { error } = await supabaseAdmin.from('finance_ticket_versions').insert({
+  const { error } = await db.from('finance_ticket_versions').insert({
     ticket_id: row['id'],
     query_no: row['query_no'],
     version: Number(row['version'] ?? 1),
@@ -421,7 +423,7 @@ async function recordFirstVersion(
 /** A branch by id, for the name cache. 404s in words rather than a bare FK error. */
 async function resolveBranch(branchId: string | null | undefined): Promise<{ id: string; name: string } | null> {
   if (!branchId) return null;
-  const { data, error } = await supabaseAdmin.from('branches').select('id, name').eq('id', branchId).maybeSingle();
+  const { data, error } = await db.from('branches').select('id, name').eq('id', branchId).maybeSingle();
   if (error) throw error;
   if (!data) throw new LookupError('That branch does not exist.', 404);
   return { id: data.id as string, name: data.name as string };
@@ -536,7 +538,7 @@ async function deriveFromReference(patch: Record<string, unknown>): Promise<void
     }
   }
   if (patch['branch_id'] === undefined && typeof snapshot['branchId'] === 'string' && snapshot['branchId']) {
-    const { data, error } = await supabaseAdmin
+    const { data, error } = await db
       .from('branches')
       .select('id, name')
       .eq('id', snapshot['branchId'])
@@ -654,7 +656,7 @@ router.get('/stats', requireFinance('view'), async (req: AuthRequest, res, next)
     // Scoped from the JWT, never from the query string — a raiser counts their
     // own queries, everyone who sees the whole queue counts all of it.
     const raisedBy = seesWholeQueue(req.user!.role) ? null : req.user!.uid;
-    const { data, error } = await supabaseAdmin.rpc('finance_ticket_stats', { p_raised_by: raisedBy });
+    const { data, error } = await db.rpc('finance_ticket_stats', { p_raised_by: raisedBy });
     if (error) throw error;
     res.json({ stats: data ?? {} });
   } catch (err) {
@@ -690,7 +692,7 @@ router.get('/', requireFinance('view'), async (req: AuthRequest, res, next) => {
     const sortCol = q.sortBy ? FINANCE_TICKET_SORTABLE_COLUMNS[q.sortBy] : 'created_at';
     const ascending = q.sortDir === 'asc';
 
-    let query = supabaseAdmin
+    let query = db
       .from('finance_tickets')
       .select('*', { count: 'exact' })
       .order(sortCol, { ascending });
@@ -786,7 +788,7 @@ router.get('/:id/history', requireFinance('view'), async (req: AuthRequest, res,
       return;
     }
     const isAdmin = financeHelpDeskCan(req.user!.role, 'respond');
-    const { data, error } = await supabaseAdmin
+    const { data, error } = await db
       .from('finance_ticket_versions')
       .select('*')
       .eq('ticket_id', ticket.id)
@@ -819,12 +821,12 @@ router.get('/:id', requireFinance('view'), async (req: AuthRequest, res, next) =
       ticketPhotos,
       auditTrail,
     ] = await Promise.all([
-      supabaseAdmin
+      db
         .from('finance_ticket_messages')
         .select('*')
         .eq('ticket_id', ticket.id)
         .order('created_at', { ascending: true }),
-      supabaseAdmin
+      db
         .from('finance_amendments')
         .select('*')
         .eq('ticket_id', ticket.id)
@@ -906,7 +908,7 @@ router.post('/', requireFinance('create'), validate(CreateFinanceTicketSchema), 
     }
 
     const now = new Date().toISOString();
-    const { data, error } = await supabaseAdmin
+    const { data, error } = await db
       .from('finance_tickets')
       .insert({
         ...patch,
@@ -1005,7 +1007,7 @@ router.patch('/:id/draft', requireFinance('create'), validate(EditFinanceDraftSc
 
     let row = before;
     if (Object.keys(patch).length) {
-      const { data, error } = await supabaseAdmin
+      const { data, error } = await db
         .from('finance_tickets')
         .update(patch)
         .eq('id', before.id)
@@ -1060,7 +1062,7 @@ router.post('/:id/submit', requireFinance('create'), async (req: AuthRequest, re
       return;
     }
 
-    const { data, error } = await supabaseAdmin
+    const { data, error } = await db
       .from('finance_tickets')
       .update({ status: 'open', submitted_at: new Date().toISOString() })
       .eq('id', before.id)
@@ -1139,7 +1141,7 @@ router.post(
 
       const side = sideOf(req.user!.role);
 
-      const { data, error } = await supabaseAdmin
+      const { data, error } = await db
         .from('finance_ticket_messages')
         .insert({
           ticket_id: ticket.id,
@@ -1166,7 +1168,7 @@ router.post(
       // WAITING_FOR_FINANCE query is the act itself, not a separate button to
       // remember to press. The status goes back to the admin's court.
       if (side === 'finance' && ticket['status'] === 'waiting_for_finance') {
-        const { data: moved, error: moveErr } = await supabaseAdmin
+        const { data: moved, error: moveErr } = await db
           .from('finance_tickets')
           .update({ status: 'under_review', information_received_at: new Date().toISOString() })
           .eq('id', ticket.id)
@@ -1268,7 +1270,7 @@ router.patch('/:id', requireFinanceHelpDeskAdmin(), validate(EditFinanceTicketSc
       return;
     }
 
-    const { data, error } = await supabaseAdmin
+    const { data, error } = await db
       .from('finance_tickets')
       .update(patch)
       .eq('id', req.params.id)
@@ -1355,7 +1357,7 @@ router.post('/:id/amend-query', requireFinanceHelpDeskAdmin(), validate(AmendFin
     const reason = String(req.body.reason).trim();
     const now = new Date().toISOString();
 
-    const { data, error } = await supabaseAdmin
+    const { data, error } = await db
       .from('finance_tickets')
       .update({
         ...patch,
@@ -1438,7 +1440,7 @@ router.post('/:id/response', requireFinanceHelpDeskAdmin(), validate(FinanceTick
       patch['responded_at'] = new Date().toISOString();
     }
 
-    const { data, error } = await supabaseAdmin
+    const { data, error } = await db
       .from('finance_tickets')
       .update(patch)
       .eq('id', before.id)
@@ -1494,7 +1496,7 @@ router.post('/:id/restore', requireFinanceHelpDeskAdmin(), validate(RestoreFinan
     }
     const reason = String(req.body.reason).trim();
 
-    const { data, error } = await supabaseAdmin
+    const { data, error } = await db
       .from('finance_tickets')
       .update({
         deleted_at: null,
@@ -1578,7 +1580,7 @@ router.post('/:id/recreate', requireFinanceHelpDeskAdmin(), validate(RecreateFin
     const reason = String(req.body.reason).trim();
     const now = new Date().toISOString();
 
-    const { data: created, error: insErr } = await supabaseAdmin
+    const { data: created, error: insErr } = await db
       .from('finance_tickets')
       .insert({
         // Copied: what the query SAYS.
@@ -1617,7 +1619,7 @@ router.post('/:id/recreate', requireFinanceHelpDeskAdmin(), validate(RecreateFin
     if (insErr) throw insErr;
 
     // The old query points forward. Its own version says it was recreated.
-    const { data: updatedSource, error: srcErr } = await supabaseAdmin
+    const { data: updatedSource, error: srcErr } = await db
       .from('finance_tickets')
       .update({ recreated_as_id: created.id, recreated_as_query_no: created.query_no })
       .eq('id', source.id)
@@ -1696,7 +1698,7 @@ router.patch(
 
       let assignedName: string | null = null;
       if (assignedTo) {
-        const { data: user, error: userErr } = await supabaseAdmin
+        const { data: user, error: userErr } = await db
           .from('users')
           .select('id, name, email, role')
           .eq('id', assignedTo)
@@ -1718,7 +1720,7 @@ router.patch(
         assignedName = (user.name as string) || (user.email as string);
       }
 
-      const { data, error } = await supabaseAdmin
+      const { data, error } = await db
         .from('finance_tickets')
         .update({
           assigned_to: assignedTo,
@@ -1844,7 +1846,7 @@ router.patch(
         patch['resolved_at'] = new Date().toISOString();
       }
 
-      const { data, error } = await supabaseAdmin
+      const { data, error } = await db
         .from('finance_tickets')
         .update(patch)
         .eq('id', req.params.id)
@@ -1960,7 +1962,7 @@ router.post(
 
       // ---- The raiser's side: a request, not a reopening ----
       if (!isAdmin) {
-        const { data: message, error: msgErr } = await supabaseAdmin
+        const { data: message, error: msgErr } = await db
           .from('finance_ticket_messages')
           .insert({
             ticket_id: before['id'],
@@ -2026,7 +2028,7 @@ router.post(
         archived,
       ];
 
-      const { data, error } = await supabaseAdmin
+      const { data, error } = await db
         .from('finance_tickets')
         .update({
           status: 'reopened',
@@ -2116,7 +2118,7 @@ async function recordAmendment(
   reason: string,
 ): Promise<void> {
   const { ipAddress } = requestFingerprint(req);
-  const { error } = await supabaseAdmin.from('finance_amendments').insert({
+  const { error } = await db.from('finance_amendments').insert({
     ticket_id: ticket['id'],
     query_no: ticket['query_no'],
     reference_type: applied.referenceType,
@@ -2197,7 +2199,7 @@ router.post(
         return;
       }
 
-      const { data: applied, error } = await supabaseAdmin.rpc('amend_finance_record', {
+      const { data: applied, error } = await db.rpc('amend_finance_record', {
         p_reference_type: referenceType,
         p_reference_id: ticket['reference_id'],
         p_field: field,
@@ -2313,13 +2315,13 @@ async function correctionDisplayNames(
     [...new Set(edits.filter((e) => e.kind === kind).flatMap((e) => [e.value, e.expected]).filter(Boolean))];
   const heads = ids('head');
   if (heads.length) {
-    const { data, error } = await supabaseAdmin.from('ledger_heads').select('id, name').in('id', heads);
+    const { data, error } = await db.from('ledger_heads').select('id, name').in('id', heads);
     if (error) throw error;
     for (const h of data ?? []) names.set(h.id as string, h.name as string);
   }
   const branches = ids('branch');
   if (branches.length) {
-    const { data, error } = await supabaseAdmin.from('branches').select('id, name').in('id', branches);
+    const { data, error } = await db.from('branches').select('id, name').in('id', branches);
     if (error) throw error;
     for (const b of data ?? []) names.set(b.id as string, b.name as string);
   }
@@ -2484,7 +2486,7 @@ router.post(
         : undefined;
       const statusFrom = ticket['status'] as FinanceTicketStatus;
 
-      const { data, error } = await supabaseAdmin.rpc('correct_finance_record_for_query', {
+      const { data, error } = await db.rpc('correct_finance_record_for_query', {
         p_ticket_id: ticket['id'],
         p_expected_version: body.expectedVersion,
         p_edits: edits.map(({ field, value, expected, label, money }) => ({ field, value, expected, label, money })),
@@ -2621,7 +2623,7 @@ router.delete(
         return;
       }
 
-      const { data: removed, error } = await supabaseAdmin.rpc('soft_delete_finance_record', {
+      const { data: removed, error } = await db.rpc('soft_delete_finance_record', {
         p_reference_type: referenceType,
         p_reference_id: ticket['reference_id'],
         p_reason: reason,
@@ -2730,7 +2732,7 @@ router.delete('/:id', requireFinanceHelpDeskAdmin(), validate(DeleteFinanceRecor
       return;
     }
 
-    const { error } = await supabaseAdmin
+    const { error } = await db
       .from('finance_tickets')
       .update({
         deleted_at: new Date().toISOString(),

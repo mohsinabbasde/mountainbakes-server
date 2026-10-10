@@ -8,8 +8,8 @@
  *
  * Scope note: these walk plain objects and arrays only. Date, and any other
  * class instance, is returned as-is rather than being destructured into a plain
- * object — supabase-js hands back JSON scalars, so in practice values are
- * strings, numbers, booleans, null, arrays, or nested plain objects.
+ * object — the query layer hands back rows as parsed JSON, so in practice values
+ * are strings, numbers, booleans, null, arrays, or nested plain objects.
  */
 
 /** `daily_budget` → `dailyBudget` */

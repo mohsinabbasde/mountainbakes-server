@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { supabaseAdmin } from '../config/supabase';
+import { dbFor, type QueryBuilder } from '../db';
 import {
   ATTACHMENT_MAX_BYTES,
   ATTACHMENT_MAX_PER_ENTITY,
@@ -9,6 +9,9 @@ import {
   type AttachmentEntity,
 } from '../shared';
 import { rowToApi } from '../utils/case';
+import { fileStore } from './file-store';
+
+const db = dbFor('attachments');
 
 /**
  * Photo attachments — upload, bind, and read-time URL signing.
@@ -24,11 +27,14 @@ import { rowToApi } from '../utils/case';
  *      request that creates its document, so it cannot be uploaded with the
  *      parent's id. `uploadAttachment` writes a STAGED row (entity_id null);
  *      `bindAttachments` claims it once the parent exists. See migration 67.
- *   3. **Signing is batched.** `createSignedUrls` takes a list; a ledger page of
+ *   3. **Signing is batched.** One call signs a whole list; a ledger page of
  *      100 entries must not become 100 round-trips to Storage.
+ *
+ * Where the bytes live is `file-store.ts`'s business (S3). This module only
+ * ever names a file by its path.
  */
 
-const BUCKET = 'attachments';
+const BUCKET = 'attachments' as const;
 
 /** Extension from the SNIFFED mimetype, never from the client's filename —
  *  same reasoning as the logo upload in settings.routes.ts. */
@@ -81,26 +87,13 @@ const MAX_BYTES_BY_ENTITY: Partial<Record<AttachmentEntity, number>> = {
 async function signRows(rows: AttachmentRow[]): Promise<Attachment[]> {
   if (rows.length === 0) return [];
 
-  const { data, error } = await supabaseAdmin.storage
-    .from(BUCKET)
-    .createSignedUrls(rows.map((r) => r.storagePath), ATTACHMENT_URL_TTL_SECONDS);
-  if (error) throw error;
-
-  // Each result carries its own `path` and its own `error`. Keyed by the
-  // returned path rather than by array index: the index only lines up if the
-  // response preserves request order, and a silent reordering would attach one
-  // document's receipt to another — the one failure mode this feature must not
-  // have. `path` is only absent on a malformed response, hence the fallback.
-  const urlByPath = new Map<string, string>();
-  (data ?? []).forEach((d, i) => {
-    const path = d.path ?? rows[i]?.storagePath;
-    if (!path) return;
-    if (d.error || !d.signedUrl) {
-      console.warn(`[attachments] could not sign ${path}:`, d.error ?? 'no URL returned');
-      return;
-    }
-    urlByPath.set(path, d.signedUrl);
-  });
+  // Keyed by path, never by position — see the note in file-store.ts on why a
+  // reordered response must not be able to attach one receipt to another row.
+  const urlByPath = await fileStore().signUrls(
+    BUCKET,
+    rows.map((r) => r.storagePath),
+    ATTACHMENT_URL_TTL_SECONDS,
+  );
 
   return rows.flatMap((r) => {
     const url = urlByPath.get(r.storagePath);
@@ -150,12 +143,9 @@ export async function uploadAttachment(input: {
   // about the path is guessable or derived from user input.
   const storagePath = `${input.entity}/${randomUUID()}.${extension}`;
 
-  const { error: uploadErr } = await supabaseAdmin.storage
-    .from(BUCKET)
-    .upload(storagePath, input.buffer, { contentType: input.mimeType });
-  if (uploadErr) throw uploadErr;
+  await fileStore().upload(BUCKET, storagePath, input.buffer, input.mimeType);
 
-  const { data, error } = await supabaseAdmin
+  const { data, error } = await db
     .from('attachments')
     .insert({
       entity: input.entity,
@@ -173,9 +163,10 @@ export async function uploadAttachment(input: {
   if (error) {
     // The row is what makes the file findable; a file with no row is invisible
     // to the app forever. Roll the upload back rather than leaving one behind.
-    const { error: cleanupErr } = await supabaseAdmin.storage.from(BUCKET).remove([storagePath]);
-    if (cleanupErr) {
-      console.warn(`[attachments] orphaned ${storagePath} after a failed insert:`, cleanupErr.message);
+    try {
+      await fileStore().remove(BUCKET, [storagePath]);
+    } catch (cleanupErr) {
+      console.warn(`[attachments] orphaned ${storagePath} after a failed insert:`, (cleanupErr as Error).message);
     }
     throw error;
   }
@@ -217,7 +208,7 @@ export async function bindAttachments(input: {
     throw clientError(`At most ${ATTACHMENT_MAX_PER_ENTITY} photos may be attached`, 400);
   }
 
-  const { data, error } = await supabaseAdmin
+  const { data, error } = await db
     .from('attachments')
     .update({ entity_id: input.entityId, bound_at: new Date().toISOString() })
     .in('id', ids)
@@ -265,7 +256,7 @@ export async function listAttachmentsFor(
   const byParent = new Map<string, Attachment[]>();
   if (ids.length === 0) return byParent;
 
-  const { data, error } = await supabaseAdmin
+  const { data, error } = await db
     .from('attachments')
     .select(SELECT)
     .eq('entity', entity)
@@ -297,9 +288,9 @@ export async function listAttachmentsAcross(
   const byKey = new Map<string, Attachment[]>();
   if (refs.length === 0) return byKey;
 
-  // Group by entity so each type is one `in (...)` predicate. PostgREST has no
-  // tuple-IN, and an `or(and(...),and(...))` chain over 100 refs would be a URL
-  // long enough to hit the request-line limit.
+  // Group by entity so each type is one `in (...)` predicate. The query
+  // builder has no tuple-IN, and the alternative is an `or(and(...),and(...))`
+  // filter string with one branch per ref — a hundred of them for one page.
   const idsByEntity = new Map<AttachmentEntity, Set<string>>();
   for (const ref of refs) {
     if (!ref.entityId) continue;
@@ -346,7 +337,7 @@ export async function assertStagedAttachments(input: {
   const ids = [...new Set(input.attachmentIds)];
   if (ids.length === 0) return;
 
-  const { data, error } = await supabaseAdmin
+  const { data, error } = await db
     .from('attachments')
     .select('id')
     .in('id', ids)
@@ -384,7 +375,7 @@ export async function getAttachmentsByIds(
   const byId = new Map<string, Attachment>();
   if (ids.length === 0) return byId;
 
-  const { data, error } = await supabaseAdmin
+  const { data, error } = await db
     .from('attachments')
     .select(SELECT)
     .eq('entity', entity)
@@ -409,20 +400,21 @@ export async function getAttachmentsByIds(
  * is logged so it can be found, and costs one photo of storage.
  */
 async function removeStaged(
-  filter: (q: ReturnType<ReturnType<typeof supabaseAdmin.from>['delete']>) => PromiseLike<{
+  filter: (q: QueryBuilder) => PromiseLike<{
     data: { storage_path: string }[] | null;
     error: { message: string } | null;
   }>,
 ): Promise<number> {
-  const { data, error } = await filter(supabaseAdmin.from('attachments').delete());
+  const { data, error } = await filter(db.from('attachments').delete());
   if (error) throw error;
 
   const paths = (data ?? []).map((r) => r.storage_path);
   if (paths.length === 0) return 0;
 
-  const { error: removeErr } = await supabaseAdmin.storage.from(BUCKET).remove(paths);
-  if (removeErr) {
-    console.warn(`[attachments] ${paths.length} staged file(s) lost their row but stayed in storage:`, removeErr.message, paths);
+  try {
+    await fileStore().remove(BUCKET, paths);
+  } catch (removeErr) {
+    console.warn(`[attachments] ${paths.length} staged file(s) lost their row but stayed in storage:`, (removeErr as Error).message, paths);
   }
   return paths.length;
 }
@@ -460,7 +452,7 @@ export async function purgeStagedAttachments(input: {
   const cutoff = new Date(Date.now() - input.olderThanDays * 24 * 60 * 60 * 1000).toISOString();
 
   if (input.dryRun) {
-    const { count, error } = await supabaseAdmin
+    const { count, error } = await db
       .from('attachments')
       .select('id', { count: 'exact', head: true })
       .eq('entity', input.entity)

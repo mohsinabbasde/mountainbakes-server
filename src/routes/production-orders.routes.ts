@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { supabaseAdmin } from '../config/supabase';
+import { dbFor } from '../db';
 import { authenticate, type AuthRequest } from '../middleware/auth';
 import { requireRole } from '../middleware/requireRole';
 import { validate } from '../middleware/validate';
@@ -31,6 +31,8 @@ import { idempotent } from '../middleware/idempotency';
 import { resolveClientBusinessDate } from '../utils/clientBusinessDate';
 import { checkDemand, enforceRestrictions, getRestrictionRules, logRestrictionEvent, type RestrictionGuard } from '../services/restriction.service';
 import { rowToApi } from '../utils/case';
+
+const db = dbFor('production-orders');
 
 export const router = Router();
 
@@ -165,7 +167,7 @@ router.post('/', requireRole(...BRANCH_ROLES), idempotent('production_order.crea
     // accepts {productId, qty, remarks} and nothing else, the same rule
     // `OrderItemSchema` follows for POS sales.
     const productIds = [...new Set(items.map((i) => i.productId))];
-    const { data: products, error: prodErr } = await supabaseAdmin
+    const { data: products, error: prodErr } = await db
       .from('products')
       .select('id, name, price')
       .in('id', productIds);
@@ -194,7 +196,7 @@ router.post('/', requireRole(...BRANCH_ROLES), idempotent('production_order.crea
     let resolvedPacking: { packingMaterialId: string; materialName: string; qty: number }[] = [];
     if (packingItems.length > 0) {
       const materialIds = [...new Set(packingItems.map((i) => i.packingMaterialId))];
-      const { data: materials, error: matErr } = await supabaseAdmin
+      const { data: materials, error: matErr } = await db
         .from('packing_materials')
         .select('id, material_name')
         .eq('is_active', true)
@@ -220,7 +222,7 @@ router.post('/', requireRole(...BRANCH_ROLES), idempotent('production_order.crea
     const businessDate = await resolveClientBusinessDate(claimedDate, req.user!.role, now);
 
     // submitted_at / created_at come from column defaults.
-    const { data: order, error: orderErr } = await supabaseAdmin
+    const { data: order, error: orderErr } = await db
       .from('production_orders')
       .insert({
         branch_id: branchId,
@@ -251,7 +253,7 @@ router.post('/', requireRole(...BRANCH_ROLES), idempotent('production_order.crea
     // demand line. CreateProductionOrderSchema has already rejected a non-empty
     // `specialItems`, so there is nothing special to write.
     if (resolvedItems.length > 0) {
-      const { error: itemsErr } = await supabaseAdmin
+      const { error: itemsErr } = await db
         .from('production_order_items')
         .insert(
           resolvedItems.map((it, idx) => ({
@@ -271,7 +273,7 @@ router.post('/', requireRole(...BRANCH_ROLES), idempotent('production_order.crea
     // Packing lines ride on the same order. approved_qty stays null until review,
     // exactly like the product lines' review-only columns.
     if (resolvedPacking.length > 0) {
-      const { error: packErr } = await supabaseAdmin.from('production_order_packing_items').insert(
+      const { error: packErr } = await db.from('production_order_packing_items').insert(
         resolvedPacking.map((it, idx) => ({
           production_order_id: order.id,
           packing_material_id: it.packingMaterialId,
@@ -325,7 +327,7 @@ router.get('/', async (req: AuthRequest, res, next) => {
   try {
     // The 7-day cutoff is an indexed predicate now; it used to fetch the branch's
     // entire history and filter in memory.
-    let query = supabaseAdmin
+    let query = db
       .from('production_orders')
       .select(ORDER_SELECT)
       .gte('business_date', businessDaysAgoStr(6)) // inclusive last 7 business days
@@ -366,7 +368,7 @@ router.get('/', async (req: AuthRequest, res, next) => {
 router.get('/balances', async (req: AuthRequest, res, next) => {
   try {
     // pending_qty > 0 is served by production_balances_outstanding_idx.
-    let query = supabaseAdmin.from('production_balances').select('*').gt('pending_qty', 0);
+    let query = db.from('production_balances').select('*').gt('pending_qty', 0);
 
     if (isBranchRole(req.user!.role) && req.user!.branchId) {
       query = query.eq('branch_id', req.user!.branchId);
@@ -495,7 +497,7 @@ router.put('/:id/review', requireRole('super_admin', 'production_user'), validat
     const override = req.query['override'] === '1' && req.user!.role === 'super_admin';
     const enforceStock = enforcesProductionStock((await getRestrictionRules()).production.stockShortage, { adminOverride: override });
 
-    const { data, error } = await supabaseAdmin.rpc('review_production_order_checked', {
+    const { data, error } = await db.rpc('review_production_order_checked', {
       p_order_id: id,
       p_status: status,
       p_overrides: approvedItems ?? [],
@@ -613,7 +615,7 @@ router.put('/:id/cancel', requireRole(...BRANCH_ROLES), validate(CancelProductio
     const branchId = req.user!.branchId;
     if (!branchId) { res.status(400).json({ error: 'No branch assigned to this account' }); return; }
 
-    const { data, error } = await supabaseAdmin
+    const { data, error } = await db
       .from('production_orders')
       .update({
         status: 'cancelled',
@@ -632,7 +634,7 @@ router.put('/:id/cancel', requireRole(...BRANCH_ROLES), validate(CancelProductio
     // Nothing matched — work out which of the three predicates failed, so the
     // branch is told what actually happened rather than a bare 404.
     if (!data) {
-      const { data: exists, error: exErr } = await supabaseAdmin
+      const { data: exists, error: exErr } = await db
         .from('production_orders')
         .select('id, status, branch_id')
         .eq('id', id)
@@ -675,7 +677,7 @@ router.put('/:id/cancel', requireRole(...BRANCH_ROLES), validate(CancelProductio
 router.put('/:id/printed', requireRole('super_admin', 'production_user'), async (req: AuthRequest, res, next) => {
   try {
     const id = req.params['id']!;
-    const { data, error } = await supabaseAdmin
+    const { data, error } = await db
       .from('production_orders')
       .update({ printed: true, printed_at: new Date().toISOString() })
       .eq('id', id)
@@ -700,7 +702,7 @@ router.post('/:id/items', requireRole('super_admin', 'production_user'), validat
     const id = req.params['id']!;
     const { productId, qty, remarks } = req.body as { productId: string; qty: number; remarks: string };
 
-    const { data: order, error: orderErr } = await supabaseAdmin
+    const { data: order, error: orderErr } = await db
       .from('production_orders')
       .select('id, status')
       .eq('id', id)
@@ -712,7 +714,7 @@ router.post('/:id/items', requireRole('super_admin', 'production_user'), validat
       return;
     }
 
-    const { data: product, error: prodErr } = await supabaseAdmin
+    const { data: product, error: prodErr } = await db
       .from('products')
       .select('name, price')
       .eq('id', productId)
@@ -720,7 +722,7 @@ router.post('/:id/items', requireRole('super_admin', 'production_user'), validat
     if (prodErr) throw prodErr;
     if (!product) { res.status(400).json({ error: 'Product not found' }); return; }
 
-    const { data: maxRow, error: maxErr } = await supabaseAdmin
+    const { data: maxRow, error: maxErr } = await db
       .from('production_order_items')
       .select('line_no')
       .eq('production_order_id', id)
@@ -730,7 +732,7 @@ router.post('/:id/items', requireRole('super_admin', 'production_user'), validat
     if (maxErr) throw maxErr;
     const nextLineNo = (maxRow?.line_no ?? 0) + 1;
 
-    const { error: insErr } = await supabaseAdmin.from('production_order_items').insert({
+    const { error: insErr } = await db.from('production_order_items').insert({
       production_order_id: id,
       product_id: productId,
       product_name: product.name,
@@ -772,7 +774,7 @@ router.put('/:id/verify', requireRole(...BRANCH_ROLES), validate(VerifyProductio
       attachmentIds: string[];
     };
 
-    const { data: order, error: orderErr } = await supabaseAdmin
+    const { data: order, error: orderErr } = await db
       .from('production_orders')
       .select('id, branch_id, status')
       .eq('id', id)
@@ -789,7 +791,7 @@ router.put('/:id/verify', requireRole(...BRANCH_ROLES), validate(VerifyProductio
     let resolvedNewItems: { productId: string; productName: string; qty: number }[] = [];
     if (newItems.length > 0) {
       const productIds = [...new Set(newItems.map((i) => i.productId))];
-      const { data: products, error: prodErr } = await supabaseAdmin
+      const { data: products, error: prodErr } = await db
         .from('products')
         .select('id, name')
         .in('id', productIds);
@@ -825,7 +827,7 @@ router.put('/:id/verify', requireRole(...BRANCH_ROLES), validate(VerifyProductio
     // pattern, same reason: the check and the write are one transaction.
     const verifyOverride = req.query['override'] === '1' && req.user!.role === 'super_admin';
 
-    const { data, error } = await supabaseAdmin.rpc('verify_production_order_checked', {
+    const { data, error } = await db.rpc('verify_production_order_checked', {
       p_enforce_stock: !verifyOverride,
       p_order_id: id,
       p_verified_items: verifiedItems.map((v) => ({ productId: v.productId, verifiedQty: v.verifiedQty })),
@@ -909,7 +911,7 @@ router.put('/:id/final-approve', requireRole('super_admin', 'production_user'), 
   try {
     const id = req.params['id']!;
 
-    const { data, error } = await supabaseAdmin
+    const { data, error } = await db
       .from('production_orders')
       .update({
         status: 'approved',
@@ -924,7 +926,7 @@ router.put('/:id/final-approve', requireRole('super_admin', 'production_user'), 
     if (error) throw error;
 
     if (!data) {
-      const { data: exists, error: exErr } = await supabaseAdmin
+      const { data: exists, error: exErr } = await db
         .from('production_orders')
         .select('id, status')
         .eq('id', id)

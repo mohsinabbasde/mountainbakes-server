@@ -1,4 +1,4 @@
-import { supabaseAdmin } from '../config/supabase';
+import { dbFor } from '../db';
 import {
   businessDateStr,
   businessDaysAgoStr,
@@ -25,14 +25,16 @@ import { attachmentKey, listAttachmentsAcross } from './attachments.service';
 import { getLedgerHeadByCode, round2 } from './finance-settings.service';
 import type { AttachmentEntity } from '../shared';
 
+const db = dbFor('finance-ledger');
+
 /**
  * The ledger itself: heads, postings, queries, the day's closing, the dashboard.
  *
  * The one rule that shapes every function here: NOTHING writes `ledger_entries`
  * directly. Every posting goes through the `post_finance_ledger_entry` RPC,
  * because allocating a gapless voucher number, reading the last balance and
- * inserting the row have to be one atomic act — and PostgREST gives each call
- * its own transaction, so that cannot be assembled from the app layer. Same
+ * inserting the row have to be one atomic act — and each `db` call is its own
+ * transaction, so that cannot be assembled from separate calls here. Same
  * reasoning as the POS sale and the stock corrections (migrations 12 and 33).
  */
 
@@ -98,7 +100,7 @@ export async function listLedgerHeads(opts: {
   type?: LedgerHeadType;
   includeInactive?: boolean;
 }): Promise<LedgerHead[]> {
-  let query = supabaseAdmin
+  let query = db
     .from('ledger_heads')
     .select('*')
     .order('type', { ascending: true })
@@ -122,7 +124,7 @@ export async function createLedgerHead(
   // that print identically on a Trial Balance.
   const code = input.code.toUpperCase();
 
-  const { data, error } = await supabaseAdmin
+  const { data, error } = await db
     .from('ledger_heads')
     .insert({
       code,
@@ -154,7 +156,7 @@ export async function updateLedgerHead(id: string, input: UpdateLedgerHeadInput)
   if (input.sortOrder !== undefined) row['sort_order'] = input.sortOrder;
   if (input.isActive !== undefined) row['is_active'] = input.isActive;
 
-  const { data, error } = await supabaseAdmin
+  const { data, error } = await db
     .from('ledger_heads')
     .update(row)
     .eq('id', id)
@@ -177,7 +179,7 @@ export async function requireActiveHead(
   id: string,
   expectedType?: LedgerHeadType,
 ): Promise<{ id: string; name: string; type: LedgerHeadType }> {
-  const { data, error } = await supabaseAdmin
+  const { data, error } = await db
     .from('ledger_heads')
     .select('id, name, type, is_active')
     .eq('id', id)
@@ -231,7 +233,7 @@ export async function postEntry(input: PostEntryInput): Promise<LedgerEntry> {
     throw Object.assign(new Error('A ledger entry must move a positive amount.'), { status: 400 });
   }
 
-  const { data, error } = await supabaseAdmin.rpc('post_finance_ledger_entry', {
+  const { data, error } = await db.rpc('post_finance_ledger_entry', {
     p_entry_date: input.entryDate,
     p_ledger_head_id: input.ledgerHeadId,
     p_description: input.description,
@@ -267,7 +269,7 @@ export async function adjustEntry(
   input: { reason: string; correctedAmount?: number; correctedDescription?: string },
   actor: { uid: string; name: string },
 ): Promise<LedgerEntry[]> {
-  const { data, error } = await supabaseAdmin.rpc('reverse_finance_ledger_entry', {
+  const { data, error } = await db.rpc('reverse_finance_ledger_entry', {
     p_entry_id: entryId,
     p_entry_date: businessDateStr(),
     p_reason: input.reason,
@@ -293,7 +295,7 @@ export async function editLedgerEntry(
   const asText = (v: Record<string, unknown> | undefined) =>
     Object.fromEntries(Object.entries(v ?? {}).filter(([, x]) => x !== undefined).map(([k, x]) => [k, String(x)]));
 
-  const { data, error } = await supabaseAdmin.rpc('edit_finance_ledger_entry', {
+  const { data, error } = await db.rpc('edit_finance_ledger_entry', {
     p_entry_id: entryId,
     p_set: asText(input.changes),
     p_expected: asText(input.expected),
@@ -343,7 +345,7 @@ export async function queryLedger(q: LedgerQuery): Promise<LedgerPage> {
   const offset = Math.max(Number(q.offset ?? 0), 0);
 
   let query = withoutDeleted(
-    supabaseAdmin
+    db
       .from('ledger_entries')
       .select('*')
       .order('seq', { ascending: true })
@@ -354,7 +356,7 @@ export async function queryLedger(q: LedgerQuery): Promise<LedgerPage> {
 
   const [rows, totals] = await Promise.all([
     query,
-    supabaseAdmin.rpc('finance_ledger_totals', {
+    db.rpc('finance_ledger_totals', {
       p_from: q.from ?? null,
       p_to: q.to ?? null,
       p_branch_id: q.branchId ?? null,
@@ -373,7 +375,7 @@ export async function queryLedger(q: LedgerQuery): Promise<LedgerPage> {
   if (totals.error) throw totals.error;
 
   const entries = await withSourcePhotos(rowToApi<LedgerEntry[]>(rows.data ?? []).map(normaliseEntry));
-  // The RPC returns a one-row table, which supabase-js hands back as an array.
+  // The RPC returns a one-row table, which `db.rpc` hands back as an array.
   const agg = (Array.isArray(totals.data) ? totals.data[0] : totals.data) as Record<string, unknown> | null;
 
   const first = entries[0];
@@ -427,7 +429,7 @@ export async function getLedgerSummary(params: { to: string; branchId?: string |
   const branchId = params.branchId ?? null;
   const monthStart = `${to.slice(0, 7)}-01`;
 
-  const { data, error } = await supabaseAdmin.rpc('finance_ledger_totals', {
+  const { data, error } = await db.rpc('finance_ledger_totals', {
     p_from: monthStart,
     p_to: to,
     p_branch_id: branchId,
@@ -440,7 +442,7 @@ export async function getLedgerSummary(params: { to: string; branchId?: string |
 
   let openingBalance: number;
   if (branchId) {
-    const { data: priorData, error: priorError } = await supabaseAdmin.rpc('finance_ledger_totals', {
+    const { data: priorData, error: priorError } = await db.rpc('finance_ledger_totals', {
       p_to: dayBefore(monthStart),
       p_branch_id: branchId,
     });
@@ -479,9 +481,10 @@ function applyLedgerFilters(query: any, q: LedgerQuery): any {
     query = query.or(`debit.lte.${q.maxAmount},credit.lte.${q.maxAmount}`);
   }
   if (q.search) {
-    // PostgREST `or` takes a comma-separated filter list; commas and parentheses
-    // inside the term would be read as syntax, so they are stripped rather than
-    // escaped (there is no escape for them in this grammar).
+    // `or` takes a comma-separated filter list (PostgREST's grammar, which the
+    // query layer keeps); commas and parentheses inside the term would be read
+    // as syntax, so they are stripped rather than escaped (there is no escape
+    // for them in this grammar).
     const term = q.search.replace(/[,()*]/g, ' ').trim();
     if (term) {
       query = query.or(
@@ -494,14 +497,14 @@ function applyLedgerFilters(query: any, q: LedgerQuery): any {
 }
 /* eslint-enable @typescript-eslint/no-explicit-any */
 
-/** numeric(14,2) arrives as a string over PostgREST — coerce every money field. */
+/** Coerce every money field, so a numeric(14,2) never leaves here as a string. */
 function normaliseEntry(e: LedgerEntry): LedgerEntry {
   return { ...e, debit: num(e.debit), credit: num(e.credit), balance: num(e.balance), seq: num(e.seq) };
 }
 
 export async function getLedgerEntry(id: string): Promise<LedgerEntry | null> {
   const { data, error } = await withoutDeleted(
-    supabaseAdmin.from('ledger_entries').select('*').eq('id', id),
+    db.from('ledger_entries').select('*').eq('id', id),
   ).maybeSingle();
   if (error) throw error;
   if (!data) return null;
@@ -524,8 +527,8 @@ export async function getLedgerEntry(id: string): Promise<LedgerEntry | null> {
  */
 export async function getDayClosing(businessDate: string): Promise<FinanceDayClosing> {
   const [summary, closed] = await Promise.all([
-    supabaseAdmin.rpc('finance_day_summary', { p_business_date: businessDate }),
-    supabaseAdmin.from('finance_day_closings').select('*').eq('business_date', businessDate).maybeSingle(),
+    db.rpc('finance_day_summary', { p_business_date: businessDate }),
+    db.from('finance_day_closings').select('*').eq('business_date', businessDate).maybeSingle(),
   ]);
   if (summary.error) throw summary.error;
   if (closed.error) throw closed.error;
@@ -591,7 +594,7 @@ export async function closeFinanceDay(
     );
   }
 
-  const { error } = await supabaseAdmin.from('finance_day_closings').insert({
+  const { error } = await db.from('finance_day_closings').insert({
     business_date: businessDate,
     opening_balance: existing.openingBalance,
     opening_cash: existing.openingCash,
@@ -619,7 +622,7 @@ export async function closeFinanceDay(
   // Mark the day's entries locked. Permitted by the immutability trigger, which
   // allows `status` to move but nothing that carries a figure.
   const { error: lockErr } = await withoutDeleted(
-    supabaseAdmin
+    db
       .from('ledger_entries')
       .update({ status: 'locked' })
       .eq('entry_date', businessDate)
@@ -630,7 +633,7 @@ export async function closeFinanceDay(
   // Documents settled on the day follow their entries into `locked`.
   for (const table of ['finance_transactions', 'salary_payments', 'partner_expenses', 'employee_advances']) {
     const { error: docErr } = await withoutDeleted(
-      supabaseAdmin
+      db
         .from(table)
         .update({ status: 'locked' })
         .eq('business_date', businessDate)
@@ -649,28 +652,28 @@ export async function closeFinanceDay(
 async function countPendingForDate(businessDate: string): Promise<number> {
   const [txns, partners, advances, income] = await Promise.all([
     withoutDeleted(
-      supabaseAdmin
+      db
         .from('finance_transactions')
         .select('id', { count: 'exact', head: true })
         .eq('business_date', businessDate)
         .in('status', ['draft', 'pending_approval']),
     ),
     withoutDeleted(
-      supabaseAdmin
+      db
         .from('partner_expenses')
         .select('id', { count: 'exact', head: true })
         .eq('business_date', businessDate)
         .in('status', ['draft', 'pending_approval']),
     ),
     withoutDeleted(
-      supabaseAdmin
+      db
         .from('employee_advances')
         .select('id', { count: 'exact', head: true })
         .eq('business_date', businessDate)
         .in('status', ['draft', 'pending_approval']),
     ),
     withoutDeleted(
-      supabaseAdmin
+      db
         .from('finance_income_approvals')
         .select('id', { count: 'exact', head: true })
         .eq('business_date', businessDate)
@@ -684,7 +687,7 @@ async function countPendingForDate(businessDate: string): Promise<number> {
 /** Closing history, most recent first. */
 export async function listDayClosings(days = 30): Promise<FinanceDayClosing[]> {
   const since = businessDaysAgoStr(Math.max(1, days) - 1);
-  const { data, error } = await supabaseAdmin
+  const { data, error } = await db
     .from('finance_day_closings')
     .select('*')
     .gte('business_date', since)
@@ -738,10 +741,10 @@ export interface FinanceDashboardQuery {
 export async function listPendingApprovals(): Promise<FinancePendingApproval[]> {
   const pending = ['draft', 'pending_approval'];
   const [txns, partners, salaries, advances] = await Promise.all([
-    withoutDeleted(supabaseAdmin.from('finance_transactions').select('id, txn_no, txn_type, ledger_head_name, description, amount, business_date, status, created_by_name').in('status', pending)),
-    withoutDeleted(supabaseAdmin.from('partner_expenses').select('id, expense_no, partner_name, description, amount, business_date, status, requested_by_name').in('status', pending)),
-    withoutDeleted(supabaseAdmin.from('salary_payments').select('id, salary_no, employee_name, salary_month, net_salary, payment_date, status, created_by_name').in('status', pending)),
-    withoutDeleted(supabaseAdmin.from('employee_advances').select('id, advance_no, employee_name, total_amount, business_date, status, created_by_name').in('status', pending)),
+    withoutDeleted(db.from('finance_transactions').select('id, txn_no, txn_type, ledger_head_name, description, amount, business_date, status, created_by_name').in('status', pending)),
+    withoutDeleted(db.from('partner_expenses').select('id, expense_no, partner_name, description, amount, business_date, status, requested_by_name').in('status', pending)),
+    withoutDeleted(db.from('salary_payments').select('id, salary_no, employee_name, salary_month, net_salary, payment_date, status, created_by_name').in('status', pending)),
+    withoutDeleted(db.from('employee_advances').select('id, advance_no, employee_name, total_amount, business_date, status, created_by_name').in('status', pending)),
   ]);
   for (const r of [txns, partners, salaries, advances]) {
     if (r.error) throw r.error;
@@ -811,19 +814,19 @@ export async function getFinanceDashboard(query: FinanceDashboardQuery = {}): Pr
   // selected range — same fixed-week behaviour as before this took a range.
   const trendFrom = stepDateStr(to, -6);
 
-  let pendingIncomeQ = supabaseAdmin
+  let pendingIncomeQ = db
     .from('finance_income_approvals')
     .select('total_amount')
     .in('status', ['pending_verification', 'pending_approval']);
   if (branchId) pendingIncomeQ = pendingIncomeQ.eq('branch_id', branchId);
 
-  let pendingTxnsQ = supabaseAdmin.from('finance_transactions').select('amount').in('status', ['draft', 'pending_approval']);
+  let pendingTxnsQ = db.from('finance_transactions').select('amount').in('status', ['draft', 'pending_approval']);
   if (branchId) pendingTxnsQ = pendingTxnsQ.eq('branch_id', branchId);
 
-  let recentQ = supabaseAdmin.from('ledger_entries').select('*').lte('entry_date', to).order('seq', { ascending: false }).limit(10);
+  let recentQ = db.from('ledger_entries').select('*').lte('entry_date', to).order('seq', { ascending: false }).limit(10);
   if (branchId) recentQ = recentQ.eq('branch_id', branchId);
 
-  let trendQ = supabaseAdmin.from('ledger_entries').select('entry_date, debit, credit').gte('entry_date', trendFrom).lte('entry_date', to);
+  let trendQ = db.from('ledger_entries').select('entry_date, debit, credit').gte('entry_date', trendFrom).lte('entry_date', to);
   if (branchId) trendQ = trendQ.eq('branch_id', branchId);
 
   const [
@@ -840,15 +843,15 @@ export async function getFinanceDashboard(query: FinanceDashboardQuery = {}): Pr
   ] = await Promise.all([
     getDayClosing(to),
     shareTotals(from, to, branchId),
-    supabaseAdmin.rpc('finance_ledger_totals', { p_from: from, p_to: to, p_branch_id: branchId }),
+    db.rpc('finance_ledger_totals', { p_from: from, p_to: to, p_branch_id: branchId }),
     withoutDeleted(pendingIncomeQ),
     withoutDeleted(pendingTxnsQ),
     // partner_expenses / salary_payments / employee_advances carry no branch_id
     // (payroll and partner costs are company-level, not attributed to a branch)
     // — they are only counted into the "All Branches" view below.
-    withoutDeleted(supabaseAdmin.from('partner_expenses').select('amount').in('status', ['draft', 'pending_approval'])),
-    withoutDeleted(supabaseAdmin.from('salary_payments').select('net_salary').in('status', ['draft', 'pending_approval'])),
-    withoutDeleted(supabaseAdmin.from('employee_advances').select('total_amount').in('status', ['draft', 'pending_approval'])),
+    withoutDeleted(db.from('partner_expenses').select('amount').in('status', ['draft', 'pending_approval'])),
+    withoutDeleted(db.from('salary_payments').select('net_salary').in('status', ['draft', 'pending_approval'])),
+    withoutDeleted(db.from('employee_advances').select('total_amount').in('status', ['draft', 'pending_approval'])),
     withoutDeleted(recentQ),
     withoutDeleted(trendQ),
   ]);
@@ -923,7 +926,7 @@ async function shareTotals(from: string, to: string, branchId: string | null): P
     getLedgerHeadByCode(SYSTEM_LEDGER_HEAD_CODES.BRANCH_SHARE),
   ]);
 
-  let query = supabaseAdmin
+  let query = db
     .from('ledger_entries')
     .select('ledger_head_id, debit')
     .gte('entry_date', from)
@@ -968,7 +971,7 @@ function businessDateSeries(from: string, to: string): string[] {
  * Turn a raised Postgres exception into something the user can act on.
  *
  * The guards in migration 52 (day closed, head inactive, already reversed,
- * entry immutable) are all `raise exception`, which reaches supabase-js as
+ * entry immutable) are all `raise exception`, which comes back from `db` as
  * P0001 with the message intact. Left alone they surface as a 500 and an
  * "unexpected error" toast — which is exactly wrong for a rule the user has
  * merely bumped into.

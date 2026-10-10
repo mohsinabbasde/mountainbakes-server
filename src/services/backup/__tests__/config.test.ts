@@ -10,7 +10,7 @@ const GOOD: NodeJS.ProcessEnv = {
   AWS_ACCESS_KEY_ID: 'AKIA_TEST',
   AWS_SECRET_ACCESS_KEY: 'verysecretkey123',
   BACKUP_S3_BUCKET: 'mountainbakes-development-backups',
-  SUPABASE_DB_URL: 'postgresql://postgres.abcdefghijklmnopqrst:p%40ssw0rd@aws-0-ap-northeast-1.pooler.supabase.com:5432/postgres',
+  BACKUP_DB_URL: 'postgresql://postgres:p%40ssw0rd@db.example.net:21363/mountainbakes',
 };
 
 function expectErrors(env: NodeJS.ProcessEnv, ...fragments: string[]) {
@@ -25,18 +25,19 @@ function expectErrors(env: NodeJS.ProcessEnv, ...fragments: string[]) {
 }
 
 describe('backup configuration', () => {
-  it('accepts a complete development configuration and parses the project ref', () => {
+  it('accepts a complete development configuration and names the server without its credentials', () => {
     const cfg = getBackupSystemConfig({ env: GOOD });
     assert.equal(cfg.bucket, 'mountainbakes-development-backups');
     assert.equal(cfg.prefix, 'database-backups');
-    assert.equal(cfg.databaseRef, 'abcdefghijklmnopqrst');
+    assert.equal(cfg.databaseRef, 'db.example.net:21363');
+    assert.equal(cfg.databaseName, 'mountainbakes');
     assert.deepEqual(cfg.retentionDays, { daily: 7, weekly: 35, monthly: 366, manual: 90 });
     assert.equal(cfg.retentionAuthority, 'lifecycle');
     assert.ok(cfg.secrets.includes('p@ssw0rd'), 'decoded password is a known secret');
   });
 
   it('reports every missing variable at once', () => {
-    expectErrors({}, 'BACKUP_ENABLED', 'AWS_REGION', 'BACKUP_S3_BUCKET', 'SUPABASE_DB_URL', 'AWS credentials');
+    expectErrors({}, 'BACKUP_ENABLED', 'AWS_REGION', 'BACKUP_S3_BUCKET', 'BACKUP_DB_URL', 'AWS credentials');
   });
 
   it('refuses the production bucket outside production unless explicitly allowed', () => {
@@ -51,18 +52,24 @@ describe('backup configuration', () => {
     assert.equal(cfg.isProduction, true);
   });
 
-  it('rejects invalid retention, timezone, authority and the transaction pooler port', () => {
+  it('rejects invalid retention, timezone, authority and a database URL that is not one', () => {
     expectErrors({ ...GOOD, BACKUP_DAILY_RETENTION_DAYS: '0' }, 'BACKUP_DAILY_RETENTION_DAYS');
     expectErrors({ ...GOOD, BACKUP_MONTHLY_RETENTION_DAYS: 'twelve' }, 'BACKUP_MONTHLY_RETENTION_DAYS');
     expectErrors({ ...GOOD, BACKUP_TIMEZONE: 'UTC' }, 'BACKUP_TIMEZONE');
     expectErrors({ ...GOOD, BACKUP_RETENTION_AUTHORITY: 'nobody' }, 'BACKUP_RETENTION_AUTHORITY');
-    expectErrors({ ...GOOD, SUPABASE_DB_URL: 'postgresql://u:p@host:6543/postgres' }, '6543');
-    expectErrors({ ...GOOD, SUPABASE_DB_URL: 'postgresql://postgres:p@db.abcdefgh.supabase.co:5432/postgres' }, 'IPv6-only');
+    expectErrors({ ...GOOD, BACKUP_DB_URL: 'mysql://u:p@host:3306/db' }, 'must start with postgresql://');
+    expectErrors({ ...GOOD, BACKUP_DB_URL: 'not a url' }, 'not a valid URL');
+  });
+
+  it('reads the database from BACKUP_DB_URL and from nothing else', () => {
+    const env: NodeJS.ProcessEnv = { ...GOOD, DATABASE_URL: GOOD.BACKUP_DB_URL };
+    delete env.BACKUP_DB_URL;
+    expectErrors(env, 'BACKUP_DB_URL is required');
   });
 
   it('does not require the database URL or the enabled flag when told not to', () => {
     const env = { ...GOOD };
-    delete env.SUPABASE_DB_URL;
+    delete env.BACKUP_DB_URL;
     delete env.BACKUP_ENABLED;
     const cfg = getBackupSystemConfig({ env, requireDatabase: false, requireEnabled: false });
     assert.equal(cfg.dbUrl, null);
@@ -75,6 +82,7 @@ describe('backup configuration', () => {
     assert.ok(!out.includes('p@ssw0rd'));
     assert.ok(!out.includes('verysecretkey123'));
     assert.ok(out.includes('postgres.ref:***@host'));
-    assert.equal(databaseRefFromUrl('postgresql://postgres:pw@db.abcdefghijklmnopqrst.supabase.co:5432/postgres'), 'abcdefghijklmnopqrst');
+    assert.equal(databaseRefFromUrl('postgresql://postgres:pw@db.example.net/postgres'), 'db.example.net:5432');
+    assert.equal(databaseRefFromUrl('nonsense'), null);
   });
 });

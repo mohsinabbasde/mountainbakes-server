@@ -1,4 +1,4 @@
-import { supabaseAdmin } from '../config/supabase';
+import { dbFor } from '../db';
 import {
   businessDateStr,
   businessDaysAgoStr,
@@ -13,6 +13,8 @@ import {
 } from '../shared';
 import { getAppSettings } from './settings.service';
 import { computeStockRows } from './stock.service';
+
+const db = dbFor('daily-closing');
 
 const CLOSURES = 'business_day_closures';
 const RUNNING_TTL_MS = 10 * 60 * 1000; // a 'running' claim older than this is treated as crashed
@@ -83,7 +85,7 @@ export async function runDailyClosing(opts: CloseOptions): Promise<CloseResult> 
   // The read-check-write happens atomically inside claim_business_day_closure
   // (migration 17); PostgREST cannot make it atomic from here.
   const startedAt = new Date().toISOString();
-  const { data: claim, error: claimErr } = await supabaseAdmin.rpc('claim_business_day_closure', {
+  const { data: claim, error: claimErr } = await db.rpc('claim_business_day_closure', {
     p_business_date: businessDate,
     p_trigger: opts.trigger,
     p_closed_by: closedBy,
@@ -103,7 +105,7 @@ export async function runDailyClosing(opts: CloseOptions): Promise<CloseResult> 
       await withRetry(() => buildArchive(businessDate, autoStockClosing), 3);
 
     const closedAt = new Date().toISOString();
-    const { error: doneErr } = await supabaseAdmin
+    const { error: doneErr } = await db
       .from(CLOSURES)
       .update({
         status: 'success',
@@ -128,7 +130,7 @@ export async function runDailyClosing(opts: CloseOptions): Promise<CloseResult> 
     const message = err instanceof Error ? err.message : String(err);
     // Best-effort: record the failure on the lock row, but never let a failed
     // status-write mask the original error.
-    const { error: failErr } = await supabaseAdmin
+    const { error: failErr } = await db
       .from(CLOSURES)
       .update({ status: 'failed', error: message, closed_at: new Date().toISOString() })
       .eq('business_date', businessDate);
@@ -149,19 +151,19 @@ async function buildArchive(businessDate: string, autoStockClosing: boolean): Pr
 
   const [orders, expenses, prodOrders, returns, balances, branches] = await Promise.all([
     // Orders are dated by created_at with INCLUSIVE bounds — see migration 03.
-    supabaseAdmin
+    db
       .from('orders')
       .select('status, grand_total, discount_total, tax_amount, payment_method')
       .gte('created_at', fromISO)
       .lte('created_at', toISO),
-    supabaseAdmin.from('expenses').select('amount, payment_method, category').eq('business_date', businessDate),
-    supabaseAdmin
+    db.from('expenses').select('amount, payment_method, category').eq('business_date', businessDate),
+    db
       .from('production_orders')
       .select('status, items:production_order_items(qty, approved_qty)')
       .eq('business_date', businessDate),
-    supabaseAdmin.from('production_returns').select('qty, status').eq('business_date', businessDate),
-    supabaseAdmin.from('production_balances').select('pending_qty'),
-    supabaseAdmin.from('branches').select('id, name').eq('is_active', true),
+    db.from('production_returns').select('qty, status').eq('business_date', businessDate),
+    db.from('production_balances').select('pending_qty'),
+    db.from('branches').select('id, name').eq('is_active', true),
   ]);
 
   for (const r of [orders, expenses, prodOrders, returns, balances, branches]) {
@@ -280,7 +282,7 @@ async function withRetry<T>(op: () => Promise<T>, attempts: number): Promise<T> 
  * everyone else is blocked from writing to a day that has been closed.
  */
 export async function isBusinessDayClosed(businessDate: string): Promise<boolean> {
-  const { data, error } = await supabaseAdmin
+  const { data, error } = await db
     .from(CLOSURES)
     .select('status')
     .eq('business_date', businessDate)
@@ -292,7 +294,7 @@ export async function isBusinessDayClosed(businessDate: string): Promise<boolean
 /** List closure/audit records, most recent first (default last 30 business days). */
 export async function listClosures(days = 30): Promise<DailyClosure[]> {
   const since = businessDaysAgoStr(days - 1);
-  const { data, error } = await supabaseAdmin
+  const { data, error } = await db
     .from(CLOSURES)
     .select('*')
     .gte('business_date', since)

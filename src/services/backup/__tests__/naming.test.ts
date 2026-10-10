@@ -12,7 +12,6 @@ describe('backup naming', () => {
     assert.equal(backupIdFor('daily', now), 'backup-daily-2026-09-21');
     const plan = buildBackupPlan('daily', now, cfg);
     assert.equal(plan.mainKey, 'database-backups/daily/2026/09/mountainbakes-daily-2026-09-21.dump');
-    assert.equal(plan.authKey, 'database-backups/daily/2026/09/mountainbakes-daily-2026-09-21-auth.dump');
     assert.equal(plan.manifestKey, 'database-backups/manifests/daily/2026/09/backup-daily-2026-09-21.json');
     assert.equal(plan.retentionUntil.toISOString(), '2026-09-27T22:00:00.000Z');
   });

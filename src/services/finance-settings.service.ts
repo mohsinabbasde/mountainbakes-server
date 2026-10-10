@@ -1,4 +1,4 @@
-import { supabaseAdmin } from '../config/supabase';
+import { dbFor } from '../db';
 import {
   DEFAULT_FINANCE_SETTINGS,
   SYSTEM_LEDGER_HEAD_CODES,
@@ -11,6 +11,8 @@ import {
 import { getCached, setCached, invalidate } from '../utils/cache';
 import { rowToApi } from '../utils/case';
 
+const db = dbFor('finance-settings');
+
 const CACHE_KEY = 'financeSettings';
 const TABLE = 'finance_settings';
 
@@ -18,10 +20,10 @@ const TABLE = 'finance_settings';
  * Finance Ledger configuration — one row, read on nearly every request.
  *
  * Mirrors settings.service.ts deliberately, including the numeric coercion: the
- * share percentages and opening balances are `numeric` columns, and PostgREST
- * serialises every numeric as a STRING. Left uncoerced, `companySharePct` would
- * arrive as "75.00" and `amount * pct / 100` would produce a string-concatenated
- * NaN — a share split that silently posts nothing. See the long note on
+ * share percentages and opening balances are `numeric` columns, and each is put
+ * through Number() before anything reads it. A `companySharePct` that got through
+ * as "75.00" would make `amount * pct / 100` a string-concatenated NaN — a share
+ * split that silently posts nothing. See the long note on
  * `coerceToDefaultType` in settings.service.ts; this is the same trap on money
  * that actually moves.
  */
@@ -37,7 +39,7 @@ export async function getFinanceSettings(): Promise<FinanceSettings> {
   const hit = getCached<FinanceSettings>(CACHE_KEY);
   if (hit) return hit;
 
-  const { data, error } = await supabaseAdmin.from(TABLE).select('*').maybeSingle();
+  const { data, error } = await db.from(TABLE).select('*').maybeSingle();
   if (error) throw new Error(`Failed to load finance settings: ${error.message}`);
 
   const row = rowToApi<Partial<FinanceSettings>>(data ?? {});
@@ -73,11 +75,11 @@ export async function getFinanceSettings(): Promise<FinanceSettings> {
 export async function getBranchShareSplit(branchId: string): Promise<ShareSplit> {
   const [settings, { data, error }] = await Promise.all([
     getFinanceSettings(),
-    supabaseAdmin.from('branches').select('company_share_pct').eq('id', branchId).maybeSingle(),
+    db.from('branches').select('company_share_pct').eq('id', branchId).maybeSingle(),
   ]);
   if (error) throw error;
-  // PostgREST serialises numeric as a STRING; resolveShareSplit coerces, but a
-  // missing branch must fall back rather than resolve to a 0% company share.
+  // resolveShareSplit coerces the numeric, number or string; but a missing
+  // branch must fall back rather than resolve to a 0% company share.
   return resolveShareSplit(
     data ? (data['company_share_pct'] as number | null) : null,
     settings.companySharePct,
@@ -96,7 +98,7 @@ export async function getBranchShareSplits(branchIds: string[]): Promise<Map<str
   const out = new Map<string, ShareSplit>();
   if (branchIds.length === 0) return out;
 
-  const { data, error } = await supabaseAdmin
+  const { data, error } = await db
     .from('branches')
     .select('id, company_share_pct')
     .in('id', branchIds);
@@ -153,7 +155,7 @@ export async function updateFinanceSettings(
   row['updated_at'] = new Date().toISOString();
   row['updated_by'] = actor.name;
 
-  const { error } = await supabaseAdmin.from(TABLE).update(row).eq('id', true);
+  const { error } = await db.from(TABLE).update(row).eq('id', true);
   if (error) throw error;
   invalidate(CACHE_KEY);
 
@@ -195,7 +197,7 @@ async function postOpeningBalance(
 ): Promise<string | null> {
   const head = await getLedgerHeadByCode(SYSTEM_LEDGER_HEAD_CODES.OPENING_BALANCE);
 
-  const { data, error } = await supabaseAdmin.rpc('post_finance_ledger_entry', {
+  const { data, error } = await db.rpc('post_finance_ledger_entry', {
     p_entry_date: entryDate,
     p_ledger_head_id: head.id,
     p_description: `Opening balance (${account}) set to ${delta > 0 ? '+' : ''}${delta}`,
@@ -234,7 +236,7 @@ export async function getLedgerHeadByCode(code: string): Promise<{ id: string; n
   const hit = getCached<{ id: string; name: string }>(cacheKey);
   if (hit) return hit;
 
-  const { data, error } = await supabaseAdmin
+  const { data, error } = await db
     .from('ledger_heads')
     .select('id, name')
     .eq('code', code)
@@ -243,7 +245,7 @@ export async function getLedgerHeadByCode(code: string): Promise<{ id: string; n
   if (!data) {
     throw new Error(
       `Ledger head "${code}" is missing. It is seeded by migration 52 and the finance ` +
-        `postings resolve it by code — apply the pending migrations (supabase db push).`,
+        `postings resolve it by code — apply the pending database migrations.`,
     );
   }
   const head = { id: data.id as string, name: data.name as string };

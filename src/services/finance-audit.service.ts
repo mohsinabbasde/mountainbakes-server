@@ -1,5 +1,5 @@
 import type { Request } from 'express';
-import { supabaseAdmin } from '../config/supabase';
+import { dbFor } from '../db';
 import type { AuthRequest } from '../middleware/auth';
 import {
   FINANCE_QUERY_PRIORITY_LABELS,
@@ -17,6 +17,8 @@ import {
   type FinanceTicketStatus,
 } from '../shared';
 import { rowToApi } from '../utils/case';
+
+const db = dbFor('finance-audit');
 
 /**
  * The Finance Ledger's own audit trail.
@@ -66,7 +68,7 @@ export function requestFingerprint(req: Request): { ipAddress: string | null; de
 export async function logFinanceAudit(req: AuthRequest, input: FinanceAuditInput): Promise<void> {
   try {
     const { ipAddress, deviceInfo } = requestFingerprint(req);
-    const { error } = await supabaseAdmin.from('finance_audit_logs').insert({
+    const { error } = await db.from('finance_audit_logs').insert({
       entity: input.entity,
       entity_id: input.entityId ?? null,
       entity_ref: input.entityRef ?? null,
@@ -117,7 +119,7 @@ export async function listFinanceAudit(
   const sortCol = q.sortBy ? FINANCE_AUDIT_SORTABLE_COLUMNS[q.sortBy] : 'created_at';
   const ascending = q.sortDir === 'asc';
 
-  let query = supabaseAdmin
+  let query = db
     .from('finance_audit_logs')
     .select('*', { count: 'exact' })
     .order(sortCol, { ascending })
@@ -361,13 +363,13 @@ export async function financeTicketAuditTrail(
 ): Promise<FinanceTicketAuditEntry[]> {
   try {
     const [{ data: logs, error: logErr }, { data: amendments, error: amdErr }] = await Promise.all([
-      supabaseAdmin
+      db
         .from('finance_audit_logs')
         .select('id, action, actor_name, actor_role, previous_values, new_values, created_at')
         .eq('entity', 'finance_ticket')
         .eq('entity_id', ticketId)
         .order('created_at', { ascending: true }),
-      supabaseAdmin
+      db
         .from('finance_amendments')
         .select('id, action, field, original_value, new_value, reason, admin_name, reference_no, created_at')
         .eq('ticket_id', ticketId)

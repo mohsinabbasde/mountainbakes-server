@@ -1,4 +1,6 @@
-import { supabaseAdmin } from '../config/supabase';
+import { dbFor } from '../db';
+
+const db = dbFor('orderNumber');
 
 /**
  * Allocate the next order number ("MB-000125", ...).
@@ -10,7 +12,7 @@ import { supabaseAdmin } from '../config/supabase';
  * the schema.
  */
 export async function generateOrderNumber(): Promise<string> {
-  const { data, error } = await supabaseAdmin.rpc('next_order_number');
+  const { data, error } = await db.rpc('next_order_number');
   if (error) throw new Error(`Failed to allocate an order number: ${error.message}`);
   if (!data) throw new Error('next_order_number() returned no value');
   return data as string;

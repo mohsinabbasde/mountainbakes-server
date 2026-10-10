@@ -10,22 +10,21 @@ import { redactSecrets } from './backupConfig';
  * URL, so the password never appears in `ps` output or a crash log. Stderr is
  * captured (capped) and redacted before it is attached to any error.
  *
- * Scope of the two archives a backup consists of (see docs/database-backup.md):
- *   MAIN  --schema=public --schema=app --schema=supabase_migrations
- *   AUTH  --table=auth.users --table=auth.identities
+ * A backup is one archive: --schema=public --schema=app. That is everything
+ * the application owns, accounts and password hashes included
+ * (public.users, public.user_credentials).
  */
 
 export type SpawnFn = typeof nodeSpawn;
 
-export const MAIN_SCHEMAS = ['public', 'app', 'supabase_migrations'] as const;
-export const AUTH_TABLES = ['auth.users', 'auth.identities'] as const;
-/** What the dumps deliberately leave out. Recorded in every manifest. */
+export const MAIN_SCHEMAS = ['public', 'app'] as const;
+/** The schema the connectivity probe dumps: always present, and a few functions small. */
+export const PROBE_SCHEMA = 'app';
+/** What the dump deliberately leaves out. Recorded in every manifest. */
 export const EXCLUDED_SCOPE = [
-  'auth.* except users/identities (sessions, refresh_tokens, mfa_*, audit_log_entries, flow_state, one_time_tokens)',
-  'storage schema (object metadata) and the Supabase Storage files themselves',
-  'extensions, vault, pgsodium, net, realtime, graphql, supabase_functions schemas',
-  'Supabase project settings, Auth provider config, Edge Functions, Realtime config',
-  'database roles and their login credentials (pg_dumpall --roles-only is not run)',
+  'database roles and their login credentials (pg_dumpall --roles-only is not run); infra/railway/bootstrap.sql recreates the roles',
+  'the extensions themselves (pg_trgm, pgcrypto, uuid-ossp) — recreated by infra/railway/bootstrap.sql before a restore',
+  'uploaded files (photos, the logo): they are objects in S3, not rows',
 ] as const;
 
 export interface PgDeps {
@@ -62,7 +61,7 @@ export function pgConnectionEnv(dbUrl: string): Record<string, string> {
   try {
     u = new URL(dbUrl);
   } catch {
-    throw new BackupError('CONFIG_INVALID', 'SUPABASE_DB_URL is not a valid URL');
+    throw new BackupError('CONFIG_INVALID', 'The database URL is not a valid URL');
   }
   const env: Record<string, string> = {
     PGHOST: u.hostname,
@@ -177,15 +176,15 @@ export async function getPgDumpVersion(deps: PgDeps): Promise<string> {
 }
 
 /**
- * Connectivity probe: a schema-only dump of the tiny supabase_migrations
- * schema. One call proves the binary, the credentials, the pooler and the
+ * Connectivity probe: a schema-only dump of the small `app` schema. One call
+ * proves the binary, the credentials, the route to the server and the
  * client/server version compatibility (pg_dump refuses a server newer than
  * itself) before the real dump starts.
  */
 export async function probeConnection(dbUrl: string, tmpDir: string, deps: PgDeps): Promise<{ durationMs: number }> {
   const bin = resolvePgBinary('pg_dump', deps.pgBinDir);
   const outFile = path.join(tmpDir, 'probe.dump');
-  const argv = buildPgDumpArgs({ outFile, schemas: ['supabase_migrations'], schemaOnly: true });
+  const argv = buildPgDumpArgs({ outFile, schemas: [PROBE_SCHEMA], schemaOnly: true });
   const res = await runPgProcess(bin, { argv, env: pgConnectionEnv(dbUrl), timeoutMs: 60_000, label: 'connection probe' }, deps);
   return { durationMs: res.durationMs };
 }

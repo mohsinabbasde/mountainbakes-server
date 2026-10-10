@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { supabaseAdmin } from '../config/supabase';
+import { dbFor } from '../db';
 import { authenticate, type AuthRequest } from '../middleware/auth';
 import { requireRole } from '../middleware/requireRole';
 import { validate } from '../middleware/validate';
@@ -14,6 +14,8 @@ import { acceptReturnIntoReturnStock } from '../services/return-stock.service';
 import { applyStockMovement } from '../services/stock.service';
 import { toReturnsApi } from '../services/branch-returns.service';
 import { rowToApi } from '../utils/case';
+
+const db = dbFor('production-returns');
 
 export const router = Router();
 
@@ -49,7 +51,7 @@ router.get('/', async (req: AuthRequest, res, next) => {
     const sortCol = (sortByKey && PRODUCTION_RETURN_SORTABLE_COLUMNS[sortByKey]) || 'created_at';
     const ascending = req.query['sortDir'] === 'asc';
 
-    let query = supabaseAdmin
+    let query = db
       .from('production_returns')
       .select('*', { count: 'exact' })
       .gte('business_date', from)
@@ -97,8 +99,8 @@ router.post('/', validate(CreateProductionReturnSchema), async (req: AuthRequest
     const { branchId, productId, qty, reason } = req.body as { branchId: string; productId: string; qty: number; reason: string };
 
     const [branchRes, productRes] = await Promise.all([
-      supabaseAdmin.from('branches').select('name').eq('id', branchId).maybeSingle(),
-      supabaseAdmin.from('products').select('name').eq('id', productId).maybeSingle(),
+      db.from('branches').select('name').eq('id', branchId).maybeSingle(),
+      db.from('products').select('name').eq('id', productId).maybeSingle(),
     ]);
     if (branchRes.error) throw branchRes.error;
     if (productRes.error) throw productRes.error;
@@ -106,7 +108,7 @@ router.post('/', validate(CreateProductionReturnSchema), async (req: AuthRequest
     if (!productRes.data) { res.status(400).json({ error: 'Product not found' }); return; }
 
     // created_at comes from the column default; reviewed_* stay null until review.
-    const { data: created, error: insErr } = await supabaseAdmin
+    const { data: created, error: insErr } = await db
       .from('production_returns')
       .insert({
         branch_id: branchId,
@@ -179,7 +181,7 @@ router.put('/:id/review', validate(ReviewProductionReturnSchema), async (req: Au
     // Read before write, only to answer "may this row take this decision" — the
     // update below is still the atomic gate on double review, so a row that slips
     // from pending between these two statements is caught there, not here.
-    const { data: existing, error: exErr } = await supabaseAdmin
+    const { data: existing, error: exErr } = await db
       .from('production_returns')
       .select('id, source, status')
       .eq('id', id)
@@ -225,7 +227,7 @@ router.put('/:id/review', validate(ReviewProductionReturnSchema), async (req: Au
         reason: accepted.reason,
       };
     } else {
-      const { data, error: updErr } = await supabaseAdmin
+      const { data, error: updErr } = await db
         .from('production_returns')
         .update({
           status,

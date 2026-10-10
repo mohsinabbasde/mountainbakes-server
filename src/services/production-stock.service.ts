@@ -1,5 +1,5 @@
 import { randomUUID } from 'crypto';
-import { supabaseAdmin } from '../config/supabase';
+import { dbFor } from '../db';
 import {
   businessDateStr,
   productionStockStatus,
@@ -13,6 +13,8 @@ import {
   type SaleItem,
   type StockShortfall,
 } from './stock.service';
+
+const db = dbFor('production-stock');
 
 /**
  * Central Production Stock pool (no cron). Mirrors the derived-stock approach in
@@ -74,7 +76,7 @@ interface ProductionMovementInput {
  * on it; read the day back through `getProductionStockRows` instead.
  */
 export async function applyProductionStockMovement(input: ProductionMovementInput): Promise<number> {
-  const { data, error } = await supabaseAdmin.rpc('apply_production_stock_movement', {
+  const { data, error } = await db.rpc('apply_production_stock_movement', {
     p_product_id: input.productId,
     p_product_name: input.productName,
     p_delta: input.delta,
@@ -185,7 +187,7 @@ export async function commitProductionSaleTransaction(params: {
   items: SaleItem[];
   branchId: string;
 }): Promise<{ orderId: string; balances: Map<string, SaleBalance> }> {
-  const { data, error } = await supabaseAdmin.rpc('commit_production_sale', {
+  const { data, error } = await db.rpc('commit_production_sale', {
     p_order: params.order,
     p_items: params.items,
     p_branch_id: params.branchId,
@@ -246,7 +248,7 @@ export async function commitProductionSaleTransaction(params: {
  * approved_qty was never written.
  */
 export async function getOutstandingDemand(): Promise<Map<string, number>> {
-  const { data, error } = await supabaseAdmin
+  const { data, error } = await db
     .from('production_orders')
     .select('status, items:production_order_items(product_id, qty, approved_qty)')
     .in('status', ['pending', 'awaiting_verification']);
@@ -299,9 +301,9 @@ export async function getProductionStockRows(date: string = businessDateStr()): 
   // and the page filters by category. Unfiltered on purpose: a product deactivated
   // today can still carry an opening balance and must not lose its row or its ID.
   const [products, prior, history, demand] = await Promise.all([
-    supabaseAdmin.from('products').select('id, name, stock_code, is_active, category_id, category_name'),
-    supabaseAdmin.from('production_stock_history').select('product_id, delta').lt('business_date', date),
-    supabaseAdmin
+    db.from('products').select('id, name, stock_code, is_active, category_id, category_name'),
+    db.from('production_stock_history').select('product_id, delta').lt('business_date', date),
+    db
       .from('production_stock_history')
       .select('product_id, product_name, type, delta')
       .eq('business_date', date),
@@ -437,12 +439,12 @@ export async function getProductionStockFigures(
   date: string = businessDateStr(),
 ): Promise<ProductionStockFigures> {
   const [prior, history, demand] = await Promise.all([
-    supabaseAdmin
+    db
       .from('production_stock_history')
       .select('delta')
       .eq('product_id', productId)
       .lt('business_date', date),
-    supabaseAdmin
+    db
       .from('production_stock_history')
       .select('type, delta')
       .eq('product_id', productId)
@@ -554,7 +556,7 @@ export async function applyProductionStockCorrection(params: {
   ticketId: string;
   businessDate?: string;
 }): Promise<ProductionStockCorrectionResult> {
-  const { data, error } = await supabaseAdmin.rpc('apply_production_stock_correction', {
+  const { data, error } = await db.rpc('apply_production_stock_correction', {
     p_product_id: params.productId,
     p_product_name: params.productName,
     p_targets: params.targets,
@@ -663,7 +665,7 @@ export async function recordProductionAdjustment(params: {
   // wants when the first was a different correction.
   const refId = `adj:${randomUUID()}`;
 
-  const { data, error } = await supabaseAdmin.rpc('apply_production_stock_adjustment', {
+  const { data, error } = await db.rpc('apply_production_stock_adjustment', {
     p_product_id: params.productId,
     p_product_name: params.productName,
     p_delta: params.qty,
@@ -707,7 +709,7 @@ export async function recordProductionAdjustment(params: {
 export async function getProductionAvailability(): Promise<
   Map<string, { balance: number; reserved: number; available: number }>
 > {
-  const { data, error } = await supabaseAdmin.rpc('production_stock_availability');
+  const { data, error } = await db.rpc('production_stock_availability');
   if (error) throw error;
   const out = new Map<string, { balance: number; reserved: number; available: number }>();
   for (const r of (data ?? []) as { product_id: string; balance: number | string; reserved: number | string; available: number | string }[]) {
