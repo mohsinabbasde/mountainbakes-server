@@ -12,18 +12,12 @@ import { usePglite } from '../../db/testing';
  * Runs migration 67 (attachments), the trigger split from 122, then 147 and 148
  * verbatim in pglite over stub tables. The service functions are the real ones:
  * their `db.from` calls run in that database through the real query layer
- * (src/db), and `supabaseAdmin.storage` is swapped for an in-memory bucket — so
+ * (src/db), and the file store is swapped for an in-memory one — so
  * what is asserted is what the service asks Postgres for, and what Postgres
  * (including the immutability trigger) answers.
  *
  * Run: npx tsx --test src/services/__tests__/return-photo.integration.test.ts
  */
-
-// The file store still imports config/supabase (for Storage), which refuses to
-// load unconfigured. Nothing here reaches a network: Storage is replaced below
-// and the database is pglite.
-process.env['SUPABASE_URL'] ??= 'http://localhost:54321';
-process.env['SUPABASE_SERVICE_ROLE_KEY'] ??= 'test-only';
 
 const STUBS = `
   create role anon; create role authenticated; create role service_role;
@@ -53,7 +47,7 @@ const TRIGGER_SPLIT_122 = `
     execute function app.attachments_immutable();
 `;
 
-const MIGRATIONS = join(__dirname, '../../../supabase/migrations');
+const MIGRATIONS = join(__dirname, '../../../db/history/migrations');
 const migration = (file: string) => readFileSync(join(MIGRATIONS, file), 'utf8');
 
 let db: PGlite;
@@ -62,19 +56,13 @@ let uploadedToStorage: string[] = [];
 let me: string;
 let someoneElse: string;
 
-const fakeStorage = {
-  from() {
-    return {
-      async upload(path: string) { uploadedToStorage.push(path); return { error: null }; },
-      async remove(paths: string[]) { removedFromStorage.push(...paths); return { error: null }; },
-      async createSignedUrls(paths: string[]) {
-        return { data: paths.map((path) => ({ path, signedUrl: `https://signed.test/${path}`, error: null })), error: null };
-      },
-    };
-  },
+const fakeStore: import('../file-store').FileStore = {
+  async upload(_bucket, path) { uploadedToStorage.push(path); },
+  async remove(_bucket, paths) { removedFromStorage.push(...paths); },
+  async signUrls(_bucket, paths) { return new Map(paths.map((path) => [path, `https://signed.test/${path}`])); },
+  publicUrl: (_bucket, path) => `https://api.test/api/public/branding/${path}`,
 };
 
-// Loaded after the env vars above are in place.
 let svc: typeof import('../attachments.service');
 
 /** Stage one photo straight into the table, as an upload would have. */
@@ -109,8 +97,7 @@ before(async () => {
   await db.exec(migration('20261007000148_return_photo.sql'));
 
   await usePglite(db);
-  const config = await import('../../config/supabase');
-  Object.defineProperty(config.supabaseAdmin, 'storage', { value: fakeStorage, configurable: true });
+  (await import('../file-store')).setFileStore(fakeStore);
   svc = await import('../attachments.service');
 
   const users = await db.query<{ id: string }>(`insert into users default values returning id`);

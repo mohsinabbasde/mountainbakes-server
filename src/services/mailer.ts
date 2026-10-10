@@ -3,9 +3,8 @@ import nodemailer, { type Transporter } from 'nodemailer';
 /**
  * Outgoing email, over SMTP.
  *
- * One kind of message is sent today: the password reset link. Supabase Auth
- * used to send it; now the API does, through whichever SMTP account the
- * environment names.
+ * One kind of message is sent today: the password reset link, through
+ * whichever SMTP account the environment names.
  *
  *   SMTP_HOST   e.g. smtp.gmail.com
  *   SMTP_PORT   587 (STARTTLS, the default) or 465 (TLS from the first byte)

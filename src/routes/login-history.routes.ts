@@ -47,11 +47,11 @@ export const router = Router();
  * Login History & Active Sessions.
  *
  * EVERY endpoint is authenticated, including the one that records a login —
- * which sounds circular and is not. The browser signs in to Supabase first and
- * already holds a verified JWT by the time it calls `/start`; this router's job
- * is to write down a login that has already happened, not to perform one. That
- * is what lets the identity on the row come off the token instead of the body:
- * no account can record a session for anybody else.
+ * which sounds circular and is not. The browser signs in at `/api/auth/login`
+ * first and already holds an access token by the time it calls `/start`; this
+ * router's job is to write down a login that has already happened, not to
+ * perform one. That is what lets the identity on the row come off the token
+ * instead of the body: no account can record a session for anybody else.
  *
  * The client sends only ids. Staff code, email, name, role and branch come from
  * the JWT or from a lookup keyed by it; IP and user agent from the request
@@ -159,12 +159,12 @@ router.post('/start', validate(StartLoginSessionSchema), async (req: AuthRequest
 /**
  * POST /api/login-history/ping — the open tab is still open.
  *
- * ALSO THE REVOCATION KILL-SWITCH, which is why its three outcomes are three
- * different status codes rather than one. A Supabase access token is stateless
- * and cannot be withdrawn once issued, so deleting the GoTrue session only stops
- * the browser at its next token refresh — up to an hour later. This endpoint is
- * what closes that window: the tab is already pinging every two minutes, and a
- * 403 here tells it to sign itself out now.
+ * ALSO A REVOCATION CHECK, which is why its three outcomes are three different
+ * status codes rather than one. `authenticate` already refuses a session that
+ * has been ended, before this handler runs; what is left for the ping is the
+ * Login History row an admin marked revoked. The tab is already pinging every
+ * two minutes, and a 403 here tells it to sign itself out now rather than open
+ * a fresh session.
  */
 router.post('/ping', validate(LoginSessionIdSchema), async (req: AuthRequest, res, next) => {
   try {
@@ -384,8 +384,8 @@ router.get('/:id', async (req: AuthRequest, res, next) => {
  * POST /api/login-history/:id/revoke — sign out one session.
  *
  * Super admin only, and audited. The service does the two things that make this
- * real — deletes the GoTrue session so the refresh token dies, and marks the row
- * so the target's next ping signs it out — and reports both counts back, which
+ * real — ends the sign-in session so its tokens stop working, and marks the row
+ * so the history says who ended it — and reports both counts back, which
  * the UI shows rather than rounding into "done": "ended 1 of 1" and "our record
  * closed, the authentication session had already lapsed" are different outcomes
  * and an admin acting on a suspected compromise should be able to tell them
@@ -418,7 +418,7 @@ router.post(
  * is decided HERE from the verified token rather than trusted from the body. An
  * admin who signs out every session on their own account and is thereby signed
  * out themselves is locked out in the middle of whatever prompted the action —
- * so the caller's own `session_id` claim is passed through as the one to keep,
+ * so the caller's own session (the token's `sid`) is passed through as the one to keep,
  * and a client that forgets to ask for it is protected anyway.
  *
  * `keepSessionId` remains for the explicit case and is honoured only when it

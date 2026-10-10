@@ -10,8 +10,7 @@ import { DbError, type DbResult } from './types';
  * pglite (the tests) put the same fields directly on the error.
  *
  * Anything else — the pool is exhausted, the server is unreachable — has no
- * SQLSTATE and comes back with an empty `code`, as a failed fetch did from
- * supabase-js.
+ * SQLSTATE and comes back with an empty `code`.
  */
 export function toDbError(e: unknown): DbError {
   if (e instanceof DbError) return e;
@@ -60,7 +59,7 @@ export function ok<T>(data: T | null, count: number | null = null): DbResult<T> 
 
 /**
  * `.single()` and `.maybeSingle()` on a result that is not one row. The two
- * wordings are PostgREST's and supabase-js's respectively; both carry PGRST116.
+ * wordings differ by where the count was taken; both carry PGRST116.
  */
 export function notOneRow(rows: number, from: 'server' | 'client'): DbError {
   return from === 'server'

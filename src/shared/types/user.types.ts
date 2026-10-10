@@ -46,7 +46,7 @@ export const BRANCH_ROLES = ['branch_manager'] as const satisfies readonly UserR
  * True for a shop-floor role — the branch-scoping test.
  *
  * Takes a loose `string` for the same reason `financeCan` does: the client reads
- * the role off a JWT claim, where it is whatever Supabase put there, and the
+ * the role out of its stored session, where it is whatever was put there, and the
  * guard that has to cope with an unrecognised value is exactly the caller that
  * must not be forced to cast one in.
  */

@@ -4,7 +4,7 @@ import { mkdtemp, writeFile, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { BackupStorage, isTransientS3Error, withRetry } from '../s3BackupStorage';
-import { buildPgDumpArgs, getPgDumpVersion, pgConnectionEnv, probeConnection, runPgDump } from '../postgresBackup';
+import { MAIN_SCHEMAS, PROBE_SCHEMA, buildPgDumpArgs, getPgDumpVersion, pgConnectionEnv, probeConnection, runPgDump } from '../postgresBackup';
 import { BackupError, categorize } from '../errors';
 import { FakeS3, fakeSpawn, fakeUploadFactory } from './fakes';
 
@@ -80,19 +80,34 @@ describe('S3 storage', () => {
 });
 
 describe('pg_dump driver', () => {
-  it('builds the exact argv for the main and auth archives', () => {
-    assert.deepEqual(buildPgDumpArgs({ outFile: '/t/m.dump', schemas: ['public', 'app', 'supabase_migrations'] }), [
+  it('builds the exact argv for the archive, for a table list and for the probe', () => {
+    assert.deepEqual(MAIN_SCHEMAS, ['public', 'app']);
+    assert.deepEqual(buildPgDumpArgs({ outFile: '/t/m.dump', schemas: MAIN_SCHEMAS }), [
       '--format=custom', '--compress=6', '--no-sync', '--no-publications', '--no-subscriptions', '--file', '/t/m.dump',
-      '--schema=public', '--schema=app', '--schema=supabase_migrations',
+      '--schema=public', '--schema=app',
     ]);
-    assert.deepEqual(buildPgDumpArgs({ outFile: '/t/a.dump', tables: ['auth.users', 'auth.identities'] }).slice(-2), ['--table=auth.users', '--table=auth.identities']);
-    assert.ok(buildPgDumpArgs({ outFile: '/t/p.dump', schemas: ['supabase_migrations'], schemaOnly: true }).includes('--schema-only'));
+    assert.deepEqual(buildPgDumpArgs({ outFile: '/t/a.dump', tables: ['public.users', 'public.orders'] }).slice(-2), ['--table=public.users', '--table=public.orders']);
+    assert.ok(buildPgDumpArgs({ outFile: '/t/p.dump', schemas: [PROBE_SCHEMA], schemaOnly: true }).includes('--schema-only'));
+  });
+
+  it('the connectivity probe dumps a schema every database of ours has', async () => {
+    const seen: string[][] = [];
+    const spawn = fakeSpawn({ onSpawn: (argv) => { seen.push(argv); } });
+    const dir = await mkdtemp(path.join(os.tmpdir(), 'mb-probe-'));
+    try {
+      await probeConnection('postgresql://u:pw@h:5432/db', dir, { spawn, pgBinDir: null });
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+    assert.equal(seen.length, 1);
+    assert.ok(seen[0]!.includes('--schema=app'));
+    assert.ok(seen[0]!.includes('--schema-only'));
   });
 
   it('passes the connection through libpq env vars, never argv', async () => {
-    const env = pgConnectionEnv('postgresql://postgres.ref:p%40ss@aws-0-ap-northeast-1.pooler.supabase.com:5432/postgres?sslmode=require');
-    assert.equal(env.PGHOST, 'aws-0-ap-northeast-1.pooler.supabase.com');
-    assert.equal(env.PGUSER, 'postgres.ref');
+    const env = pgConnectionEnv('postgresql://mb.admin:p%40ss@db.example.net:5432/postgres?sslmode=require');
+    assert.equal(env.PGHOST, 'db.example.net');
+    assert.equal(env.PGUSER, 'mb.admin');
     assert.equal(env.PGPASSWORD, 'p@ss');
     assert.equal(env.PGDATABASE, 'postgres');
     assert.equal(env.PGSSLMODE, 'require');
@@ -122,7 +137,7 @@ describe('pg_dump driver', () => {
         (err: unknown) => err instanceof BackupError && err.category === 'DB_CONNECTION_FAILED' && err.retryable && !err.message.includes('secretpw') && err.message.includes('***'),
       );
 
-      // IPv6-only direct host (db.<ref>.supabase.co) from an IPv4-only network.
+      // A host that resolves to IPv6 only, reached from an IPv4-only network.
       const unreachable = fakeSpawn({ exitCode: 1, stderr: 'pg_dump: error: connection to server at "h" (2406:da14::1), port 5432 failed: Network is unreachable\n' });
       await assert.rejects(
         () => runPgDump({ dbUrl: 'postgresql://u:pw@h:5432/db', outFile: path.join(dir, 'u.dump'), schemas: ['public'], timeoutMs: 5000 }, { spawn: unreachable, pgBinDir: null }),

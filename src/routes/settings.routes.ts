@@ -98,8 +98,8 @@ router.post('/logo', requireRole('super_admin'), // eslint-disable-next-line @ty
     // This URL is permanent and unauthenticated — which is required: logo_url is
     // persisted and rendered on the login page and on printed receipts, where
     // there is no session. A signed URL would expire and silently break both.
-    // On Supabase that is the PUBLIC `branding` bucket (migration 10); on S3 it
-    // is this API's own /api/public/branding route.
+    // The S3 bucket is private, so the URL is this API's own
+    // /api/public/branding route.
     const logoUrl = fileStore().publicUrl(LOGO_BUCKET, logoPath);
 
     const { error: writeErr } = await db

@@ -18,9 +18,6 @@ credentials/
 .env.*.local
 !.env.example
 
-# Supabase CLI local state (project link, pooler URL) — per-developer, not shared.
-supabase/.temp/
-
 # Logs
 *.log
 npm-debug.log*

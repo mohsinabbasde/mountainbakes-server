@@ -16,7 +16,6 @@ import type * as Prisma from "../internal/prismaNamespace"
  * Model users
  * This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
  * This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
- * This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
  */
 export type usersModel = runtime.Types.Result.DefaultSelection<Prisma.$usersPayload>
 
@@ -663,7 +662,7 @@ export type usersScalarWhereWithAggregatesInput = {
 }
 
 export type usersCreateInput = {
-  id: string
+  id?: string
   email: string
   display_name?: string | null
   phone?: string | null
@@ -778,7 +777,7 @@ export type usersCreateInput = {
 }
 
 export type usersUncheckedCreateInput = {
-  id: string
+  id?: string
   email: string
   display_name?: string | null
   phone?: string | null
@@ -1123,7 +1122,7 @@ export type usersUncheckedUpdateInput = {
 }
 
 export type usersCreateManyInput = {
-  id: string
+  id?: string
   email: string
   display_name?: string | null
   phone?: string | null
@@ -1185,6 +1184,11 @@ export type UsersNullableScalarRelationFilter = {
   isNot?: Prisma.usersWhereInput | null
 }
 
+export type UsersScalarRelationFilter = {
+  is?: Prisma.usersWhereInput
+  isNot?: Prisma.usersWhereInput
+}
+
 export type UsersListRelationFilter = {
   every?: Prisma.usersWhereInput
   some?: Prisma.usersWhereInput
@@ -1193,11 +1197,6 @@ export type UsersListRelationFilter = {
 
 export type usersOrderByRelationAggregateInput = {
   _count?: Prisma.SortOrder
-}
-
-export type UsersScalarRelationFilter = {
-  is?: Prisma.usersWhereInput
-  isNot?: Prisma.usersWhereInput
 }
 
 export type usersCountOrderByAggregateInput = {
@@ -1306,6 +1305,20 @@ export type usersUpdateOneWithoutAudit_logs_audit_logs_target_user_idTousersNest
   delete?: Prisma.usersWhereInput | boolean
   connect?: Prisma.usersWhereUniqueInput
   update?: Prisma.XOR<Prisma.XOR<Prisma.usersUpdateToOneWithWhereWithoutAudit_logs_audit_logs_target_user_idTousersInput, Prisma.usersUpdateWithoutAudit_logs_audit_logs_target_user_idTousersInput>, Prisma.usersUncheckedUpdateWithoutAudit_logs_audit_logs_target_user_idTousersInput>
+}
+
+export type usersCreateNestedOneWithoutAuth_sessionsInput = {
+  create?: Prisma.XOR<Prisma.usersCreateWithoutAuth_sessionsInput, Prisma.usersUncheckedCreateWithoutAuth_sessionsInput>
+  connectOrCreate?: Prisma.usersCreateOrConnectWithoutAuth_sessionsInput
+  connect?: Prisma.usersWhereUniqueInput
+}
+
+export type usersUpdateOneRequiredWithoutAuth_sessionsNestedInput = {
+  create?: Prisma.XOR<Prisma.usersCreateWithoutAuth_sessionsInput, Prisma.usersUncheckedCreateWithoutAuth_sessionsInput>
+  connectOrCreate?: Prisma.usersCreateOrConnectWithoutAuth_sessionsInput
+  upsert?: Prisma.usersUpsertWithoutAuth_sessionsInput
+  connect?: Prisma.usersWhereUniqueInput
+  update?: Prisma.XOR<Prisma.XOR<Prisma.usersUpdateToOneWithWhereWithoutAuth_sessionsInput, Prisma.usersUpdateWithoutAuth_sessionsInput>, Prisma.usersUncheckedUpdateWithoutAuth_sessionsInput>
 }
 
 export type usersCreateNestedOneWithoutBackup_jobsInput = {
@@ -2308,6 +2321,20 @@ export type usersUpdateOneWithoutPartner_expenses_partner_expenses_requested_byT
   update?: Prisma.XOR<Prisma.XOR<Prisma.usersUpdateToOneWithWhereWithoutPartner_expenses_partner_expenses_requested_byTousersInput, Prisma.usersUpdateWithoutPartner_expenses_partner_expenses_requested_byTousersInput>, Prisma.usersUncheckedUpdateWithoutPartner_expenses_partner_expenses_requested_byTousersInput>
 }
 
+export type usersCreateNestedOneWithoutPassword_reset_tokensInput = {
+  create?: Prisma.XOR<Prisma.usersCreateWithoutPassword_reset_tokensInput, Prisma.usersUncheckedCreateWithoutPassword_reset_tokensInput>
+  connectOrCreate?: Prisma.usersCreateOrConnectWithoutPassword_reset_tokensInput
+  connect?: Prisma.usersWhereUniqueInput
+}
+
+export type usersUpdateOneRequiredWithoutPassword_reset_tokensNestedInput = {
+  create?: Prisma.XOR<Prisma.usersCreateWithoutPassword_reset_tokensInput, Prisma.usersUncheckedCreateWithoutPassword_reset_tokensInput>
+  connectOrCreate?: Prisma.usersCreateOrConnectWithoutPassword_reset_tokensInput
+  upsert?: Prisma.usersUpsertWithoutPassword_reset_tokensInput
+  connect?: Prisma.usersWhereUniqueInput
+  update?: Prisma.XOR<Prisma.XOR<Prisma.usersUpdateToOneWithWhereWithoutPassword_reset_tokensInput, Prisma.usersUpdateWithoutPassword_reset_tokensInput>, Prisma.usersUncheckedUpdateWithoutPassword_reset_tokensInput>
+}
+
 export type usersCreateNestedOneWithoutPayment_method_settingsInput = {
   create?: Prisma.XOR<Prisma.usersCreateWithoutPayment_method_settingsInput, Prisma.usersUncheckedCreateWithoutPayment_method_settingsInput>
   connectOrCreate?: Prisma.usersCreateOrConnectWithoutPayment_method_settingsInput
@@ -2754,6 +2781,20 @@ export type usersUpdateOneWithoutSupport_tickets_support_tickets_resolved_byTous
   update?: Prisma.XOR<Prisma.XOR<Prisma.usersUpdateToOneWithWhereWithoutSupport_tickets_support_tickets_resolved_byTousersInput, Prisma.usersUpdateWithoutSupport_tickets_support_tickets_resolved_byTousersInput>, Prisma.usersUncheckedUpdateWithoutSupport_tickets_support_tickets_resolved_byTousersInput>
 }
 
+export type usersCreateNestedOneWithoutUser_credentialsInput = {
+  create?: Prisma.XOR<Prisma.usersCreateWithoutUser_credentialsInput, Prisma.usersUncheckedCreateWithoutUser_credentialsInput>
+  connectOrCreate?: Prisma.usersCreateOrConnectWithoutUser_credentialsInput
+  connect?: Prisma.usersWhereUniqueInput
+}
+
+export type usersUpdateOneRequiredWithoutUser_credentialsNestedInput = {
+  create?: Prisma.XOR<Prisma.usersCreateWithoutUser_credentialsInput, Prisma.usersUncheckedCreateWithoutUser_credentialsInput>
+  connectOrCreate?: Prisma.usersCreateOrConnectWithoutUser_credentialsInput
+  upsert?: Prisma.usersUpsertWithoutUser_credentialsInput
+  connect?: Prisma.usersWhereUniqueInput
+  update?: Prisma.XOR<Prisma.XOR<Prisma.usersUpdateToOneWithWhereWithoutUser_credentialsInput, Prisma.usersUpdateWithoutUser_credentialsInput>, Prisma.usersUncheckedUpdateWithoutUser_credentialsInput>
+}
+
 export type usersCreateNestedOneWithoutOther_usersInput = {
   create?: Prisma.XOR<Prisma.usersCreateWithoutOther_usersInput, Prisma.usersUncheckedCreateWithoutOther_usersInput>
   connectOrCreate?: Prisma.usersCreateOrConnectWithoutOther_usersInput
@@ -2816,50 +2857,8 @@ export type usersUncheckedUpdateManyWithoutUsersNestedInput = {
   deleteMany?: Prisma.usersScalarWhereInput | Prisma.usersScalarWhereInput[]
 }
 
-export type usersCreateNestedOneWithoutAuth_sessionsInput = {
-  create?: Prisma.XOR<Prisma.usersCreateWithoutAuth_sessionsInput, Prisma.usersUncheckedCreateWithoutAuth_sessionsInput>
-  connectOrCreate?: Prisma.usersCreateOrConnectWithoutAuth_sessionsInput
-  connect?: Prisma.usersWhereUniqueInput
-}
-
-export type usersUpdateOneRequiredWithoutAuth_sessionsNestedInput = {
-  create?: Prisma.XOR<Prisma.usersCreateWithoutAuth_sessionsInput, Prisma.usersUncheckedCreateWithoutAuth_sessionsInput>
-  connectOrCreate?: Prisma.usersCreateOrConnectWithoutAuth_sessionsInput
-  upsert?: Prisma.usersUpsertWithoutAuth_sessionsInput
-  connect?: Prisma.usersWhereUniqueInput
-  update?: Prisma.XOR<Prisma.XOR<Prisma.usersUpdateToOneWithWhereWithoutAuth_sessionsInput, Prisma.usersUpdateWithoutAuth_sessionsInput>, Prisma.usersUncheckedUpdateWithoutAuth_sessionsInput>
-}
-
-export type usersCreateNestedOneWithoutPassword_reset_tokensInput = {
-  create?: Prisma.XOR<Prisma.usersCreateWithoutPassword_reset_tokensInput, Prisma.usersUncheckedCreateWithoutPassword_reset_tokensInput>
-  connectOrCreate?: Prisma.usersCreateOrConnectWithoutPassword_reset_tokensInput
-  connect?: Prisma.usersWhereUniqueInput
-}
-
-export type usersUpdateOneRequiredWithoutPassword_reset_tokensNestedInput = {
-  create?: Prisma.XOR<Prisma.usersCreateWithoutPassword_reset_tokensInput, Prisma.usersUncheckedCreateWithoutPassword_reset_tokensInput>
-  connectOrCreate?: Prisma.usersCreateOrConnectWithoutPassword_reset_tokensInput
-  upsert?: Prisma.usersUpsertWithoutPassword_reset_tokensInput
-  connect?: Prisma.usersWhereUniqueInput
-  update?: Prisma.XOR<Prisma.XOR<Prisma.usersUpdateToOneWithWhereWithoutPassword_reset_tokensInput, Prisma.usersUpdateWithoutPassword_reset_tokensInput>, Prisma.usersUncheckedUpdateWithoutPassword_reset_tokensInput>
-}
-
-export type usersCreateNestedOneWithoutUser_credentialsInput = {
-  create?: Prisma.XOR<Prisma.usersCreateWithoutUser_credentialsInput, Prisma.usersUncheckedCreateWithoutUser_credentialsInput>
-  connectOrCreate?: Prisma.usersCreateOrConnectWithoutUser_credentialsInput
-  connect?: Prisma.usersWhereUniqueInput
-}
-
-export type usersUpdateOneRequiredWithoutUser_credentialsNestedInput = {
-  create?: Prisma.XOR<Prisma.usersCreateWithoutUser_credentialsInput, Prisma.usersUncheckedCreateWithoutUser_credentialsInput>
-  connectOrCreate?: Prisma.usersCreateOrConnectWithoutUser_credentialsInput
-  upsert?: Prisma.usersUpsertWithoutUser_credentialsInput
-  connect?: Prisma.usersWhereUniqueInput
-  update?: Prisma.XOR<Prisma.XOR<Prisma.usersUpdateToOneWithWhereWithoutUser_credentialsInput, Prisma.usersUpdateWithoutUser_credentialsInput>, Prisma.usersUncheckedUpdateWithoutUser_credentialsInput>
-}
-
 export type usersCreateWithoutAttachmentsInput = {
-  id: string
+  id?: string
   email: string
   display_name?: string | null
   phone?: string | null
@@ -2973,7 +2972,7 @@ export type usersCreateWithoutAttachmentsInput = {
 }
 
 export type usersUncheckedCreateWithoutAttachmentsInput = {
-  id: string
+  id?: string
   email: string
   display_name?: string | null
   phone?: string | null
@@ -3331,7 +3330,7 @@ export type usersUncheckedUpdateWithoutAttachmentsInput = {
 }
 
 export type usersCreateWithoutAudit_logs_audit_logs_admin_idTousersInput = {
-  id: string
+  id?: string
   email: string
   display_name?: string | null
   phone?: string | null
@@ -3445,7 +3444,7 @@ export type usersCreateWithoutAudit_logs_audit_logs_admin_idTousersInput = {
 }
 
 export type usersUncheckedCreateWithoutAudit_logs_audit_logs_admin_idTousersInput = {
-  id: string
+  id?: string
   email: string
   display_name?: string | null
   phone?: string | null
@@ -3564,7 +3563,7 @@ export type usersCreateOrConnectWithoutAudit_logs_audit_logs_admin_idTousersInpu
 }
 
 export type usersCreateWithoutAudit_logs_audit_logs_target_user_idTousersInput = {
-  id: string
+  id?: string
   email: string
   display_name?: string | null
   phone?: string | null
@@ -3678,7 +3677,7 @@ export type usersCreateWithoutAudit_logs_audit_logs_target_user_idTousersInput =
 }
 
 export type usersUncheckedCreateWithoutAudit_logs_audit_logs_target_user_idTousersInput = {
-  id: string
+  id?: string
   email: string
   display_name?: string | null
   phone?: string | null
@@ -4274,8 +4273,480 @@ export type usersUncheckedUpdateWithoutAudit_logs_audit_logs_target_user_idTouse
   other_users?: Prisma.usersUncheckedUpdateManyWithoutUsersNestedInput
 }
 
+export type usersCreateWithoutAuth_sessionsInput = {
+  id?: string
+  email: string
+  display_name?: string | null
+  phone?: string | null
+  username?: string | null
+  role: $Enums.user_role
+  branch_name?: string | null
+  status?: $Enums.user_status
+  last_login_at?: Date | string | null
+  must_change_password?: boolean
+  last_password_reset?: Date | string | null
+  password_reset_by_name?: string | null
+  created_at?: Date | string
+  updated_at?: Date | string
+  user_code?: string
+  attachments?: Prisma.attachmentsCreateNestedManyWithoutUsersInput
+  audit_logs_audit_logs_admin_idTousers?: Prisma.audit_logsCreateNestedManyWithoutUsers_audit_logs_admin_idTousersInput
+  audit_logs_audit_logs_target_user_idTousers?: Prisma.audit_logsCreateNestedManyWithoutUsers_audit_logs_target_user_idTousersInput
+  backup_jobs?: Prisma.backup_jobsCreateNestedManyWithoutUsersInput
+  branch_discounts_branch_discounts_created_byTousers?: Prisma.branch_discountsCreateNestedManyWithoutUsers_branch_discounts_created_byTousersInput
+  branch_discounts_branch_discounts_reviewed_byTousers?: Prisma.branch_discountsCreateNestedManyWithoutUsers_branch_discounts_reviewed_byTousersInput
+  branch_locations?: Prisma.branch_locationsCreateNestedManyWithoutUsersInput
+  branch_share_payments_branch_share_payments_approved_byTousers?: Prisma.branch_share_paymentsCreateNestedManyWithoutUsers_branch_share_payments_approved_byTousersInput
+  branch_share_payments_branch_share_payments_deleted_byTousers?: Prisma.branch_share_paymentsCreateNestedManyWithoutUsers_branch_share_payments_deleted_byTousersInput
+  branch_share_payments_branch_share_payments_requested_byTousers?: Prisma.branch_share_paymentsCreateNestedManyWithoutUsers_branch_share_payments_requested_byTousersInput
+  branches_branches_manager_idTousers?: Prisma.branchesCreateNestedManyWithoutUsers_branches_manager_idTousersInput
+  cash_transfers_cash_transfers_approved_byTousers?: Prisma.cash_transfersCreateNestedManyWithoutUsers_cash_transfers_approved_byTousersInput
+  cash_transfers_cash_transfers_created_byTousers?: Prisma.cash_transfersCreateNestedManyWithoutUsers_cash_transfers_created_byTousersInput
+  cash_transfers_cash_transfers_deleted_byTousers?: Prisma.cash_transfersCreateNestedManyWithoutUsers_cash_transfers_deleted_byTousersInput
+  cash_transfers_cash_transfers_updated_byTousers?: Prisma.cash_transfersCreateNestedManyWithoutUsers_cash_transfers_updated_byTousersInput
+  daily_sale_record_audits?: Prisma.daily_sale_record_auditsCreateNestedManyWithoutUsersInput
+  daily_sale_records_daily_sale_records_created_byTousers?: Prisma.daily_sale_recordsCreateNestedManyWithoutUsers_daily_sale_records_created_byTousersInput
+  daily_sale_records_daily_sale_records_fed_byTousers?: Prisma.daily_sale_recordsCreateNestedManyWithoutUsers_daily_sale_records_fed_byTousersInput
+  daily_sale_records_daily_sale_records_locked_byTousers?: Prisma.daily_sale_recordsCreateNestedManyWithoutUsers_daily_sale_records_locked_byTousersInput
+  daily_sale_records_daily_sale_records_verified_byTousers?: Prisma.daily_sale_recordsCreateNestedManyWithoutUsers_daily_sale_records_verified_byTousersInput
+  employee_advances_employee_advances_approved_byTousers?: Prisma.employee_advancesCreateNestedManyWithoutUsers_employee_advances_approved_byTousersInput
+  employee_advances_employee_advances_created_byTousers?: Prisma.employee_advancesCreateNestedManyWithoutUsers_employee_advances_created_byTousersInput
+  employee_advances_employee_advances_deleted_byTousers?: Prisma.employee_advancesCreateNestedManyWithoutUsers_employee_advances_deleted_byTousersInput
+  event_branch_demands_event_branch_demands_reviewed_byTousers?: Prisma.event_branch_demandsCreateNestedManyWithoutUsers_event_branch_demands_reviewed_byTousersInput
+  event_branch_demands_event_branch_demands_submitted_byTousers?: Prisma.event_branch_demandsCreateNestedManyWithoutUsers_event_branch_demands_submitted_byTousersInput
+  event_production_status?: Prisma.event_production_statusCreateNestedManyWithoutUsersInput
+  expenses?: Prisma.expensesCreateNestedManyWithoutUsersInput
+  finance_amendments?: Prisma.finance_amendmentsCreateNestedManyWithoutUsersInput
+  finance_audit_logs?: Prisma.finance_audit_logsCreateNestedManyWithoutUsersInput
+  finance_day_closings?: Prisma.finance_day_closingsCreateNestedManyWithoutUsersInput
+  finance_income_approvals_finance_income_approvals_approved_byTousers?: Prisma.finance_income_approvalsCreateNestedManyWithoutUsers_finance_income_approvals_approved_byTousersInput
+  finance_income_approvals_finance_income_approvals_deleted_byTousers?: Prisma.finance_income_approvalsCreateNestedManyWithoutUsers_finance_income_approvals_deleted_byTousersInput
+  finance_income_approvals_finance_income_approvals_verified_byTousers?: Prisma.finance_income_approvalsCreateNestedManyWithoutUsers_finance_income_approvals_verified_byTousersInput
+  finance_queries_finance_queries_created_byTousers?: Prisma.finance_queriesCreateNestedManyWithoutUsers_finance_queries_created_byTousersInput
+  finance_queries_finance_queries_updated_byTousers?: Prisma.finance_queriesCreateNestedManyWithoutUsers_finance_queries_updated_byTousersInput
+  finance_ticket_messages?: Prisma.finance_ticket_messagesCreateNestedManyWithoutUsersInput
+  finance_ticket_versions?: Prisma.finance_ticket_versionsCreateNestedManyWithoutUsersInput
+  finance_tickets_finance_tickets_amended_byTousers?: Prisma.finance_ticketsCreateNestedManyWithoutUsers_finance_tickets_amended_byTousersInput
+  finance_tickets_finance_tickets_assigned_toTousers?: Prisma.finance_ticketsCreateNestedManyWithoutUsers_finance_tickets_assigned_toTousersInput
+  finance_tickets_finance_tickets_deleted_byTousers?: Prisma.finance_ticketsCreateNestedManyWithoutUsers_finance_tickets_deleted_byTousersInput
+  finance_tickets_finance_tickets_raised_byTousers?: Prisma.finance_ticketsCreateNestedManyWithoutUsers_finance_tickets_raised_byTousersInput
+  finance_tickets_finance_tickets_reopened_byTousers?: Prisma.finance_ticketsCreateNestedManyWithoutUsers_finance_tickets_reopened_byTousersInput
+  finance_tickets_finance_tickets_resolved_byTousers?: Prisma.finance_ticketsCreateNestedManyWithoutUsers_finance_tickets_resolved_byTousersInput
+  finance_tickets_finance_tickets_responded_byTousers?: Prisma.finance_ticketsCreateNestedManyWithoutUsers_finance_tickets_responded_byTousersInput
+  finance_tickets_finance_tickets_restored_byTousers?: Prisma.finance_ticketsCreateNestedManyWithoutUsers_finance_tickets_restored_byTousersInput
+  finance_transactions_finance_transactions_approved_byTousers?: Prisma.finance_transactionsCreateNestedManyWithoutUsers_finance_transactions_approved_byTousersInput
+  finance_transactions_finance_transactions_created_byTousers?: Prisma.finance_transactionsCreateNestedManyWithoutUsers_finance_transactions_created_byTousersInput
+  finance_transactions_finance_transactions_deleted_byTousers?: Prisma.finance_transactionsCreateNestedManyWithoutUsers_finance_transactions_deleted_byTousersInput
+  geofence_logs?: Prisma.geofence_logsCreateNestedManyWithoutUsersInput
+  ledger_entries_ledger_entries_approved_byTousers?: Prisma.ledger_entriesCreateNestedManyWithoutUsers_ledger_entries_approved_byTousersInput
+  ledger_entries_ledger_entries_created_byTousers?: Prisma.ledger_entriesCreateNestedManyWithoutUsers_ledger_entries_created_byTousersInput
+  ledger_entries_ledger_entries_deleted_byTousers?: Prisma.ledger_entriesCreateNestedManyWithoutUsers_ledger_entries_deleted_byTousersInput
+  ledger_entries_ledger_entries_updated_byTousers?: Prisma.ledger_entriesCreateNestedManyWithoutUsers_ledger_entries_updated_byTousersInput
+  ledger_heads?: Prisma.ledger_headsCreateNestedManyWithoutUsersInput
+  login_sessions_login_sessions_revoked_byTousers?: Prisma.login_sessionsCreateNestedManyWithoutUsers_login_sessions_revoked_byTousersInput
+  login_sessions_login_sessions_user_idTousers?: Prisma.login_sessionsCreateNestedManyWithoutUsers_login_sessions_user_idTousersInput
+  notification_reads?: Prisma.notification_readsCreateNestedManyWithoutUsersInput
+  notifications?: Prisma.notificationsCreateNestedManyWithoutUsersInput
+  orders?: Prisma.ordersCreateNestedManyWithoutUsersInput
+  packing_materials?: Prisma.packing_materialsCreateNestedManyWithoutUsersInput
+  partner_expenses_partner_expenses_approved_byTousers?: Prisma.partner_expensesCreateNestedManyWithoutUsers_partner_expenses_approved_byTousersInput
+  partner_expenses_partner_expenses_deleted_byTousers?: Prisma.partner_expensesCreateNestedManyWithoutUsers_partner_expenses_deleted_byTousersInput
+  partner_expenses_partner_expenses_requested_byTousers?: Prisma.partner_expensesCreateNestedManyWithoutUsers_partner_expenses_requested_byTousersInput
+  password_reset_tokens?: Prisma.password_reset_tokensCreateNestedManyWithoutUsersInput
+  payment_method_settings?: Prisma.payment_method_settingsCreateNestedManyWithoutUsersInput
+  product_price_history?: Prisma.product_price_historyCreateNestedManyWithoutUsersInput
+  production_orders_production_orders_approved_byTousers?: Prisma.production_ordersCreateNestedManyWithoutUsers_production_orders_approved_byTousersInput
+  production_orders_production_orders_cancelled_byTousers?: Prisma.production_ordersCreateNestedManyWithoutUsers_production_orders_cancelled_byTousersInput
+  production_orders_production_orders_created_byTousers?: Prisma.production_ordersCreateNestedManyWithoutUsers_production_orders_created_byTousersInput
+  production_orders_production_orders_verified_byTousers?: Prisma.production_ordersCreateNestedManyWithoutUsers_production_orders_verified_byTousersInput
+  production_returns_production_returns_created_byTousers?: Prisma.production_returnsCreateNestedManyWithoutUsers_production_returns_created_byTousersInput
+  production_returns_production_returns_reviewed_byTousers?: Prisma.production_returnsCreateNestedManyWithoutUsers_production_returns_reviewed_byTousersInput
+  production_stock_history?: Prisma.production_stock_historyCreateNestedManyWithoutUsersInput
+  push_subscriptions?: Prisma.push_subscriptionsCreateNestedManyWithoutUsersInput
+  restriction_events?: Prisma.restriction_eventsCreateNestedManyWithoutUsersInput
+  restriction_requests_restriction_requests_decided_byTousers?: Prisma.restriction_requestsCreateNestedManyWithoutUsers_restriction_requests_decided_byTousersInput
+  restriction_requests_restriction_requests_requested_byTousers?: Prisma.restriction_requestsCreateNestedManyWithoutUsers_restriction_requests_requested_byTousersInput
+  restriction_rules?: Prisma.restriction_rulesCreateNestedManyWithoutUsersInput
+  return_stock_history?: Prisma.return_stock_historyCreateNestedManyWithoutUsersInput
+  salary_payments_salary_payments_approved_byTousers?: Prisma.salary_paymentsCreateNestedManyWithoutUsers_salary_payments_approved_byTousersInput
+  salary_payments_salary_payments_created_byTousers?: Prisma.salary_paymentsCreateNestedManyWithoutUsers_salary_payments_created_byTousersInput
+  salary_payments_salary_payments_deleted_byTousers?: Prisma.salary_paymentsCreateNestedManyWithoutUsers_salary_payments_deleted_byTousersInput
+  salary_revisions?: Prisma.salary_revisionsCreateNestedManyWithoutUsersInput
+  settings?: Prisma.settingsCreateNestedManyWithoutUsersInput
+  special_events?: Prisma.special_eventsCreateNestedManyWithoutUsersInput
+  special_orders_special_orders_approved_byTousers?: Prisma.special_ordersCreateNestedManyWithoutUsers_special_orders_approved_byTousersInput
+  special_orders_special_orders_created_byTousers?: Prisma.special_ordersCreateNestedManyWithoutUsers_special_orders_created_byTousersInput
+  special_orders_special_orders_prepared_byTousers?: Prisma.special_ordersCreateNestedManyWithoutUsers_special_orders_prepared_byTousersInput
+  special_orders_special_orders_verified_byTousers?: Prisma.special_ordersCreateNestedManyWithoutUsers_special_orders_verified_byTousersInput
+  stock_audit_log?: Prisma.stock_audit_logCreateNestedManyWithoutUsersInput
+  support_tickets_support_tickets_raised_byTousers?: Prisma.support_ticketsCreateNestedManyWithoutUsers_support_tickets_raised_byTousersInput
+  support_tickets_support_tickets_resolved_byTousers?: Prisma.support_ticketsCreateNestedManyWithoutUsers_support_tickets_resolved_byTousersInput
+  user_credentials?: Prisma.user_credentialsCreateNestedOneWithoutUsersInput
+  branches_users_branch_idTobranches?: Prisma.branchesCreateNestedOneWithoutUsers_users_branch_idTobranchesInput
+  users?: Prisma.usersCreateNestedOneWithoutOther_usersInput
+  other_users?: Prisma.usersCreateNestedManyWithoutUsersInput
+}
+
+export type usersUncheckedCreateWithoutAuth_sessionsInput = {
+  id?: string
+  email: string
+  display_name?: string | null
+  phone?: string | null
+  username?: string | null
+  role: $Enums.user_role
+  branch_id?: string | null
+  branch_name?: string | null
+  status?: $Enums.user_status
+  last_login_at?: Date | string | null
+  must_change_password?: boolean
+  last_password_reset?: Date | string | null
+  password_reset_by?: string | null
+  password_reset_by_name?: string | null
+  created_at?: Date | string
+  updated_at?: Date | string
+  user_code?: string
+  attachments?: Prisma.attachmentsUncheckedCreateNestedManyWithoutUsersInput
+  audit_logs_audit_logs_admin_idTousers?: Prisma.audit_logsUncheckedCreateNestedManyWithoutUsers_audit_logs_admin_idTousersInput
+  audit_logs_audit_logs_target_user_idTousers?: Prisma.audit_logsUncheckedCreateNestedManyWithoutUsers_audit_logs_target_user_idTousersInput
+  backup_jobs?: Prisma.backup_jobsUncheckedCreateNestedManyWithoutUsersInput
+  branch_discounts_branch_discounts_created_byTousers?: Prisma.branch_discountsUncheckedCreateNestedManyWithoutUsers_branch_discounts_created_byTousersInput
+  branch_discounts_branch_discounts_reviewed_byTousers?: Prisma.branch_discountsUncheckedCreateNestedManyWithoutUsers_branch_discounts_reviewed_byTousersInput
+  branch_locations?: Prisma.branch_locationsUncheckedCreateNestedManyWithoutUsersInput
+  branch_share_payments_branch_share_payments_approved_byTousers?: Prisma.branch_share_paymentsUncheckedCreateNestedManyWithoutUsers_branch_share_payments_approved_byTousersInput
+  branch_share_payments_branch_share_payments_deleted_byTousers?: Prisma.branch_share_paymentsUncheckedCreateNestedManyWithoutUsers_branch_share_payments_deleted_byTousersInput
+  branch_share_payments_branch_share_payments_requested_byTousers?: Prisma.branch_share_paymentsUncheckedCreateNestedManyWithoutUsers_branch_share_payments_requested_byTousersInput
+  branches_branches_manager_idTousers?: Prisma.branchesUncheckedCreateNestedManyWithoutUsers_branches_manager_idTousersInput
+  cash_transfers_cash_transfers_approved_byTousers?: Prisma.cash_transfersUncheckedCreateNestedManyWithoutUsers_cash_transfers_approved_byTousersInput
+  cash_transfers_cash_transfers_created_byTousers?: Prisma.cash_transfersUncheckedCreateNestedManyWithoutUsers_cash_transfers_created_byTousersInput
+  cash_transfers_cash_transfers_deleted_byTousers?: Prisma.cash_transfersUncheckedCreateNestedManyWithoutUsers_cash_transfers_deleted_byTousersInput
+  cash_transfers_cash_transfers_updated_byTousers?: Prisma.cash_transfersUncheckedCreateNestedManyWithoutUsers_cash_transfers_updated_byTousersInput
+  daily_sale_record_audits?: Prisma.daily_sale_record_auditsUncheckedCreateNestedManyWithoutUsersInput
+  daily_sale_records_daily_sale_records_created_byTousers?: Prisma.daily_sale_recordsUncheckedCreateNestedManyWithoutUsers_daily_sale_records_created_byTousersInput
+  daily_sale_records_daily_sale_records_fed_byTousers?: Prisma.daily_sale_recordsUncheckedCreateNestedManyWithoutUsers_daily_sale_records_fed_byTousersInput
+  daily_sale_records_daily_sale_records_locked_byTousers?: Prisma.daily_sale_recordsUncheckedCreateNestedManyWithoutUsers_daily_sale_records_locked_byTousersInput
+  daily_sale_records_daily_sale_records_verified_byTousers?: Prisma.daily_sale_recordsUncheckedCreateNestedManyWithoutUsers_daily_sale_records_verified_byTousersInput
+  employee_advances_employee_advances_approved_byTousers?: Prisma.employee_advancesUncheckedCreateNestedManyWithoutUsers_employee_advances_approved_byTousersInput
+  employee_advances_employee_advances_created_byTousers?: Prisma.employee_advancesUncheckedCreateNestedManyWithoutUsers_employee_advances_created_byTousersInput
+  employee_advances_employee_advances_deleted_byTousers?: Prisma.employee_advancesUncheckedCreateNestedManyWithoutUsers_employee_advances_deleted_byTousersInput
+  event_branch_demands_event_branch_demands_reviewed_byTousers?: Prisma.event_branch_demandsUncheckedCreateNestedManyWithoutUsers_event_branch_demands_reviewed_byTousersInput
+  event_branch_demands_event_branch_demands_submitted_byTousers?: Prisma.event_branch_demandsUncheckedCreateNestedManyWithoutUsers_event_branch_demands_submitted_byTousersInput
+  event_production_status?: Prisma.event_production_statusUncheckedCreateNestedManyWithoutUsersInput
+  expenses?: Prisma.expensesUncheckedCreateNestedManyWithoutUsersInput
+  finance_amendments?: Prisma.finance_amendmentsUncheckedCreateNestedManyWithoutUsersInput
+  finance_audit_logs?: Prisma.finance_audit_logsUncheckedCreateNestedManyWithoutUsersInput
+  finance_day_closings?: Prisma.finance_day_closingsUncheckedCreateNestedManyWithoutUsersInput
+  finance_income_approvals_finance_income_approvals_approved_byTousers?: Prisma.finance_income_approvalsUncheckedCreateNestedManyWithoutUsers_finance_income_approvals_approved_byTousersInput
+  finance_income_approvals_finance_income_approvals_deleted_byTousers?: Prisma.finance_income_approvalsUncheckedCreateNestedManyWithoutUsers_finance_income_approvals_deleted_byTousersInput
+  finance_income_approvals_finance_income_approvals_verified_byTousers?: Prisma.finance_income_approvalsUncheckedCreateNestedManyWithoutUsers_finance_income_approvals_verified_byTousersInput
+  finance_queries_finance_queries_created_byTousers?: Prisma.finance_queriesUncheckedCreateNestedManyWithoutUsers_finance_queries_created_byTousersInput
+  finance_queries_finance_queries_updated_byTousers?: Prisma.finance_queriesUncheckedCreateNestedManyWithoutUsers_finance_queries_updated_byTousersInput
+  finance_ticket_messages?: Prisma.finance_ticket_messagesUncheckedCreateNestedManyWithoutUsersInput
+  finance_ticket_versions?: Prisma.finance_ticket_versionsUncheckedCreateNestedManyWithoutUsersInput
+  finance_tickets_finance_tickets_amended_byTousers?: Prisma.finance_ticketsUncheckedCreateNestedManyWithoutUsers_finance_tickets_amended_byTousersInput
+  finance_tickets_finance_tickets_assigned_toTousers?: Prisma.finance_ticketsUncheckedCreateNestedManyWithoutUsers_finance_tickets_assigned_toTousersInput
+  finance_tickets_finance_tickets_deleted_byTousers?: Prisma.finance_ticketsUncheckedCreateNestedManyWithoutUsers_finance_tickets_deleted_byTousersInput
+  finance_tickets_finance_tickets_raised_byTousers?: Prisma.finance_ticketsUncheckedCreateNestedManyWithoutUsers_finance_tickets_raised_byTousersInput
+  finance_tickets_finance_tickets_reopened_byTousers?: Prisma.finance_ticketsUncheckedCreateNestedManyWithoutUsers_finance_tickets_reopened_byTousersInput
+  finance_tickets_finance_tickets_resolved_byTousers?: Prisma.finance_ticketsUncheckedCreateNestedManyWithoutUsers_finance_tickets_resolved_byTousersInput
+  finance_tickets_finance_tickets_responded_byTousers?: Prisma.finance_ticketsUncheckedCreateNestedManyWithoutUsers_finance_tickets_responded_byTousersInput
+  finance_tickets_finance_tickets_restored_byTousers?: Prisma.finance_ticketsUncheckedCreateNestedManyWithoutUsers_finance_tickets_restored_byTousersInput
+  finance_transactions_finance_transactions_approved_byTousers?: Prisma.finance_transactionsUncheckedCreateNestedManyWithoutUsers_finance_transactions_approved_byTousersInput
+  finance_transactions_finance_transactions_created_byTousers?: Prisma.finance_transactionsUncheckedCreateNestedManyWithoutUsers_finance_transactions_created_byTousersInput
+  finance_transactions_finance_transactions_deleted_byTousers?: Prisma.finance_transactionsUncheckedCreateNestedManyWithoutUsers_finance_transactions_deleted_byTousersInput
+  geofence_logs?: Prisma.geofence_logsUncheckedCreateNestedManyWithoutUsersInput
+  ledger_entries_ledger_entries_approved_byTousers?: Prisma.ledger_entriesUncheckedCreateNestedManyWithoutUsers_ledger_entries_approved_byTousersInput
+  ledger_entries_ledger_entries_created_byTousers?: Prisma.ledger_entriesUncheckedCreateNestedManyWithoutUsers_ledger_entries_created_byTousersInput
+  ledger_entries_ledger_entries_deleted_byTousers?: Prisma.ledger_entriesUncheckedCreateNestedManyWithoutUsers_ledger_entries_deleted_byTousersInput
+  ledger_entries_ledger_entries_updated_byTousers?: Prisma.ledger_entriesUncheckedCreateNestedManyWithoutUsers_ledger_entries_updated_byTousersInput
+  ledger_heads?: Prisma.ledger_headsUncheckedCreateNestedManyWithoutUsersInput
+  login_sessions_login_sessions_revoked_byTousers?: Prisma.login_sessionsUncheckedCreateNestedManyWithoutUsers_login_sessions_revoked_byTousersInput
+  login_sessions_login_sessions_user_idTousers?: Prisma.login_sessionsUncheckedCreateNestedManyWithoutUsers_login_sessions_user_idTousersInput
+  notification_reads?: Prisma.notification_readsUncheckedCreateNestedManyWithoutUsersInput
+  notifications?: Prisma.notificationsUncheckedCreateNestedManyWithoutUsersInput
+  orders?: Prisma.ordersUncheckedCreateNestedManyWithoutUsersInput
+  packing_materials?: Prisma.packing_materialsUncheckedCreateNestedManyWithoutUsersInput
+  partner_expenses_partner_expenses_approved_byTousers?: Prisma.partner_expensesUncheckedCreateNestedManyWithoutUsers_partner_expenses_approved_byTousersInput
+  partner_expenses_partner_expenses_deleted_byTousers?: Prisma.partner_expensesUncheckedCreateNestedManyWithoutUsers_partner_expenses_deleted_byTousersInput
+  partner_expenses_partner_expenses_requested_byTousers?: Prisma.partner_expensesUncheckedCreateNestedManyWithoutUsers_partner_expenses_requested_byTousersInput
+  password_reset_tokens?: Prisma.password_reset_tokensUncheckedCreateNestedManyWithoutUsersInput
+  payment_method_settings?: Prisma.payment_method_settingsUncheckedCreateNestedManyWithoutUsersInput
+  product_price_history?: Prisma.product_price_historyUncheckedCreateNestedManyWithoutUsersInput
+  production_orders_production_orders_approved_byTousers?: Prisma.production_ordersUncheckedCreateNestedManyWithoutUsers_production_orders_approved_byTousersInput
+  production_orders_production_orders_cancelled_byTousers?: Prisma.production_ordersUncheckedCreateNestedManyWithoutUsers_production_orders_cancelled_byTousersInput
+  production_orders_production_orders_created_byTousers?: Prisma.production_ordersUncheckedCreateNestedManyWithoutUsers_production_orders_created_byTousersInput
+  production_orders_production_orders_verified_byTousers?: Prisma.production_ordersUncheckedCreateNestedManyWithoutUsers_production_orders_verified_byTousersInput
+  production_returns_production_returns_created_byTousers?: Prisma.production_returnsUncheckedCreateNestedManyWithoutUsers_production_returns_created_byTousersInput
+  production_returns_production_returns_reviewed_byTousers?: Prisma.production_returnsUncheckedCreateNestedManyWithoutUsers_production_returns_reviewed_byTousersInput
+  production_stock_history?: Prisma.production_stock_historyUncheckedCreateNestedManyWithoutUsersInput
+  push_subscriptions?: Prisma.push_subscriptionsUncheckedCreateNestedManyWithoutUsersInput
+  restriction_events?: Prisma.restriction_eventsUncheckedCreateNestedManyWithoutUsersInput
+  restriction_requests_restriction_requests_decided_byTousers?: Prisma.restriction_requestsUncheckedCreateNestedManyWithoutUsers_restriction_requests_decided_byTousersInput
+  restriction_requests_restriction_requests_requested_byTousers?: Prisma.restriction_requestsUncheckedCreateNestedManyWithoutUsers_restriction_requests_requested_byTousersInput
+  restriction_rules?: Prisma.restriction_rulesUncheckedCreateNestedManyWithoutUsersInput
+  return_stock_history?: Prisma.return_stock_historyUncheckedCreateNestedManyWithoutUsersInput
+  salary_payments_salary_payments_approved_byTousers?: Prisma.salary_paymentsUncheckedCreateNestedManyWithoutUsers_salary_payments_approved_byTousersInput
+  salary_payments_salary_payments_created_byTousers?: Prisma.salary_paymentsUncheckedCreateNestedManyWithoutUsers_salary_payments_created_byTousersInput
+  salary_payments_salary_payments_deleted_byTousers?: Prisma.salary_paymentsUncheckedCreateNestedManyWithoutUsers_salary_payments_deleted_byTousersInput
+  salary_revisions?: Prisma.salary_revisionsUncheckedCreateNestedManyWithoutUsersInput
+  settings?: Prisma.settingsUncheckedCreateNestedManyWithoutUsersInput
+  special_events?: Prisma.special_eventsUncheckedCreateNestedManyWithoutUsersInput
+  special_orders_special_orders_approved_byTousers?: Prisma.special_ordersUncheckedCreateNestedManyWithoutUsers_special_orders_approved_byTousersInput
+  special_orders_special_orders_created_byTousers?: Prisma.special_ordersUncheckedCreateNestedManyWithoutUsers_special_orders_created_byTousersInput
+  special_orders_special_orders_prepared_byTousers?: Prisma.special_ordersUncheckedCreateNestedManyWithoutUsers_special_orders_prepared_byTousersInput
+  special_orders_special_orders_verified_byTousers?: Prisma.special_ordersUncheckedCreateNestedManyWithoutUsers_special_orders_verified_byTousersInput
+  stock_audit_log?: Prisma.stock_audit_logUncheckedCreateNestedManyWithoutUsersInput
+  support_tickets_support_tickets_raised_byTousers?: Prisma.support_ticketsUncheckedCreateNestedManyWithoutUsers_support_tickets_raised_byTousersInput
+  support_tickets_support_tickets_resolved_byTousers?: Prisma.support_ticketsUncheckedCreateNestedManyWithoutUsers_support_tickets_resolved_byTousersInput
+  user_credentials?: Prisma.user_credentialsUncheckedCreateNestedOneWithoutUsersInput
+  other_users?: Prisma.usersUncheckedCreateNestedManyWithoutUsersInput
+}
+
+export type usersCreateOrConnectWithoutAuth_sessionsInput = {
+  where: Prisma.usersWhereUniqueInput
+  create: Prisma.XOR<Prisma.usersCreateWithoutAuth_sessionsInput, Prisma.usersUncheckedCreateWithoutAuth_sessionsInput>
+}
+
+export type usersUpsertWithoutAuth_sessionsInput = {
+  update: Prisma.XOR<Prisma.usersUpdateWithoutAuth_sessionsInput, Prisma.usersUncheckedUpdateWithoutAuth_sessionsInput>
+  create: Prisma.XOR<Prisma.usersCreateWithoutAuth_sessionsInput, Prisma.usersUncheckedCreateWithoutAuth_sessionsInput>
+  where?: Prisma.usersWhereInput
+}
+
+export type usersUpdateToOneWithWhereWithoutAuth_sessionsInput = {
+  where?: Prisma.usersWhereInput
+  data: Prisma.XOR<Prisma.usersUpdateWithoutAuth_sessionsInput, Prisma.usersUncheckedUpdateWithoutAuth_sessionsInput>
+}
+
+export type usersUpdateWithoutAuth_sessionsInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  email?: Prisma.StringFieldUpdateOperationsInput | string
+  display_name?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  phone?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  username?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  role?: Prisma.Enumuser_roleFieldUpdateOperationsInput | $Enums.user_role
+  branch_name?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  status?: Prisma.Enumuser_statusFieldUpdateOperationsInput | $Enums.user_status
+  last_login_at?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  must_change_password?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  last_password_reset?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  password_reset_by_name?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  created_at?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  updated_at?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  user_code?: Prisma.StringFieldUpdateOperationsInput | string
+  attachments?: Prisma.attachmentsUpdateManyWithoutUsersNestedInput
+  audit_logs_audit_logs_admin_idTousers?: Prisma.audit_logsUpdateManyWithoutUsers_audit_logs_admin_idTousersNestedInput
+  audit_logs_audit_logs_target_user_idTousers?: Prisma.audit_logsUpdateManyWithoutUsers_audit_logs_target_user_idTousersNestedInput
+  backup_jobs?: Prisma.backup_jobsUpdateManyWithoutUsersNestedInput
+  branch_discounts_branch_discounts_created_byTousers?: Prisma.branch_discountsUpdateManyWithoutUsers_branch_discounts_created_byTousersNestedInput
+  branch_discounts_branch_discounts_reviewed_byTousers?: Prisma.branch_discountsUpdateManyWithoutUsers_branch_discounts_reviewed_byTousersNestedInput
+  branch_locations?: Prisma.branch_locationsUpdateManyWithoutUsersNestedInput
+  branch_share_payments_branch_share_payments_approved_byTousers?: Prisma.branch_share_paymentsUpdateManyWithoutUsers_branch_share_payments_approved_byTousersNestedInput
+  branch_share_payments_branch_share_payments_deleted_byTousers?: Prisma.branch_share_paymentsUpdateManyWithoutUsers_branch_share_payments_deleted_byTousersNestedInput
+  branch_share_payments_branch_share_payments_requested_byTousers?: Prisma.branch_share_paymentsUpdateManyWithoutUsers_branch_share_payments_requested_byTousersNestedInput
+  branches_branches_manager_idTousers?: Prisma.branchesUpdateManyWithoutUsers_branches_manager_idTousersNestedInput
+  cash_transfers_cash_transfers_approved_byTousers?: Prisma.cash_transfersUpdateManyWithoutUsers_cash_transfers_approved_byTousersNestedInput
+  cash_transfers_cash_transfers_created_byTousers?: Prisma.cash_transfersUpdateManyWithoutUsers_cash_transfers_created_byTousersNestedInput
+  cash_transfers_cash_transfers_deleted_byTousers?: Prisma.cash_transfersUpdateManyWithoutUsers_cash_transfers_deleted_byTousersNestedInput
+  cash_transfers_cash_transfers_updated_byTousers?: Prisma.cash_transfersUpdateManyWithoutUsers_cash_transfers_updated_byTousersNestedInput
+  daily_sale_record_audits?: Prisma.daily_sale_record_auditsUpdateManyWithoutUsersNestedInput
+  daily_sale_records_daily_sale_records_created_byTousers?: Prisma.daily_sale_recordsUpdateManyWithoutUsers_daily_sale_records_created_byTousersNestedInput
+  daily_sale_records_daily_sale_records_fed_byTousers?: Prisma.daily_sale_recordsUpdateManyWithoutUsers_daily_sale_records_fed_byTousersNestedInput
+  daily_sale_records_daily_sale_records_locked_byTousers?: Prisma.daily_sale_recordsUpdateManyWithoutUsers_daily_sale_records_locked_byTousersNestedInput
+  daily_sale_records_daily_sale_records_verified_byTousers?: Prisma.daily_sale_recordsUpdateManyWithoutUsers_daily_sale_records_verified_byTousersNestedInput
+  employee_advances_employee_advances_approved_byTousers?: Prisma.employee_advancesUpdateManyWithoutUsers_employee_advances_approved_byTousersNestedInput
+  employee_advances_employee_advances_created_byTousers?: Prisma.employee_advancesUpdateManyWithoutUsers_employee_advances_created_byTousersNestedInput
+  employee_advances_employee_advances_deleted_byTousers?: Prisma.employee_advancesUpdateManyWithoutUsers_employee_advances_deleted_byTousersNestedInput
+  event_branch_demands_event_branch_demands_reviewed_byTousers?: Prisma.event_branch_demandsUpdateManyWithoutUsers_event_branch_demands_reviewed_byTousersNestedInput
+  event_branch_demands_event_branch_demands_submitted_byTousers?: Prisma.event_branch_demandsUpdateManyWithoutUsers_event_branch_demands_submitted_byTousersNestedInput
+  event_production_status?: Prisma.event_production_statusUpdateManyWithoutUsersNestedInput
+  expenses?: Prisma.expensesUpdateManyWithoutUsersNestedInput
+  finance_amendments?: Prisma.finance_amendmentsUpdateManyWithoutUsersNestedInput
+  finance_audit_logs?: Prisma.finance_audit_logsUpdateManyWithoutUsersNestedInput
+  finance_day_closings?: Prisma.finance_day_closingsUpdateManyWithoutUsersNestedInput
+  finance_income_approvals_finance_income_approvals_approved_byTousers?: Prisma.finance_income_approvalsUpdateManyWithoutUsers_finance_income_approvals_approved_byTousersNestedInput
+  finance_income_approvals_finance_income_approvals_deleted_byTousers?: Prisma.finance_income_approvalsUpdateManyWithoutUsers_finance_income_approvals_deleted_byTousersNestedInput
+  finance_income_approvals_finance_income_approvals_verified_byTousers?: Prisma.finance_income_approvalsUpdateManyWithoutUsers_finance_income_approvals_verified_byTousersNestedInput
+  finance_queries_finance_queries_created_byTousers?: Prisma.finance_queriesUpdateManyWithoutUsers_finance_queries_created_byTousersNestedInput
+  finance_queries_finance_queries_updated_byTousers?: Prisma.finance_queriesUpdateManyWithoutUsers_finance_queries_updated_byTousersNestedInput
+  finance_ticket_messages?: Prisma.finance_ticket_messagesUpdateManyWithoutUsersNestedInput
+  finance_ticket_versions?: Prisma.finance_ticket_versionsUpdateManyWithoutUsersNestedInput
+  finance_tickets_finance_tickets_amended_byTousers?: Prisma.finance_ticketsUpdateManyWithoutUsers_finance_tickets_amended_byTousersNestedInput
+  finance_tickets_finance_tickets_assigned_toTousers?: Prisma.finance_ticketsUpdateManyWithoutUsers_finance_tickets_assigned_toTousersNestedInput
+  finance_tickets_finance_tickets_deleted_byTousers?: Prisma.finance_ticketsUpdateManyWithoutUsers_finance_tickets_deleted_byTousersNestedInput
+  finance_tickets_finance_tickets_raised_byTousers?: Prisma.finance_ticketsUpdateManyWithoutUsers_finance_tickets_raised_byTousersNestedInput
+  finance_tickets_finance_tickets_reopened_byTousers?: Prisma.finance_ticketsUpdateManyWithoutUsers_finance_tickets_reopened_byTousersNestedInput
+  finance_tickets_finance_tickets_resolved_byTousers?: Prisma.finance_ticketsUpdateManyWithoutUsers_finance_tickets_resolved_byTousersNestedInput
+  finance_tickets_finance_tickets_responded_byTousers?: Prisma.finance_ticketsUpdateManyWithoutUsers_finance_tickets_responded_byTousersNestedInput
+  finance_tickets_finance_tickets_restored_byTousers?: Prisma.finance_ticketsUpdateManyWithoutUsers_finance_tickets_restored_byTousersNestedInput
+  finance_transactions_finance_transactions_approved_byTousers?: Prisma.finance_transactionsUpdateManyWithoutUsers_finance_transactions_approved_byTousersNestedInput
+  finance_transactions_finance_transactions_created_byTousers?: Prisma.finance_transactionsUpdateManyWithoutUsers_finance_transactions_created_byTousersNestedInput
+  finance_transactions_finance_transactions_deleted_byTousers?: Prisma.finance_transactionsUpdateManyWithoutUsers_finance_transactions_deleted_byTousersNestedInput
+  geofence_logs?: Prisma.geofence_logsUpdateManyWithoutUsersNestedInput
+  ledger_entries_ledger_entries_approved_byTousers?: Prisma.ledger_entriesUpdateManyWithoutUsers_ledger_entries_approved_byTousersNestedInput
+  ledger_entries_ledger_entries_created_byTousers?: Prisma.ledger_entriesUpdateManyWithoutUsers_ledger_entries_created_byTousersNestedInput
+  ledger_entries_ledger_entries_deleted_byTousers?: Prisma.ledger_entriesUpdateManyWithoutUsers_ledger_entries_deleted_byTousersNestedInput
+  ledger_entries_ledger_entries_updated_byTousers?: Prisma.ledger_entriesUpdateManyWithoutUsers_ledger_entries_updated_byTousersNestedInput
+  ledger_heads?: Prisma.ledger_headsUpdateManyWithoutUsersNestedInput
+  login_sessions_login_sessions_revoked_byTousers?: Prisma.login_sessionsUpdateManyWithoutUsers_login_sessions_revoked_byTousersNestedInput
+  login_sessions_login_sessions_user_idTousers?: Prisma.login_sessionsUpdateManyWithoutUsers_login_sessions_user_idTousersNestedInput
+  notification_reads?: Prisma.notification_readsUpdateManyWithoutUsersNestedInput
+  notifications?: Prisma.notificationsUpdateManyWithoutUsersNestedInput
+  orders?: Prisma.ordersUpdateManyWithoutUsersNestedInput
+  packing_materials?: Prisma.packing_materialsUpdateManyWithoutUsersNestedInput
+  partner_expenses_partner_expenses_approved_byTousers?: Prisma.partner_expensesUpdateManyWithoutUsers_partner_expenses_approved_byTousersNestedInput
+  partner_expenses_partner_expenses_deleted_byTousers?: Prisma.partner_expensesUpdateManyWithoutUsers_partner_expenses_deleted_byTousersNestedInput
+  partner_expenses_partner_expenses_requested_byTousers?: Prisma.partner_expensesUpdateManyWithoutUsers_partner_expenses_requested_byTousersNestedInput
+  password_reset_tokens?: Prisma.password_reset_tokensUpdateManyWithoutUsersNestedInput
+  payment_method_settings?: Prisma.payment_method_settingsUpdateManyWithoutUsersNestedInput
+  product_price_history?: Prisma.product_price_historyUpdateManyWithoutUsersNestedInput
+  production_orders_production_orders_approved_byTousers?: Prisma.production_ordersUpdateManyWithoutUsers_production_orders_approved_byTousersNestedInput
+  production_orders_production_orders_cancelled_byTousers?: Prisma.production_ordersUpdateManyWithoutUsers_production_orders_cancelled_byTousersNestedInput
+  production_orders_production_orders_created_byTousers?: Prisma.production_ordersUpdateManyWithoutUsers_production_orders_created_byTousersNestedInput
+  production_orders_production_orders_verified_byTousers?: Prisma.production_ordersUpdateManyWithoutUsers_production_orders_verified_byTousersNestedInput
+  production_returns_production_returns_created_byTousers?: Prisma.production_returnsUpdateManyWithoutUsers_production_returns_created_byTousersNestedInput
+  production_returns_production_returns_reviewed_byTousers?: Prisma.production_returnsUpdateManyWithoutUsers_production_returns_reviewed_byTousersNestedInput
+  production_stock_history?: Prisma.production_stock_historyUpdateManyWithoutUsersNestedInput
+  push_subscriptions?: Prisma.push_subscriptionsUpdateManyWithoutUsersNestedInput
+  restriction_events?: Prisma.restriction_eventsUpdateManyWithoutUsersNestedInput
+  restriction_requests_restriction_requests_decided_byTousers?: Prisma.restriction_requestsUpdateManyWithoutUsers_restriction_requests_decided_byTousersNestedInput
+  restriction_requests_restriction_requests_requested_byTousers?: Prisma.restriction_requestsUpdateManyWithoutUsers_restriction_requests_requested_byTousersNestedInput
+  restriction_rules?: Prisma.restriction_rulesUpdateManyWithoutUsersNestedInput
+  return_stock_history?: Prisma.return_stock_historyUpdateManyWithoutUsersNestedInput
+  salary_payments_salary_payments_approved_byTousers?: Prisma.salary_paymentsUpdateManyWithoutUsers_salary_payments_approved_byTousersNestedInput
+  salary_payments_salary_payments_created_byTousers?: Prisma.salary_paymentsUpdateManyWithoutUsers_salary_payments_created_byTousersNestedInput
+  salary_payments_salary_payments_deleted_byTousers?: Prisma.salary_paymentsUpdateManyWithoutUsers_salary_payments_deleted_byTousersNestedInput
+  salary_revisions?: Prisma.salary_revisionsUpdateManyWithoutUsersNestedInput
+  settings?: Prisma.settingsUpdateManyWithoutUsersNestedInput
+  special_events?: Prisma.special_eventsUpdateManyWithoutUsersNestedInput
+  special_orders_special_orders_approved_byTousers?: Prisma.special_ordersUpdateManyWithoutUsers_special_orders_approved_byTousersNestedInput
+  special_orders_special_orders_created_byTousers?: Prisma.special_ordersUpdateManyWithoutUsers_special_orders_created_byTousersNestedInput
+  special_orders_special_orders_prepared_byTousers?: Prisma.special_ordersUpdateManyWithoutUsers_special_orders_prepared_byTousersNestedInput
+  special_orders_special_orders_verified_byTousers?: Prisma.special_ordersUpdateManyWithoutUsers_special_orders_verified_byTousersNestedInput
+  stock_audit_log?: Prisma.stock_audit_logUpdateManyWithoutUsersNestedInput
+  support_tickets_support_tickets_raised_byTousers?: Prisma.support_ticketsUpdateManyWithoutUsers_support_tickets_raised_byTousersNestedInput
+  support_tickets_support_tickets_resolved_byTousers?: Prisma.support_ticketsUpdateManyWithoutUsers_support_tickets_resolved_byTousersNestedInput
+  user_credentials?: Prisma.user_credentialsUpdateOneWithoutUsersNestedInput
+  branches_users_branch_idTobranches?: Prisma.branchesUpdateOneWithoutUsers_users_branch_idTobranchesNestedInput
+  users?: Prisma.usersUpdateOneWithoutOther_usersNestedInput
+  other_users?: Prisma.usersUpdateManyWithoutUsersNestedInput
+}
+
+export type usersUncheckedUpdateWithoutAuth_sessionsInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  email?: Prisma.StringFieldUpdateOperationsInput | string
+  display_name?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  phone?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  username?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  role?: Prisma.Enumuser_roleFieldUpdateOperationsInput | $Enums.user_role
+  branch_id?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  branch_name?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  status?: Prisma.Enumuser_statusFieldUpdateOperationsInput | $Enums.user_status
+  last_login_at?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  must_change_password?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  last_password_reset?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  password_reset_by?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  password_reset_by_name?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  created_at?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  updated_at?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  user_code?: Prisma.StringFieldUpdateOperationsInput | string
+  attachments?: Prisma.attachmentsUncheckedUpdateManyWithoutUsersNestedInput
+  audit_logs_audit_logs_admin_idTousers?: Prisma.audit_logsUncheckedUpdateManyWithoutUsers_audit_logs_admin_idTousersNestedInput
+  audit_logs_audit_logs_target_user_idTousers?: Prisma.audit_logsUncheckedUpdateManyWithoutUsers_audit_logs_target_user_idTousersNestedInput
+  backup_jobs?: Prisma.backup_jobsUncheckedUpdateManyWithoutUsersNestedInput
+  branch_discounts_branch_discounts_created_byTousers?: Prisma.branch_discountsUncheckedUpdateManyWithoutUsers_branch_discounts_created_byTousersNestedInput
+  branch_discounts_branch_discounts_reviewed_byTousers?: Prisma.branch_discountsUncheckedUpdateManyWithoutUsers_branch_discounts_reviewed_byTousersNestedInput
+  branch_locations?: Prisma.branch_locationsUncheckedUpdateManyWithoutUsersNestedInput
+  branch_share_payments_branch_share_payments_approved_byTousers?: Prisma.branch_share_paymentsUncheckedUpdateManyWithoutUsers_branch_share_payments_approved_byTousersNestedInput
+  branch_share_payments_branch_share_payments_deleted_byTousers?: Prisma.branch_share_paymentsUncheckedUpdateManyWithoutUsers_branch_share_payments_deleted_byTousersNestedInput
+  branch_share_payments_branch_share_payments_requested_byTousers?: Prisma.branch_share_paymentsUncheckedUpdateManyWithoutUsers_branch_share_payments_requested_byTousersNestedInput
+  branches_branches_manager_idTousers?: Prisma.branchesUncheckedUpdateManyWithoutUsers_branches_manager_idTousersNestedInput
+  cash_transfers_cash_transfers_approved_byTousers?: Prisma.cash_transfersUncheckedUpdateManyWithoutUsers_cash_transfers_approved_byTousersNestedInput
+  cash_transfers_cash_transfers_created_byTousers?: Prisma.cash_transfersUncheckedUpdateManyWithoutUsers_cash_transfers_created_byTousersNestedInput
+  cash_transfers_cash_transfers_deleted_byTousers?: Prisma.cash_transfersUncheckedUpdateManyWithoutUsers_cash_transfers_deleted_byTousersNestedInput
+  cash_transfers_cash_transfers_updated_byTousers?: Prisma.cash_transfersUncheckedUpdateManyWithoutUsers_cash_transfers_updated_byTousersNestedInput
+  daily_sale_record_audits?: Prisma.daily_sale_record_auditsUncheckedUpdateManyWithoutUsersNestedInput
+  daily_sale_records_daily_sale_records_created_byTousers?: Prisma.daily_sale_recordsUncheckedUpdateManyWithoutUsers_daily_sale_records_created_byTousersNestedInput
+  daily_sale_records_daily_sale_records_fed_byTousers?: Prisma.daily_sale_recordsUncheckedUpdateManyWithoutUsers_daily_sale_records_fed_byTousersNestedInput
+  daily_sale_records_daily_sale_records_locked_byTousers?: Prisma.daily_sale_recordsUncheckedUpdateManyWithoutUsers_daily_sale_records_locked_byTousersNestedInput
+  daily_sale_records_daily_sale_records_verified_byTousers?: Prisma.daily_sale_recordsUncheckedUpdateManyWithoutUsers_daily_sale_records_verified_byTousersNestedInput
+  employee_advances_employee_advances_approved_byTousers?: Prisma.employee_advancesUncheckedUpdateManyWithoutUsers_employee_advances_approved_byTousersNestedInput
+  employee_advances_employee_advances_created_byTousers?: Prisma.employee_advancesUncheckedUpdateManyWithoutUsers_employee_advances_created_byTousersNestedInput
+  employee_advances_employee_advances_deleted_byTousers?: Prisma.employee_advancesUncheckedUpdateManyWithoutUsers_employee_advances_deleted_byTousersNestedInput
+  event_branch_demands_event_branch_demands_reviewed_byTousers?: Prisma.event_branch_demandsUncheckedUpdateManyWithoutUsers_event_branch_demands_reviewed_byTousersNestedInput
+  event_branch_demands_event_branch_demands_submitted_byTousers?: Prisma.event_branch_demandsUncheckedUpdateManyWithoutUsers_event_branch_demands_submitted_byTousersNestedInput
+  event_production_status?: Prisma.event_production_statusUncheckedUpdateManyWithoutUsersNestedInput
+  expenses?: Prisma.expensesUncheckedUpdateManyWithoutUsersNestedInput
+  finance_amendments?: Prisma.finance_amendmentsUncheckedUpdateManyWithoutUsersNestedInput
+  finance_audit_logs?: Prisma.finance_audit_logsUncheckedUpdateManyWithoutUsersNestedInput
+  finance_day_closings?: Prisma.finance_day_closingsUncheckedUpdateManyWithoutUsersNestedInput
+  finance_income_approvals_finance_income_approvals_approved_byTousers?: Prisma.finance_income_approvalsUncheckedUpdateManyWithoutUsers_finance_income_approvals_approved_byTousersNestedInput
+  finance_income_approvals_finance_income_approvals_deleted_byTousers?: Prisma.finance_income_approvalsUncheckedUpdateManyWithoutUsers_finance_income_approvals_deleted_byTousersNestedInput
+  finance_income_approvals_finance_income_approvals_verified_byTousers?: Prisma.finance_income_approvalsUncheckedUpdateManyWithoutUsers_finance_income_approvals_verified_byTousersNestedInput
+  finance_queries_finance_queries_created_byTousers?: Prisma.finance_queriesUncheckedUpdateManyWithoutUsers_finance_queries_created_byTousersNestedInput
+  finance_queries_finance_queries_updated_byTousers?: Prisma.finance_queriesUncheckedUpdateManyWithoutUsers_finance_queries_updated_byTousersNestedInput
+  finance_ticket_messages?: Prisma.finance_ticket_messagesUncheckedUpdateManyWithoutUsersNestedInput
+  finance_ticket_versions?: Prisma.finance_ticket_versionsUncheckedUpdateManyWithoutUsersNestedInput
+  finance_tickets_finance_tickets_amended_byTousers?: Prisma.finance_ticketsUncheckedUpdateManyWithoutUsers_finance_tickets_amended_byTousersNestedInput
+  finance_tickets_finance_tickets_assigned_toTousers?: Prisma.finance_ticketsUncheckedUpdateManyWithoutUsers_finance_tickets_assigned_toTousersNestedInput
+  finance_tickets_finance_tickets_deleted_byTousers?: Prisma.finance_ticketsUncheckedUpdateManyWithoutUsers_finance_tickets_deleted_byTousersNestedInput
+  finance_tickets_finance_tickets_raised_byTousers?: Prisma.finance_ticketsUncheckedUpdateManyWithoutUsers_finance_tickets_raised_byTousersNestedInput
+  finance_tickets_finance_tickets_reopened_byTousers?: Prisma.finance_ticketsUncheckedUpdateManyWithoutUsers_finance_tickets_reopened_byTousersNestedInput
+  finance_tickets_finance_tickets_resolved_byTousers?: Prisma.finance_ticketsUncheckedUpdateManyWithoutUsers_finance_tickets_resolved_byTousersNestedInput
+  finance_tickets_finance_tickets_responded_byTousers?: Prisma.finance_ticketsUncheckedUpdateManyWithoutUsers_finance_tickets_responded_byTousersNestedInput
+  finance_tickets_finance_tickets_restored_byTousers?: Prisma.finance_ticketsUncheckedUpdateManyWithoutUsers_finance_tickets_restored_byTousersNestedInput
+  finance_transactions_finance_transactions_approved_byTousers?: Prisma.finance_transactionsUncheckedUpdateManyWithoutUsers_finance_transactions_approved_byTousersNestedInput
+  finance_transactions_finance_transactions_created_byTousers?: Prisma.finance_transactionsUncheckedUpdateManyWithoutUsers_finance_transactions_created_byTousersNestedInput
+  finance_transactions_finance_transactions_deleted_byTousers?: Prisma.finance_transactionsUncheckedUpdateManyWithoutUsers_finance_transactions_deleted_byTousersNestedInput
+  geofence_logs?: Prisma.geofence_logsUncheckedUpdateManyWithoutUsersNestedInput
+  ledger_entries_ledger_entries_approved_byTousers?: Prisma.ledger_entriesUncheckedUpdateManyWithoutUsers_ledger_entries_approved_byTousersNestedInput
+  ledger_entries_ledger_entries_created_byTousers?: Prisma.ledger_entriesUncheckedUpdateManyWithoutUsers_ledger_entries_created_byTousersNestedInput
+  ledger_entries_ledger_entries_deleted_byTousers?: Prisma.ledger_entriesUncheckedUpdateManyWithoutUsers_ledger_entries_deleted_byTousersNestedInput
+  ledger_entries_ledger_entries_updated_byTousers?: Prisma.ledger_entriesUncheckedUpdateManyWithoutUsers_ledger_entries_updated_byTousersNestedInput
+  ledger_heads?: Prisma.ledger_headsUncheckedUpdateManyWithoutUsersNestedInput
+  login_sessions_login_sessions_revoked_byTousers?: Prisma.login_sessionsUncheckedUpdateManyWithoutUsers_login_sessions_revoked_byTousersNestedInput
+  login_sessions_login_sessions_user_idTousers?: Prisma.login_sessionsUncheckedUpdateManyWithoutUsers_login_sessions_user_idTousersNestedInput
+  notification_reads?: Prisma.notification_readsUncheckedUpdateManyWithoutUsersNestedInput
+  notifications?: Prisma.notificationsUncheckedUpdateManyWithoutUsersNestedInput
+  orders?: Prisma.ordersUncheckedUpdateManyWithoutUsersNestedInput
+  packing_materials?: Prisma.packing_materialsUncheckedUpdateManyWithoutUsersNestedInput
+  partner_expenses_partner_expenses_approved_byTousers?: Prisma.partner_expensesUncheckedUpdateManyWithoutUsers_partner_expenses_approved_byTousersNestedInput
+  partner_expenses_partner_expenses_deleted_byTousers?: Prisma.partner_expensesUncheckedUpdateManyWithoutUsers_partner_expenses_deleted_byTousersNestedInput
+  partner_expenses_partner_expenses_requested_byTousers?: Prisma.partner_expensesUncheckedUpdateManyWithoutUsers_partner_expenses_requested_byTousersNestedInput
+  password_reset_tokens?: Prisma.password_reset_tokensUncheckedUpdateManyWithoutUsersNestedInput
+  payment_method_settings?: Prisma.payment_method_settingsUncheckedUpdateManyWithoutUsersNestedInput
+  product_price_history?: Prisma.product_price_historyUncheckedUpdateManyWithoutUsersNestedInput
+  production_orders_production_orders_approved_byTousers?: Prisma.production_ordersUncheckedUpdateManyWithoutUsers_production_orders_approved_byTousersNestedInput
+  production_orders_production_orders_cancelled_byTousers?: Prisma.production_ordersUncheckedUpdateManyWithoutUsers_production_orders_cancelled_byTousersNestedInput
+  production_orders_production_orders_created_byTousers?: Prisma.production_ordersUncheckedUpdateManyWithoutUsers_production_orders_created_byTousersNestedInput
+  production_orders_production_orders_verified_byTousers?: Prisma.production_ordersUncheckedUpdateManyWithoutUsers_production_orders_verified_byTousersNestedInput
+  production_returns_production_returns_created_byTousers?: Prisma.production_returnsUncheckedUpdateManyWithoutUsers_production_returns_created_byTousersNestedInput
+  production_returns_production_returns_reviewed_byTousers?: Prisma.production_returnsUncheckedUpdateManyWithoutUsers_production_returns_reviewed_byTousersNestedInput
+  production_stock_history?: Prisma.production_stock_historyUncheckedUpdateManyWithoutUsersNestedInput
+  push_subscriptions?: Prisma.push_subscriptionsUncheckedUpdateManyWithoutUsersNestedInput
+  restriction_events?: Prisma.restriction_eventsUncheckedUpdateManyWithoutUsersNestedInput
+  restriction_requests_restriction_requests_decided_byTousers?: Prisma.restriction_requestsUncheckedUpdateManyWithoutUsers_restriction_requests_decided_byTousersNestedInput
+  restriction_requests_restriction_requests_requested_byTousers?: Prisma.restriction_requestsUncheckedUpdateManyWithoutUsers_restriction_requests_requested_byTousersNestedInput
+  restriction_rules?: Prisma.restriction_rulesUncheckedUpdateManyWithoutUsersNestedInput
+  return_stock_history?: Prisma.return_stock_historyUncheckedUpdateManyWithoutUsersNestedInput
+  salary_payments_salary_payments_approved_byTousers?: Prisma.salary_paymentsUncheckedUpdateManyWithoutUsers_salary_payments_approved_byTousersNestedInput
+  salary_payments_salary_payments_created_byTousers?: Prisma.salary_paymentsUncheckedUpdateManyWithoutUsers_salary_payments_created_byTousersNestedInput
+  salary_payments_salary_payments_deleted_byTousers?: Prisma.salary_paymentsUncheckedUpdateManyWithoutUsers_salary_payments_deleted_byTousersNestedInput
+  salary_revisions?: Prisma.salary_revisionsUncheckedUpdateManyWithoutUsersNestedInput
+  settings?: Prisma.settingsUncheckedUpdateManyWithoutUsersNestedInput
+  special_events?: Prisma.special_eventsUncheckedUpdateManyWithoutUsersNestedInput
+  special_orders_special_orders_approved_byTousers?: Prisma.special_ordersUncheckedUpdateManyWithoutUsers_special_orders_approved_byTousersNestedInput
+  special_orders_special_orders_created_byTousers?: Prisma.special_ordersUncheckedUpdateManyWithoutUsers_special_orders_created_byTousersNestedInput
+  special_orders_special_orders_prepared_byTousers?: Prisma.special_ordersUncheckedUpdateManyWithoutUsers_special_orders_prepared_byTousersNestedInput
+  special_orders_special_orders_verified_byTousers?: Prisma.special_ordersUncheckedUpdateManyWithoutUsers_special_orders_verified_byTousersNestedInput
+  stock_audit_log?: Prisma.stock_audit_logUncheckedUpdateManyWithoutUsersNestedInput
+  support_tickets_support_tickets_raised_byTousers?: Prisma.support_ticketsUncheckedUpdateManyWithoutUsers_support_tickets_raised_byTousersNestedInput
+  support_tickets_support_tickets_resolved_byTousers?: Prisma.support_ticketsUncheckedUpdateManyWithoutUsers_support_tickets_resolved_byTousersNestedInput
+  user_credentials?: Prisma.user_credentialsUncheckedUpdateOneWithoutUsersNestedInput
+  other_users?: Prisma.usersUncheckedUpdateManyWithoutUsersNestedInput
+}
+
 export type usersCreateWithoutBackup_jobsInput = {
-  id: string
+  id?: string
   email: string
   display_name?: string | null
   phone?: string | null
@@ -4389,7 +4860,7 @@ export type usersCreateWithoutBackup_jobsInput = {
 }
 
 export type usersUncheckedCreateWithoutBackup_jobsInput = {
-  id: string
+  id?: string
   email: string
   display_name?: string | null
   phone?: string | null
@@ -4747,7 +5218,7 @@ export type usersUncheckedUpdateWithoutBackup_jobsInput = {
 }
 
 export type usersCreateWithoutBranch_discounts_branch_discounts_created_byTousersInput = {
-  id: string
+  id?: string
   email: string
   display_name?: string | null
   phone?: string | null
@@ -4861,7 +5332,7 @@ export type usersCreateWithoutBranch_discounts_branch_discounts_created_byTouser
 }
 
 export type usersUncheckedCreateWithoutBranch_discounts_branch_discounts_created_byTousersInput = {
-  id: string
+  id?: string
   email: string
   display_name?: string | null
   phone?: string | null
@@ -4980,7 +5451,7 @@ export type usersCreateOrConnectWithoutBranch_discounts_branch_discounts_created
 }
 
 export type usersCreateWithoutBranch_discounts_branch_discounts_reviewed_byTousersInput = {
-  id: string
+  id?: string
   email: string
   display_name?: string | null
   phone?: string | null
@@ -5094,7 +5565,7 @@ export type usersCreateWithoutBranch_discounts_branch_discounts_reviewed_byTouse
 }
 
 export type usersUncheckedCreateWithoutBranch_discounts_branch_discounts_reviewed_byTousersInput = {
-  id: string
+  id?: string
   email: string
   display_name?: string | null
   phone?: string | null
@@ -5691,7 +6162,7 @@ export type usersUncheckedUpdateWithoutBranch_discounts_branch_discounts_reviewe
 }
 
 export type usersCreateWithoutBranch_locationsInput = {
-  id: string
+  id?: string
   email: string
   display_name?: string | null
   phone?: string | null
@@ -5805,7 +6276,7 @@ export type usersCreateWithoutBranch_locationsInput = {
 }
 
 export type usersUncheckedCreateWithoutBranch_locationsInput = {
-  id: string
+  id?: string
   email: string
   display_name?: string | null
   phone?: string | null
@@ -6163,7 +6634,7 @@ export type usersUncheckedUpdateWithoutBranch_locationsInput = {
 }
 
 export type usersCreateWithoutBranch_share_payments_branch_share_payments_approved_byTousersInput = {
-  id: string
+  id?: string
   email: string
   display_name?: string | null
   phone?: string | null
@@ -6277,7 +6748,7 @@ export type usersCreateWithoutBranch_share_payments_branch_share_payments_approv
 }
 
 export type usersUncheckedCreateWithoutBranch_share_payments_branch_share_payments_approved_byTousersInput = {
-  id: string
+  id?: string
   email: string
   display_name?: string | null
   phone?: string | null
@@ -6396,7 +6867,7 @@ export type usersCreateOrConnectWithoutBranch_share_payments_branch_share_paymen
 }
 
 export type usersCreateWithoutBranch_share_payments_branch_share_payments_deleted_byTousersInput = {
-  id: string
+  id?: string
   email: string
   display_name?: string | null
   phone?: string | null
@@ -6510,7 +6981,7 @@ export type usersCreateWithoutBranch_share_payments_branch_share_payments_delete
 }
 
 export type usersUncheckedCreateWithoutBranch_share_payments_branch_share_payments_deleted_byTousersInput = {
-  id: string
+  id?: string
   email: string
   display_name?: string | null
   phone?: string | null
@@ -6629,7 +7100,7 @@ export type usersCreateOrConnectWithoutBranch_share_payments_branch_share_paymen
 }
 
 export type usersCreateWithoutBranch_share_payments_branch_share_payments_requested_byTousersInput = {
-  id: string
+  id?: string
   email: string
   display_name?: string | null
   phone?: string | null
@@ -6743,7 +7214,7 @@ export type usersCreateWithoutBranch_share_payments_branch_share_payments_reques
 }
 
 export type usersUncheckedCreateWithoutBranch_share_payments_branch_share_payments_requested_byTousersInput = {
-  id: string
+  id?: string
   email: string
   display_name?: string | null
   phone?: string | null
@@ -7579,7 +8050,7 @@ export type usersUncheckedUpdateWithoutBranch_share_payments_branch_share_paymen
 }
 
 export type usersCreateWithoutBranches_branches_manager_idTousersInput = {
-  id: string
+  id?: string
   email: string
   display_name?: string | null
   phone?: string | null
@@ -7693,7 +8164,7 @@ export type usersCreateWithoutBranches_branches_manager_idTousersInput = {
 }
 
 export type usersUncheckedCreateWithoutBranches_branches_manager_idTousersInput = {
-  id: string
+  id?: string
   email: string
   display_name?: string | null
   phone?: string | null
@@ -7812,7 +8283,7 @@ export type usersCreateOrConnectWithoutBranches_branches_manager_idTousersInput 
 }
 
 export type usersCreateWithoutBranches_users_branch_idTobranchesInput = {
-  id: string
+  id?: string
   email: string
   display_name?: string | null
   phone?: string | null
@@ -7926,7 +8397,7 @@ export type usersCreateWithoutBranches_users_branch_idTobranchesInput = {
 }
 
 export type usersUncheckedCreateWithoutBranches_users_branch_idTobranchesInput = {
-  id: string
+  id?: string
   email: string
   display_name?: string | null
   phone?: string | null
@@ -8328,7 +8799,7 @@ export type usersScalarWhereInput = {
 }
 
 export type usersCreateWithoutCash_transfers_cash_transfers_approved_byTousersInput = {
-  id: string
+  id?: string
   email: string
   display_name?: string | null
   phone?: string | null
@@ -8442,7 +8913,7 @@ export type usersCreateWithoutCash_transfers_cash_transfers_approved_byTousersIn
 }
 
 export type usersUncheckedCreateWithoutCash_transfers_cash_transfers_approved_byTousersInput = {
-  id: string
+  id?: string
   email: string
   display_name?: string | null
   phone?: string | null
@@ -8561,7 +9032,7 @@ export type usersCreateOrConnectWithoutCash_transfers_cash_transfers_approved_by
 }
 
 export type usersCreateWithoutCash_transfers_cash_transfers_created_byTousersInput = {
-  id: string
+  id?: string
   email: string
   display_name?: string | null
   phone?: string | null
@@ -8675,7 +9146,7 @@ export type usersCreateWithoutCash_transfers_cash_transfers_created_byTousersInp
 }
 
 export type usersUncheckedCreateWithoutCash_transfers_cash_transfers_created_byTousersInput = {
-  id: string
+  id?: string
   email: string
   display_name?: string | null
   phone?: string | null
@@ -8794,7 +9265,7 @@ export type usersCreateOrConnectWithoutCash_transfers_cash_transfers_created_byT
 }
 
 export type usersCreateWithoutCash_transfers_cash_transfers_deleted_byTousersInput = {
-  id: string
+  id?: string
   email: string
   display_name?: string | null
   phone?: string | null
@@ -8908,7 +9379,7 @@ export type usersCreateWithoutCash_transfers_cash_transfers_deleted_byTousersInp
 }
 
 export type usersUncheckedCreateWithoutCash_transfers_cash_transfers_deleted_byTousersInput = {
-  id: string
+  id?: string
   email: string
   display_name?: string | null
   phone?: string | null
@@ -9027,7 +9498,7 @@ export type usersCreateOrConnectWithoutCash_transfers_cash_transfers_deleted_byT
 }
 
 export type usersCreateWithoutCash_transfers_cash_transfers_updated_byTousersInput = {
-  id: string
+  id?: string
   email: string
   display_name?: string | null
   phone?: string | null
@@ -9141,7 +9612,7 @@ export type usersCreateWithoutCash_transfers_cash_transfers_updated_byTousersInp
 }
 
 export type usersUncheckedCreateWithoutCash_transfers_cash_transfers_updated_byTousersInput = {
-  id: string
+  id?: string
   email: string
   display_name?: string | null
   phone?: string | null
@@ -10216,7 +10687,7 @@ export type usersUncheckedUpdateWithoutCash_transfers_cash_transfers_updated_byT
 }
 
 export type usersCreateWithoutDaily_sale_record_auditsInput = {
-  id: string
+  id?: string
   email: string
   display_name?: string | null
   phone?: string | null
@@ -10330,7 +10801,7 @@ export type usersCreateWithoutDaily_sale_record_auditsInput = {
 }
 
 export type usersUncheckedCreateWithoutDaily_sale_record_auditsInput = {
-  id: string
+  id?: string
   email: string
   display_name?: string | null
   phone?: string | null
@@ -10688,7 +11159,7 @@ export type usersUncheckedUpdateWithoutDaily_sale_record_auditsInput = {
 }
 
 export type usersCreateWithoutDaily_sale_records_daily_sale_records_created_byTousersInput = {
-  id: string
+  id?: string
   email: string
   display_name?: string | null
   phone?: string | null
@@ -10802,7 +11273,7 @@ export type usersCreateWithoutDaily_sale_records_daily_sale_records_created_byTo
 }
 
 export type usersUncheckedCreateWithoutDaily_sale_records_daily_sale_records_created_byTousersInput = {
-  id: string
+  id?: string
   email: string
   display_name?: string | null
   phone?: string | null
@@ -10921,7 +11392,7 @@ export type usersCreateOrConnectWithoutDaily_sale_records_daily_sale_records_cre
 }
 
 export type usersCreateWithoutDaily_sale_records_daily_sale_records_fed_byTousersInput = {
-  id: string
+  id?: string
   email: string
   display_name?: string | null
   phone?: string | null
@@ -11035,7 +11506,7 @@ export type usersCreateWithoutDaily_sale_records_daily_sale_records_fed_byTouser
 }
 
 export type usersUncheckedCreateWithoutDaily_sale_records_daily_sale_records_fed_byTousersInput = {
-  id: string
+  id?: string
   email: string
   display_name?: string | null
   phone?: string | null
@@ -11154,7 +11625,7 @@ export type usersCreateOrConnectWithoutDaily_sale_records_daily_sale_records_fed
 }
 
 export type usersCreateWithoutDaily_sale_records_daily_sale_records_locked_byTousersInput = {
-  id: string
+  id?: string
   email: string
   display_name?: string | null
   phone?: string | null
@@ -11268,7 +11739,7 @@ export type usersCreateWithoutDaily_sale_records_daily_sale_records_locked_byTou
 }
 
 export type usersUncheckedCreateWithoutDaily_sale_records_daily_sale_records_locked_byTousersInput = {
-  id: string
+  id?: string
   email: string
   display_name?: string | null
   phone?: string | null
@@ -11387,7 +11858,7 @@ export type usersCreateOrConnectWithoutDaily_sale_records_daily_sale_records_loc
 }
 
 export type usersCreateWithoutDaily_sale_records_daily_sale_records_verified_byTousersInput = {
-  id: string
+  id?: string
   email: string
   display_name?: string | null
   phone?: string | null
@@ -11501,7 +11972,7 @@ export type usersCreateWithoutDaily_sale_records_daily_sale_records_verified_byT
 }
 
 export type usersUncheckedCreateWithoutDaily_sale_records_daily_sale_records_verified_byTousersInput = {
-  id: string
+  id?: string
   email: string
   display_name?: string | null
   phone?: string | null
@@ -12576,7 +13047,7 @@ export type usersUncheckedUpdateWithoutDaily_sale_records_daily_sale_records_ver
 }
 
 export type usersCreateWithoutEmployee_advances_employee_advances_approved_byTousersInput = {
-  id: string
+  id?: string
   email: string
   display_name?: string | null
   phone?: string | null
@@ -12690,7 +13161,7 @@ export type usersCreateWithoutEmployee_advances_employee_advances_approved_byTou
 }
 
 export type usersUncheckedCreateWithoutEmployee_advances_employee_advances_approved_byTousersInput = {
-  id: string
+  id?: string
   email: string
   display_name?: string | null
   phone?: string | null
@@ -12809,7 +13280,7 @@ export type usersCreateOrConnectWithoutEmployee_advances_employee_advances_appro
 }
 
 export type usersCreateWithoutEmployee_advances_employee_advances_created_byTousersInput = {
-  id: string
+  id?: string
   email: string
   display_name?: string | null
   phone?: string | null
@@ -12923,7 +13394,7 @@ export type usersCreateWithoutEmployee_advances_employee_advances_created_byTous
 }
 
 export type usersUncheckedCreateWithoutEmployee_advances_employee_advances_created_byTousersInput = {
-  id: string
+  id?: string
   email: string
   display_name?: string | null
   phone?: string | null
@@ -13042,7 +13513,7 @@ export type usersCreateOrConnectWithoutEmployee_advances_employee_advances_creat
 }
 
 export type usersCreateWithoutEmployee_advances_employee_advances_deleted_byTousersInput = {
-  id: string
+  id?: string
   email: string
   display_name?: string | null
   phone?: string | null
@@ -13156,7 +13627,7 @@ export type usersCreateWithoutEmployee_advances_employee_advances_deleted_byTous
 }
 
 export type usersUncheckedCreateWithoutEmployee_advances_employee_advances_deleted_byTousersInput = {
-  id: string
+  id?: string
   email: string
   display_name?: string | null
   phone?: string | null
@@ -13992,7 +14463,7 @@ export type usersUncheckedUpdateWithoutEmployee_advances_employee_advances_delet
 }
 
 export type usersCreateWithoutEvent_branch_demands_event_branch_demands_reviewed_byTousersInput = {
-  id: string
+  id?: string
   email: string
   display_name?: string | null
   phone?: string | null
@@ -14106,7 +14577,7 @@ export type usersCreateWithoutEvent_branch_demands_event_branch_demands_reviewed
 }
 
 export type usersUncheckedCreateWithoutEvent_branch_demands_event_branch_demands_reviewed_byTousersInput = {
-  id: string
+  id?: string
   email: string
   display_name?: string | null
   phone?: string | null
@@ -14225,7 +14696,7 @@ export type usersCreateOrConnectWithoutEvent_branch_demands_event_branch_demands
 }
 
 export type usersCreateWithoutEvent_branch_demands_event_branch_demands_submitted_byTousersInput = {
-  id: string
+  id?: string
   email: string
   display_name?: string | null
   phone?: string | null
@@ -14339,7 +14810,7 @@ export type usersCreateWithoutEvent_branch_demands_event_branch_demands_submitte
 }
 
 export type usersUncheckedCreateWithoutEvent_branch_demands_event_branch_demands_submitted_byTousersInput = {
-  id: string
+  id?: string
   email: string
   display_name?: string | null
   phone?: string | null
@@ -14936,7 +15407,7 @@ export type usersUncheckedUpdateWithoutEvent_branch_demands_event_branch_demands
 }
 
 export type usersCreateWithoutEvent_production_statusInput = {
-  id: string
+  id?: string
   email: string
   display_name?: string | null
   phone?: string | null
@@ -15050,7 +15521,7 @@ export type usersCreateWithoutEvent_production_statusInput = {
 }
 
 export type usersUncheckedCreateWithoutEvent_production_statusInput = {
-  id: string
+  id?: string
   email: string
   display_name?: string | null
   phone?: string | null
@@ -15408,7 +15879,7 @@ export type usersUncheckedUpdateWithoutEvent_production_statusInput = {
 }
 
 export type usersCreateWithoutExpensesInput = {
-  id: string
+  id?: string
   email: string
   display_name?: string | null
   phone?: string | null
@@ -15522,7 +15993,7 @@ export type usersCreateWithoutExpensesInput = {
 }
 
 export type usersUncheckedCreateWithoutExpensesInput = {
-  id: string
+  id?: string
   email: string
   display_name?: string | null
   phone?: string | null
@@ -15880,7 +16351,7 @@ export type usersUncheckedUpdateWithoutExpensesInput = {
 }
 
 export type usersCreateWithoutFinance_amendmentsInput = {
-  id: string
+  id?: string
   email: string
   display_name?: string | null
   phone?: string | null
@@ -15994,7 +16465,7 @@ export type usersCreateWithoutFinance_amendmentsInput = {
 }
 
 export type usersUncheckedCreateWithoutFinance_amendmentsInput = {
-  id: string
+  id?: string
   email: string
   display_name?: string | null
   phone?: string | null
@@ -16352,7 +16823,7 @@ export type usersUncheckedUpdateWithoutFinance_amendmentsInput = {
 }
 
 export type usersCreateWithoutFinance_audit_logsInput = {
-  id: string
+  id?: string
   email: string
   display_name?: string | null
   phone?: string | null
@@ -16466,7 +16937,7 @@ export type usersCreateWithoutFinance_audit_logsInput = {
 }
 
 export type usersUncheckedCreateWithoutFinance_audit_logsInput = {
-  id: string
+  id?: string
   email: string
   display_name?: string | null
   phone?: string | null
@@ -16824,7 +17295,7 @@ export type usersUncheckedUpdateWithoutFinance_audit_logsInput = {
 }
 
 export type usersCreateWithoutFinance_day_closingsInput = {
-  id: string
+  id?: string
   email: string
   display_name?: string | null
   phone?: string | null
@@ -16938,7 +17409,7 @@ export type usersCreateWithoutFinance_day_closingsInput = {
 }
 
 export type usersUncheckedCreateWithoutFinance_day_closingsInput = {
-  id: string
+  id?: string
   email: string
   display_name?: string | null
   phone?: string | null
@@ -17296,7 +17767,7 @@ export type usersUncheckedUpdateWithoutFinance_day_closingsInput = {
 }
 
 export type usersCreateWithoutFinance_income_approvals_finance_income_approvals_approved_byTousersInput = {
-  id: string
+  id?: string
   email: string
   display_name?: string | null
   phone?: string | null
@@ -17410,7 +17881,7 @@ export type usersCreateWithoutFinance_income_approvals_finance_income_approvals_
 }
 
 export type usersUncheckedCreateWithoutFinance_income_approvals_finance_income_approvals_approved_byTousersInput = {
-  id: string
+  id?: string
   email: string
   display_name?: string | null
   phone?: string | null
@@ -17529,7 +18000,7 @@ export type usersCreateOrConnectWithoutFinance_income_approvals_finance_income_a
 }
 
 export type usersCreateWithoutFinance_income_approvals_finance_income_approvals_deleted_byTousersInput = {
-  id: string
+  id?: string
   email: string
   display_name?: string | null
   phone?: string | null
@@ -17643,7 +18114,7 @@ export type usersCreateWithoutFinance_income_approvals_finance_income_approvals_
 }
 
 export type usersUncheckedCreateWithoutFinance_income_approvals_finance_income_approvals_deleted_byTousersInput = {
-  id: string
+  id?: string
   email: string
   display_name?: string | null
   phone?: string | null
@@ -17762,7 +18233,7 @@ export type usersCreateOrConnectWithoutFinance_income_approvals_finance_income_a
 }
 
 export type usersCreateWithoutFinance_income_approvals_finance_income_approvals_verified_byTousersInput = {
-  id: string
+  id?: string
   email: string
   display_name?: string | null
   phone?: string | null
@@ -17876,7 +18347,7 @@ export type usersCreateWithoutFinance_income_approvals_finance_income_approvals_
 }
 
 export type usersUncheckedCreateWithoutFinance_income_approvals_finance_income_approvals_verified_byTousersInput = {
-  id: string
+  id?: string
   email: string
   display_name?: string | null
   phone?: string | null
@@ -18712,7 +19183,7 @@ export type usersUncheckedUpdateWithoutFinance_income_approvals_finance_income_a
 }
 
 export type usersCreateWithoutFinance_queries_finance_queries_created_byTousersInput = {
-  id: string
+  id?: string
   email: string
   display_name?: string | null
   phone?: string | null
@@ -18826,7 +19297,7 @@ export type usersCreateWithoutFinance_queries_finance_queries_created_byTousersI
 }
 
 export type usersUncheckedCreateWithoutFinance_queries_finance_queries_created_byTousersInput = {
-  id: string
+  id?: string
   email: string
   display_name?: string | null
   phone?: string | null
@@ -18945,7 +19416,7 @@ export type usersCreateOrConnectWithoutFinance_queries_finance_queries_created_b
 }
 
 export type usersCreateWithoutFinance_queries_finance_queries_updated_byTousersInput = {
-  id: string
+  id?: string
   email: string
   display_name?: string | null
   phone?: string | null
@@ -19059,7 +19530,7 @@ export type usersCreateWithoutFinance_queries_finance_queries_updated_byTousersI
 }
 
 export type usersUncheckedCreateWithoutFinance_queries_finance_queries_updated_byTousersInput = {
-  id: string
+  id?: string
   email: string
   display_name?: string | null
   phone?: string | null
@@ -19656,7 +20127,7 @@ export type usersUncheckedUpdateWithoutFinance_queries_finance_queries_updated_b
 }
 
 export type usersCreateWithoutFinance_ticket_messagesInput = {
-  id: string
+  id?: string
   email: string
   display_name?: string | null
   phone?: string | null
@@ -19770,7 +20241,7 @@ export type usersCreateWithoutFinance_ticket_messagesInput = {
 }
 
 export type usersUncheckedCreateWithoutFinance_ticket_messagesInput = {
-  id: string
+  id?: string
   email: string
   display_name?: string | null
   phone?: string | null
@@ -20128,7 +20599,7 @@ export type usersUncheckedUpdateWithoutFinance_ticket_messagesInput = {
 }
 
 export type usersCreateWithoutFinance_ticket_versionsInput = {
-  id: string
+  id?: string
   email: string
   display_name?: string | null
   phone?: string | null
@@ -20242,7 +20713,7 @@ export type usersCreateWithoutFinance_ticket_versionsInput = {
 }
 
 export type usersUncheckedCreateWithoutFinance_ticket_versionsInput = {
-  id: string
+  id?: string
   email: string
   display_name?: string | null
   phone?: string | null
@@ -20600,7 +21071,7 @@ export type usersUncheckedUpdateWithoutFinance_ticket_versionsInput = {
 }
 
 export type usersCreateWithoutFinance_tickets_finance_tickets_amended_byTousersInput = {
-  id: string
+  id?: string
   email: string
   display_name?: string | null
   phone?: string | null
@@ -20714,7 +21185,7 @@ export type usersCreateWithoutFinance_tickets_finance_tickets_amended_byTousersI
 }
 
 export type usersUncheckedCreateWithoutFinance_tickets_finance_tickets_amended_byTousersInput = {
-  id: string
+  id?: string
   email: string
   display_name?: string | null
   phone?: string | null
@@ -20833,7 +21304,7 @@ export type usersCreateOrConnectWithoutFinance_tickets_finance_tickets_amended_b
 }
 
 export type usersCreateWithoutFinance_tickets_finance_tickets_assigned_toTousersInput = {
-  id: string
+  id?: string
   email: string
   display_name?: string | null
   phone?: string | null
@@ -20947,7 +21418,7 @@ export type usersCreateWithoutFinance_tickets_finance_tickets_assigned_toTousers
 }
 
 export type usersUncheckedCreateWithoutFinance_tickets_finance_tickets_assigned_toTousersInput = {
-  id: string
+  id?: string
   email: string
   display_name?: string | null
   phone?: string | null
@@ -21066,7 +21537,7 @@ export type usersCreateOrConnectWithoutFinance_tickets_finance_tickets_assigned_
 }
 
 export type usersCreateWithoutFinance_tickets_finance_tickets_deleted_byTousersInput = {
-  id: string
+  id?: string
   email: string
   display_name?: string | null
   phone?: string | null
@@ -21180,7 +21651,7 @@ export type usersCreateWithoutFinance_tickets_finance_tickets_deleted_byTousersI
 }
 
 export type usersUncheckedCreateWithoutFinance_tickets_finance_tickets_deleted_byTousersInput = {
-  id: string
+  id?: string
   email: string
   display_name?: string | null
   phone?: string | null
@@ -21299,7 +21770,7 @@ export type usersCreateOrConnectWithoutFinance_tickets_finance_tickets_deleted_b
 }
 
 export type usersCreateWithoutFinance_tickets_finance_tickets_raised_byTousersInput = {
-  id: string
+  id?: string
   email: string
   display_name?: string | null
   phone?: string | null
@@ -21413,7 +21884,7 @@ export type usersCreateWithoutFinance_tickets_finance_tickets_raised_byTousersIn
 }
 
 export type usersUncheckedCreateWithoutFinance_tickets_finance_tickets_raised_byTousersInput = {
-  id: string
+  id?: string
   email: string
   display_name?: string | null
   phone?: string | null
@@ -21532,7 +22003,7 @@ export type usersCreateOrConnectWithoutFinance_tickets_finance_tickets_raised_by
 }
 
 export type usersCreateWithoutFinance_tickets_finance_tickets_reopened_byTousersInput = {
-  id: string
+  id?: string
   email: string
   display_name?: string | null
   phone?: string | null
@@ -21646,7 +22117,7 @@ export type usersCreateWithoutFinance_tickets_finance_tickets_reopened_byTousers
 }
 
 export type usersUncheckedCreateWithoutFinance_tickets_finance_tickets_reopened_byTousersInput = {
-  id: string
+  id?: string
   email: string
   display_name?: string | null
   phone?: string | null
@@ -21765,7 +22236,7 @@ export type usersCreateOrConnectWithoutFinance_tickets_finance_tickets_reopened_
 }
 
 export type usersCreateWithoutFinance_tickets_finance_tickets_resolved_byTousersInput = {
-  id: string
+  id?: string
   email: string
   display_name?: string | null
   phone?: string | null
@@ -21879,7 +22350,7 @@ export type usersCreateWithoutFinance_tickets_finance_tickets_resolved_byTousers
 }
 
 export type usersUncheckedCreateWithoutFinance_tickets_finance_tickets_resolved_byTousersInput = {
-  id: string
+  id?: string
   email: string
   display_name?: string | null
   phone?: string | null
@@ -21998,7 +22469,7 @@ export type usersCreateOrConnectWithoutFinance_tickets_finance_tickets_resolved_
 }
 
 export type usersCreateWithoutFinance_tickets_finance_tickets_responded_byTousersInput = {
-  id: string
+  id?: string
   email: string
   display_name?: string | null
   phone?: string | null
@@ -22112,7 +22583,7 @@ export type usersCreateWithoutFinance_tickets_finance_tickets_responded_byTouser
 }
 
 export type usersUncheckedCreateWithoutFinance_tickets_finance_tickets_responded_byTousersInput = {
-  id: string
+  id?: string
   email: string
   display_name?: string | null
   phone?: string | null
@@ -22231,7 +22702,7 @@ export type usersCreateOrConnectWithoutFinance_tickets_finance_tickets_responded
 }
 
 export type usersCreateWithoutFinance_tickets_finance_tickets_restored_byTousersInput = {
-  id: string
+  id?: string
   email: string
   display_name?: string | null
   phone?: string | null
@@ -22345,7 +22816,7 @@ export type usersCreateWithoutFinance_tickets_finance_tickets_restored_byTousers
 }
 
 export type usersUncheckedCreateWithoutFinance_tickets_finance_tickets_restored_byTousersInput = {
-  id: string
+  id?: string
   email: string
   display_name?: string | null
   phone?: string | null
@@ -24376,7 +24847,7 @@ export type usersUncheckedUpdateWithoutFinance_tickets_finance_tickets_restored_
 }
 
 export type usersCreateWithoutFinance_transactions_finance_transactions_approved_byTousersInput = {
-  id: string
+  id?: string
   email: string
   display_name?: string | null
   phone?: string | null
@@ -24490,7 +24961,7 @@ export type usersCreateWithoutFinance_transactions_finance_transactions_approved
 }
 
 export type usersUncheckedCreateWithoutFinance_transactions_finance_transactions_approved_byTousersInput = {
-  id: string
+  id?: string
   email: string
   display_name?: string | null
   phone?: string | null
@@ -24609,7 +25080,7 @@ export type usersCreateOrConnectWithoutFinance_transactions_finance_transactions
 }
 
 export type usersCreateWithoutFinance_transactions_finance_transactions_created_byTousersInput = {
-  id: string
+  id?: string
   email: string
   display_name?: string | null
   phone?: string | null
@@ -24723,7 +25194,7 @@ export type usersCreateWithoutFinance_transactions_finance_transactions_created_
 }
 
 export type usersUncheckedCreateWithoutFinance_transactions_finance_transactions_created_byTousersInput = {
-  id: string
+  id?: string
   email: string
   display_name?: string | null
   phone?: string | null
@@ -24842,7 +25313,7 @@ export type usersCreateOrConnectWithoutFinance_transactions_finance_transactions
 }
 
 export type usersCreateWithoutFinance_transactions_finance_transactions_deleted_byTousersInput = {
-  id: string
+  id?: string
   email: string
   display_name?: string | null
   phone?: string | null
@@ -24956,7 +25427,7 @@ export type usersCreateWithoutFinance_transactions_finance_transactions_deleted_
 }
 
 export type usersUncheckedCreateWithoutFinance_transactions_finance_transactions_deleted_byTousersInput = {
-  id: string
+  id?: string
   email: string
   display_name?: string | null
   phone?: string | null
@@ -25792,7 +26263,7 @@ export type usersUncheckedUpdateWithoutFinance_transactions_finance_transactions
 }
 
 export type usersCreateWithoutGeofence_logsInput = {
-  id: string
+  id?: string
   email: string
   display_name?: string | null
   phone?: string | null
@@ -25906,7 +26377,7 @@ export type usersCreateWithoutGeofence_logsInput = {
 }
 
 export type usersUncheckedCreateWithoutGeofence_logsInput = {
-  id: string
+  id?: string
   email: string
   display_name?: string | null
   phone?: string | null
@@ -26264,7 +26735,7 @@ export type usersUncheckedUpdateWithoutGeofence_logsInput = {
 }
 
 export type usersCreateWithoutLedger_entries_ledger_entries_approved_byTousersInput = {
-  id: string
+  id?: string
   email: string
   display_name?: string | null
   phone?: string | null
@@ -26378,7 +26849,7 @@ export type usersCreateWithoutLedger_entries_ledger_entries_approved_byTousersIn
 }
 
 export type usersUncheckedCreateWithoutLedger_entries_ledger_entries_approved_byTousersInput = {
-  id: string
+  id?: string
   email: string
   display_name?: string | null
   phone?: string | null
@@ -26497,7 +26968,7 @@ export type usersCreateOrConnectWithoutLedger_entries_ledger_entries_approved_by
 }
 
 export type usersCreateWithoutLedger_entries_ledger_entries_created_byTousersInput = {
-  id: string
+  id?: string
   email: string
   display_name?: string | null
   phone?: string | null
@@ -26611,7 +27082,7 @@ export type usersCreateWithoutLedger_entries_ledger_entries_created_byTousersInp
 }
 
 export type usersUncheckedCreateWithoutLedger_entries_ledger_entries_created_byTousersInput = {
-  id: string
+  id?: string
   email: string
   display_name?: string | null
   phone?: string | null
@@ -26730,7 +27201,7 @@ export type usersCreateOrConnectWithoutLedger_entries_ledger_entries_created_byT
 }
 
 export type usersCreateWithoutLedger_entries_ledger_entries_deleted_byTousersInput = {
-  id: string
+  id?: string
   email: string
   display_name?: string | null
   phone?: string | null
@@ -26844,7 +27315,7 @@ export type usersCreateWithoutLedger_entries_ledger_entries_deleted_byTousersInp
 }
 
 export type usersUncheckedCreateWithoutLedger_entries_ledger_entries_deleted_byTousersInput = {
-  id: string
+  id?: string
   email: string
   display_name?: string | null
   phone?: string | null
@@ -26963,7 +27434,7 @@ export type usersCreateOrConnectWithoutLedger_entries_ledger_entries_deleted_byT
 }
 
 export type usersCreateWithoutLedger_entries_ledger_entries_updated_byTousersInput = {
-  id: string
+  id?: string
   email: string
   display_name?: string | null
   phone?: string | null
@@ -27077,7 +27548,7 @@ export type usersCreateWithoutLedger_entries_ledger_entries_updated_byTousersInp
 }
 
 export type usersUncheckedCreateWithoutLedger_entries_ledger_entries_updated_byTousersInput = {
-  id: string
+  id?: string
   email: string
   display_name?: string | null
   phone?: string | null
@@ -28152,7 +28623,7 @@ export type usersUncheckedUpdateWithoutLedger_entries_ledger_entries_updated_byT
 }
 
 export type usersCreateWithoutLedger_headsInput = {
-  id: string
+  id?: string
   email: string
   display_name?: string | null
   phone?: string | null
@@ -28266,7 +28737,7 @@ export type usersCreateWithoutLedger_headsInput = {
 }
 
 export type usersUncheckedCreateWithoutLedger_headsInput = {
-  id: string
+  id?: string
   email: string
   display_name?: string | null
   phone?: string | null
@@ -28624,7 +29095,7 @@ export type usersUncheckedUpdateWithoutLedger_headsInput = {
 }
 
 export type usersCreateWithoutLogin_sessions_login_sessions_revoked_byTousersInput = {
-  id: string
+  id?: string
   email: string
   display_name?: string | null
   phone?: string | null
@@ -28738,7 +29209,7 @@ export type usersCreateWithoutLogin_sessions_login_sessions_revoked_byTousersInp
 }
 
 export type usersUncheckedCreateWithoutLogin_sessions_login_sessions_revoked_byTousersInput = {
-  id: string
+  id?: string
   email: string
   display_name?: string | null
   phone?: string | null
@@ -28857,7 +29328,7 @@ export type usersCreateOrConnectWithoutLogin_sessions_login_sessions_revoked_byT
 }
 
 export type usersCreateWithoutLogin_sessions_login_sessions_user_idTousersInput = {
-  id: string
+  id?: string
   email: string
   display_name?: string | null
   phone?: string | null
@@ -28971,7 +29442,7 @@ export type usersCreateWithoutLogin_sessions_login_sessions_user_idTousersInput 
 }
 
 export type usersUncheckedCreateWithoutLogin_sessions_login_sessions_user_idTousersInput = {
-  id: string
+  id?: string
   email: string
   display_name?: string | null
   phone?: string | null
@@ -29568,7 +30039,7 @@ export type usersUncheckedUpdateWithoutLogin_sessions_login_sessions_user_idTous
 }
 
 export type usersCreateWithoutNotification_readsInput = {
-  id: string
+  id?: string
   email: string
   display_name?: string | null
   phone?: string | null
@@ -29682,7 +30153,7 @@ export type usersCreateWithoutNotification_readsInput = {
 }
 
 export type usersUncheckedCreateWithoutNotification_readsInput = {
-  id: string
+  id?: string
   email: string
   display_name?: string | null
   phone?: string | null
@@ -30040,7 +30511,7 @@ export type usersUncheckedUpdateWithoutNotification_readsInput = {
 }
 
 export type usersCreateWithoutNotificationsInput = {
-  id: string
+  id?: string
   email: string
   display_name?: string | null
   phone?: string | null
@@ -30154,7 +30625,7 @@ export type usersCreateWithoutNotificationsInput = {
 }
 
 export type usersUncheckedCreateWithoutNotificationsInput = {
-  id: string
+  id?: string
   email: string
   display_name?: string | null
   phone?: string | null
@@ -30512,7 +30983,7 @@ export type usersUncheckedUpdateWithoutNotificationsInput = {
 }
 
 export type usersCreateWithoutOrdersInput = {
-  id: string
+  id?: string
   email: string
   display_name?: string | null
   phone?: string | null
@@ -30626,7 +31097,7 @@ export type usersCreateWithoutOrdersInput = {
 }
 
 export type usersUncheckedCreateWithoutOrdersInput = {
-  id: string
+  id?: string
   email: string
   display_name?: string | null
   phone?: string | null
@@ -30984,7 +31455,7 @@ export type usersUncheckedUpdateWithoutOrdersInput = {
 }
 
 export type usersCreateWithoutPacking_materialsInput = {
-  id: string
+  id?: string
   email: string
   display_name?: string | null
   phone?: string | null
@@ -31098,7 +31569,7 @@ export type usersCreateWithoutPacking_materialsInput = {
 }
 
 export type usersUncheckedCreateWithoutPacking_materialsInput = {
-  id: string
+  id?: string
   email: string
   display_name?: string | null
   phone?: string | null
@@ -31456,7 +31927,7 @@ export type usersUncheckedUpdateWithoutPacking_materialsInput = {
 }
 
 export type usersCreateWithoutPartner_expenses_partner_expenses_approved_byTousersInput = {
-  id: string
+  id?: string
   email: string
   display_name?: string | null
   phone?: string | null
@@ -31570,7 +32041,7 @@ export type usersCreateWithoutPartner_expenses_partner_expenses_approved_byTouse
 }
 
 export type usersUncheckedCreateWithoutPartner_expenses_partner_expenses_approved_byTousersInput = {
-  id: string
+  id?: string
   email: string
   display_name?: string | null
   phone?: string | null
@@ -31689,7 +32160,7 @@ export type usersCreateOrConnectWithoutPartner_expenses_partner_expenses_approve
 }
 
 export type usersCreateWithoutPartner_expenses_partner_expenses_deleted_byTousersInput = {
-  id: string
+  id?: string
   email: string
   display_name?: string | null
   phone?: string | null
@@ -31803,7 +32274,7 @@ export type usersCreateWithoutPartner_expenses_partner_expenses_deleted_byTouser
 }
 
 export type usersUncheckedCreateWithoutPartner_expenses_partner_expenses_deleted_byTousersInput = {
-  id: string
+  id?: string
   email: string
   display_name?: string | null
   phone?: string | null
@@ -31922,7 +32393,7 @@ export type usersCreateOrConnectWithoutPartner_expenses_partner_expenses_deleted
 }
 
 export type usersCreateWithoutPartner_expenses_partner_expenses_requested_byTousersInput = {
-  id: string
+  id?: string
   email: string
   display_name?: string | null
   phone?: string | null
@@ -32036,7 +32507,7 @@ export type usersCreateWithoutPartner_expenses_partner_expenses_requested_byTous
 }
 
 export type usersUncheckedCreateWithoutPartner_expenses_partner_expenses_requested_byTousersInput = {
-  id: string
+  id?: string
   email: string
   display_name?: string | null
   phone?: string | null
@@ -32871,8 +33342,480 @@ export type usersUncheckedUpdateWithoutPartner_expenses_partner_expenses_request
   other_users?: Prisma.usersUncheckedUpdateManyWithoutUsersNestedInput
 }
 
+export type usersCreateWithoutPassword_reset_tokensInput = {
+  id?: string
+  email: string
+  display_name?: string | null
+  phone?: string | null
+  username?: string | null
+  role: $Enums.user_role
+  branch_name?: string | null
+  status?: $Enums.user_status
+  last_login_at?: Date | string | null
+  must_change_password?: boolean
+  last_password_reset?: Date | string | null
+  password_reset_by_name?: string | null
+  created_at?: Date | string
+  updated_at?: Date | string
+  user_code?: string
+  attachments?: Prisma.attachmentsCreateNestedManyWithoutUsersInput
+  audit_logs_audit_logs_admin_idTousers?: Prisma.audit_logsCreateNestedManyWithoutUsers_audit_logs_admin_idTousersInput
+  audit_logs_audit_logs_target_user_idTousers?: Prisma.audit_logsCreateNestedManyWithoutUsers_audit_logs_target_user_idTousersInput
+  auth_sessions?: Prisma.auth_sessionsCreateNestedManyWithoutUsersInput
+  backup_jobs?: Prisma.backup_jobsCreateNestedManyWithoutUsersInput
+  branch_discounts_branch_discounts_created_byTousers?: Prisma.branch_discountsCreateNestedManyWithoutUsers_branch_discounts_created_byTousersInput
+  branch_discounts_branch_discounts_reviewed_byTousers?: Prisma.branch_discountsCreateNestedManyWithoutUsers_branch_discounts_reviewed_byTousersInput
+  branch_locations?: Prisma.branch_locationsCreateNestedManyWithoutUsersInput
+  branch_share_payments_branch_share_payments_approved_byTousers?: Prisma.branch_share_paymentsCreateNestedManyWithoutUsers_branch_share_payments_approved_byTousersInput
+  branch_share_payments_branch_share_payments_deleted_byTousers?: Prisma.branch_share_paymentsCreateNestedManyWithoutUsers_branch_share_payments_deleted_byTousersInput
+  branch_share_payments_branch_share_payments_requested_byTousers?: Prisma.branch_share_paymentsCreateNestedManyWithoutUsers_branch_share_payments_requested_byTousersInput
+  branches_branches_manager_idTousers?: Prisma.branchesCreateNestedManyWithoutUsers_branches_manager_idTousersInput
+  cash_transfers_cash_transfers_approved_byTousers?: Prisma.cash_transfersCreateNestedManyWithoutUsers_cash_transfers_approved_byTousersInput
+  cash_transfers_cash_transfers_created_byTousers?: Prisma.cash_transfersCreateNestedManyWithoutUsers_cash_transfers_created_byTousersInput
+  cash_transfers_cash_transfers_deleted_byTousers?: Prisma.cash_transfersCreateNestedManyWithoutUsers_cash_transfers_deleted_byTousersInput
+  cash_transfers_cash_transfers_updated_byTousers?: Prisma.cash_transfersCreateNestedManyWithoutUsers_cash_transfers_updated_byTousersInput
+  daily_sale_record_audits?: Prisma.daily_sale_record_auditsCreateNestedManyWithoutUsersInput
+  daily_sale_records_daily_sale_records_created_byTousers?: Prisma.daily_sale_recordsCreateNestedManyWithoutUsers_daily_sale_records_created_byTousersInput
+  daily_sale_records_daily_sale_records_fed_byTousers?: Prisma.daily_sale_recordsCreateNestedManyWithoutUsers_daily_sale_records_fed_byTousersInput
+  daily_sale_records_daily_sale_records_locked_byTousers?: Prisma.daily_sale_recordsCreateNestedManyWithoutUsers_daily_sale_records_locked_byTousersInput
+  daily_sale_records_daily_sale_records_verified_byTousers?: Prisma.daily_sale_recordsCreateNestedManyWithoutUsers_daily_sale_records_verified_byTousersInput
+  employee_advances_employee_advances_approved_byTousers?: Prisma.employee_advancesCreateNestedManyWithoutUsers_employee_advances_approved_byTousersInput
+  employee_advances_employee_advances_created_byTousers?: Prisma.employee_advancesCreateNestedManyWithoutUsers_employee_advances_created_byTousersInput
+  employee_advances_employee_advances_deleted_byTousers?: Prisma.employee_advancesCreateNestedManyWithoutUsers_employee_advances_deleted_byTousersInput
+  event_branch_demands_event_branch_demands_reviewed_byTousers?: Prisma.event_branch_demandsCreateNestedManyWithoutUsers_event_branch_demands_reviewed_byTousersInput
+  event_branch_demands_event_branch_demands_submitted_byTousers?: Prisma.event_branch_demandsCreateNestedManyWithoutUsers_event_branch_demands_submitted_byTousersInput
+  event_production_status?: Prisma.event_production_statusCreateNestedManyWithoutUsersInput
+  expenses?: Prisma.expensesCreateNestedManyWithoutUsersInput
+  finance_amendments?: Prisma.finance_amendmentsCreateNestedManyWithoutUsersInput
+  finance_audit_logs?: Prisma.finance_audit_logsCreateNestedManyWithoutUsersInput
+  finance_day_closings?: Prisma.finance_day_closingsCreateNestedManyWithoutUsersInput
+  finance_income_approvals_finance_income_approvals_approved_byTousers?: Prisma.finance_income_approvalsCreateNestedManyWithoutUsers_finance_income_approvals_approved_byTousersInput
+  finance_income_approvals_finance_income_approvals_deleted_byTousers?: Prisma.finance_income_approvalsCreateNestedManyWithoutUsers_finance_income_approvals_deleted_byTousersInput
+  finance_income_approvals_finance_income_approvals_verified_byTousers?: Prisma.finance_income_approvalsCreateNestedManyWithoutUsers_finance_income_approvals_verified_byTousersInput
+  finance_queries_finance_queries_created_byTousers?: Prisma.finance_queriesCreateNestedManyWithoutUsers_finance_queries_created_byTousersInput
+  finance_queries_finance_queries_updated_byTousers?: Prisma.finance_queriesCreateNestedManyWithoutUsers_finance_queries_updated_byTousersInput
+  finance_ticket_messages?: Prisma.finance_ticket_messagesCreateNestedManyWithoutUsersInput
+  finance_ticket_versions?: Prisma.finance_ticket_versionsCreateNestedManyWithoutUsersInput
+  finance_tickets_finance_tickets_amended_byTousers?: Prisma.finance_ticketsCreateNestedManyWithoutUsers_finance_tickets_amended_byTousersInput
+  finance_tickets_finance_tickets_assigned_toTousers?: Prisma.finance_ticketsCreateNestedManyWithoutUsers_finance_tickets_assigned_toTousersInput
+  finance_tickets_finance_tickets_deleted_byTousers?: Prisma.finance_ticketsCreateNestedManyWithoutUsers_finance_tickets_deleted_byTousersInput
+  finance_tickets_finance_tickets_raised_byTousers?: Prisma.finance_ticketsCreateNestedManyWithoutUsers_finance_tickets_raised_byTousersInput
+  finance_tickets_finance_tickets_reopened_byTousers?: Prisma.finance_ticketsCreateNestedManyWithoutUsers_finance_tickets_reopened_byTousersInput
+  finance_tickets_finance_tickets_resolved_byTousers?: Prisma.finance_ticketsCreateNestedManyWithoutUsers_finance_tickets_resolved_byTousersInput
+  finance_tickets_finance_tickets_responded_byTousers?: Prisma.finance_ticketsCreateNestedManyWithoutUsers_finance_tickets_responded_byTousersInput
+  finance_tickets_finance_tickets_restored_byTousers?: Prisma.finance_ticketsCreateNestedManyWithoutUsers_finance_tickets_restored_byTousersInput
+  finance_transactions_finance_transactions_approved_byTousers?: Prisma.finance_transactionsCreateNestedManyWithoutUsers_finance_transactions_approved_byTousersInput
+  finance_transactions_finance_transactions_created_byTousers?: Prisma.finance_transactionsCreateNestedManyWithoutUsers_finance_transactions_created_byTousersInput
+  finance_transactions_finance_transactions_deleted_byTousers?: Prisma.finance_transactionsCreateNestedManyWithoutUsers_finance_transactions_deleted_byTousersInput
+  geofence_logs?: Prisma.geofence_logsCreateNestedManyWithoutUsersInput
+  ledger_entries_ledger_entries_approved_byTousers?: Prisma.ledger_entriesCreateNestedManyWithoutUsers_ledger_entries_approved_byTousersInput
+  ledger_entries_ledger_entries_created_byTousers?: Prisma.ledger_entriesCreateNestedManyWithoutUsers_ledger_entries_created_byTousersInput
+  ledger_entries_ledger_entries_deleted_byTousers?: Prisma.ledger_entriesCreateNestedManyWithoutUsers_ledger_entries_deleted_byTousersInput
+  ledger_entries_ledger_entries_updated_byTousers?: Prisma.ledger_entriesCreateNestedManyWithoutUsers_ledger_entries_updated_byTousersInput
+  ledger_heads?: Prisma.ledger_headsCreateNestedManyWithoutUsersInput
+  login_sessions_login_sessions_revoked_byTousers?: Prisma.login_sessionsCreateNestedManyWithoutUsers_login_sessions_revoked_byTousersInput
+  login_sessions_login_sessions_user_idTousers?: Prisma.login_sessionsCreateNestedManyWithoutUsers_login_sessions_user_idTousersInput
+  notification_reads?: Prisma.notification_readsCreateNestedManyWithoutUsersInput
+  notifications?: Prisma.notificationsCreateNestedManyWithoutUsersInput
+  orders?: Prisma.ordersCreateNestedManyWithoutUsersInput
+  packing_materials?: Prisma.packing_materialsCreateNestedManyWithoutUsersInput
+  partner_expenses_partner_expenses_approved_byTousers?: Prisma.partner_expensesCreateNestedManyWithoutUsers_partner_expenses_approved_byTousersInput
+  partner_expenses_partner_expenses_deleted_byTousers?: Prisma.partner_expensesCreateNestedManyWithoutUsers_partner_expenses_deleted_byTousersInput
+  partner_expenses_partner_expenses_requested_byTousers?: Prisma.partner_expensesCreateNestedManyWithoutUsers_partner_expenses_requested_byTousersInput
+  payment_method_settings?: Prisma.payment_method_settingsCreateNestedManyWithoutUsersInput
+  product_price_history?: Prisma.product_price_historyCreateNestedManyWithoutUsersInput
+  production_orders_production_orders_approved_byTousers?: Prisma.production_ordersCreateNestedManyWithoutUsers_production_orders_approved_byTousersInput
+  production_orders_production_orders_cancelled_byTousers?: Prisma.production_ordersCreateNestedManyWithoutUsers_production_orders_cancelled_byTousersInput
+  production_orders_production_orders_created_byTousers?: Prisma.production_ordersCreateNestedManyWithoutUsers_production_orders_created_byTousersInput
+  production_orders_production_orders_verified_byTousers?: Prisma.production_ordersCreateNestedManyWithoutUsers_production_orders_verified_byTousersInput
+  production_returns_production_returns_created_byTousers?: Prisma.production_returnsCreateNestedManyWithoutUsers_production_returns_created_byTousersInput
+  production_returns_production_returns_reviewed_byTousers?: Prisma.production_returnsCreateNestedManyWithoutUsers_production_returns_reviewed_byTousersInput
+  production_stock_history?: Prisma.production_stock_historyCreateNestedManyWithoutUsersInput
+  push_subscriptions?: Prisma.push_subscriptionsCreateNestedManyWithoutUsersInput
+  restriction_events?: Prisma.restriction_eventsCreateNestedManyWithoutUsersInput
+  restriction_requests_restriction_requests_decided_byTousers?: Prisma.restriction_requestsCreateNestedManyWithoutUsers_restriction_requests_decided_byTousersInput
+  restriction_requests_restriction_requests_requested_byTousers?: Prisma.restriction_requestsCreateNestedManyWithoutUsers_restriction_requests_requested_byTousersInput
+  restriction_rules?: Prisma.restriction_rulesCreateNestedManyWithoutUsersInput
+  return_stock_history?: Prisma.return_stock_historyCreateNestedManyWithoutUsersInput
+  salary_payments_salary_payments_approved_byTousers?: Prisma.salary_paymentsCreateNestedManyWithoutUsers_salary_payments_approved_byTousersInput
+  salary_payments_salary_payments_created_byTousers?: Prisma.salary_paymentsCreateNestedManyWithoutUsers_salary_payments_created_byTousersInput
+  salary_payments_salary_payments_deleted_byTousers?: Prisma.salary_paymentsCreateNestedManyWithoutUsers_salary_payments_deleted_byTousersInput
+  salary_revisions?: Prisma.salary_revisionsCreateNestedManyWithoutUsersInput
+  settings?: Prisma.settingsCreateNestedManyWithoutUsersInput
+  special_events?: Prisma.special_eventsCreateNestedManyWithoutUsersInput
+  special_orders_special_orders_approved_byTousers?: Prisma.special_ordersCreateNestedManyWithoutUsers_special_orders_approved_byTousersInput
+  special_orders_special_orders_created_byTousers?: Prisma.special_ordersCreateNestedManyWithoutUsers_special_orders_created_byTousersInput
+  special_orders_special_orders_prepared_byTousers?: Prisma.special_ordersCreateNestedManyWithoutUsers_special_orders_prepared_byTousersInput
+  special_orders_special_orders_verified_byTousers?: Prisma.special_ordersCreateNestedManyWithoutUsers_special_orders_verified_byTousersInput
+  stock_audit_log?: Prisma.stock_audit_logCreateNestedManyWithoutUsersInput
+  support_tickets_support_tickets_raised_byTousers?: Prisma.support_ticketsCreateNestedManyWithoutUsers_support_tickets_raised_byTousersInput
+  support_tickets_support_tickets_resolved_byTousers?: Prisma.support_ticketsCreateNestedManyWithoutUsers_support_tickets_resolved_byTousersInput
+  user_credentials?: Prisma.user_credentialsCreateNestedOneWithoutUsersInput
+  branches_users_branch_idTobranches?: Prisma.branchesCreateNestedOneWithoutUsers_users_branch_idTobranchesInput
+  users?: Prisma.usersCreateNestedOneWithoutOther_usersInput
+  other_users?: Prisma.usersCreateNestedManyWithoutUsersInput
+}
+
+export type usersUncheckedCreateWithoutPassword_reset_tokensInput = {
+  id?: string
+  email: string
+  display_name?: string | null
+  phone?: string | null
+  username?: string | null
+  role: $Enums.user_role
+  branch_id?: string | null
+  branch_name?: string | null
+  status?: $Enums.user_status
+  last_login_at?: Date | string | null
+  must_change_password?: boolean
+  last_password_reset?: Date | string | null
+  password_reset_by?: string | null
+  password_reset_by_name?: string | null
+  created_at?: Date | string
+  updated_at?: Date | string
+  user_code?: string
+  attachments?: Prisma.attachmentsUncheckedCreateNestedManyWithoutUsersInput
+  audit_logs_audit_logs_admin_idTousers?: Prisma.audit_logsUncheckedCreateNestedManyWithoutUsers_audit_logs_admin_idTousersInput
+  audit_logs_audit_logs_target_user_idTousers?: Prisma.audit_logsUncheckedCreateNestedManyWithoutUsers_audit_logs_target_user_idTousersInput
+  auth_sessions?: Prisma.auth_sessionsUncheckedCreateNestedManyWithoutUsersInput
+  backup_jobs?: Prisma.backup_jobsUncheckedCreateNestedManyWithoutUsersInput
+  branch_discounts_branch_discounts_created_byTousers?: Prisma.branch_discountsUncheckedCreateNestedManyWithoutUsers_branch_discounts_created_byTousersInput
+  branch_discounts_branch_discounts_reviewed_byTousers?: Prisma.branch_discountsUncheckedCreateNestedManyWithoutUsers_branch_discounts_reviewed_byTousersInput
+  branch_locations?: Prisma.branch_locationsUncheckedCreateNestedManyWithoutUsersInput
+  branch_share_payments_branch_share_payments_approved_byTousers?: Prisma.branch_share_paymentsUncheckedCreateNestedManyWithoutUsers_branch_share_payments_approved_byTousersInput
+  branch_share_payments_branch_share_payments_deleted_byTousers?: Prisma.branch_share_paymentsUncheckedCreateNestedManyWithoutUsers_branch_share_payments_deleted_byTousersInput
+  branch_share_payments_branch_share_payments_requested_byTousers?: Prisma.branch_share_paymentsUncheckedCreateNestedManyWithoutUsers_branch_share_payments_requested_byTousersInput
+  branches_branches_manager_idTousers?: Prisma.branchesUncheckedCreateNestedManyWithoutUsers_branches_manager_idTousersInput
+  cash_transfers_cash_transfers_approved_byTousers?: Prisma.cash_transfersUncheckedCreateNestedManyWithoutUsers_cash_transfers_approved_byTousersInput
+  cash_transfers_cash_transfers_created_byTousers?: Prisma.cash_transfersUncheckedCreateNestedManyWithoutUsers_cash_transfers_created_byTousersInput
+  cash_transfers_cash_transfers_deleted_byTousers?: Prisma.cash_transfersUncheckedCreateNestedManyWithoutUsers_cash_transfers_deleted_byTousersInput
+  cash_transfers_cash_transfers_updated_byTousers?: Prisma.cash_transfersUncheckedCreateNestedManyWithoutUsers_cash_transfers_updated_byTousersInput
+  daily_sale_record_audits?: Prisma.daily_sale_record_auditsUncheckedCreateNestedManyWithoutUsersInput
+  daily_sale_records_daily_sale_records_created_byTousers?: Prisma.daily_sale_recordsUncheckedCreateNestedManyWithoutUsers_daily_sale_records_created_byTousersInput
+  daily_sale_records_daily_sale_records_fed_byTousers?: Prisma.daily_sale_recordsUncheckedCreateNestedManyWithoutUsers_daily_sale_records_fed_byTousersInput
+  daily_sale_records_daily_sale_records_locked_byTousers?: Prisma.daily_sale_recordsUncheckedCreateNestedManyWithoutUsers_daily_sale_records_locked_byTousersInput
+  daily_sale_records_daily_sale_records_verified_byTousers?: Prisma.daily_sale_recordsUncheckedCreateNestedManyWithoutUsers_daily_sale_records_verified_byTousersInput
+  employee_advances_employee_advances_approved_byTousers?: Prisma.employee_advancesUncheckedCreateNestedManyWithoutUsers_employee_advances_approved_byTousersInput
+  employee_advances_employee_advances_created_byTousers?: Prisma.employee_advancesUncheckedCreateNestedManyWithoutUsers_employee_advances_created_byTousersInput
+  employee_advances_employee_advances_deleted_byTousers?: Prisma.employee_advancesUncheckedCreateNestedManyWithoutUsers_employee_advances_deleted_byTousersInput
+  event_branch_demands_event_branch_demands_reviewed_byTousers?: Prisma.event_branch_demandsUncheckedCreateNestedManyWithoutUsers_event_branch_demands_reviewed_byTousersInput
+  event_branch_demands_event_branch_demands_submitted_byTousers?: Prisma.event_branch_demandsUncheckedCreateNestedManyWithoutUsers_event_branch_demands_submitted_byTousersInput
+  event_production_status?: Prisma.event_production_statusUncheckedCreateNestedManyWithoutUsersInput
+  expenses?: Prisma.expensesUncheckedCreateNestedManyWithoutUsersInput
+  finance_amendments?: Prisma.finance_amendmentsUncheckedCreateNestedManyWithoutUsersInput
+  finance_audit_logs?: Prisma.finance_audit_logsUncheckedCreateNestedManyWithoutUsersInput
+  finance_day_closings?: Prisma.finance_day_closingsUncheckedCreateNestedManyWithoutUsersInput
+  finance_income_approvals_finance_income_approvals_approved_byTousers?: Prisma.finance_income_approvalsUncheckedCreateNestedManyWithoutUsers_finance_income_approvals_approved_byTousersInput
+  finance_income_approvals_finance_income_approvals_deleted_byTousers?: Prisma.finance_income_approvalsUncheckedCreateNestedManyWithoutUsers_finance_income_approvals_deleted_byTousersInput
+  finance_income_approvals_finance_income_approvals_verified_byTousers?: Prisma.finance_income_approvalsUncheckedCreateNestedManyWithoutUsers_finance_income_approvals_verified_byTousersInput
+  finance_queries_finance_queries_created_byTousers?: Prisma.finance_queriesUncheckedCreateNestedManyWithoutUsers_finance_queries_created_byTousersInput
+  finance_queries_finance_queries_updated_byTousers?: Prisma.finance_queriesUncheckedCreateNestedManyWithoutUsers_finance_queries_updated_byTousersInput
+  finance_ticket_messages?: Prisma.finance_ticket_messagesUncheckedCreateNestedManyWithoutUsersInput
+  finance_ticket_versions?: Prisma.finance_ticket_versionsUncheckedCreateNestedManyWithoutUsersInput
+  finance_tickets_finance_tickets_amended_byTousers?: Prisma.finance_ticketsUncheckedCreateNestedManyWithoutUsers_finance_tickets_amended_byTousersInput
+  finance_tickets_finance_tickets_assigned_toTousers?: Prisma.finance_ticketsUncheckedCreateNestedManyWithoutUsers_finance_tickets_assigned_toTousersInput
+  finance_tickets_finance_tickets_deleted_byTousers?: Prisma.finance_ticketsUncheckedCreateNestedManyWithoutUsers_finance_tickets_deleted_byTousersInput
+  finance_tickets_finance_tickets_raised_byTousers?: Prisma.finance_ticketsUncheckedCreateNestedManyWithoutUsers_finance_tickets_raised_byTousersInput
+  finance_tickets_finance_tickets_reopened_byTousers?: Prisma.finance_ticketsUncheckedCreateNestedManyWithoutUsers_finance_tickets_reopened_byTousersInput
+  finance_tickets_finance_tickets_resolved_byTousers?: Prisma.finance_ticketsUncheckedCreateNestedManyWithoutUsers_finance_tickets_resolved_byTousersInput
+  finance_tickets_finance_tickets_responded_byTousers?: Prisma.finance_ticketsUncheckedCreateNestedManyWithoutUsers_finance_tickets_responded_byTousersInput
+  finance_tickets_finance_tickets_restored_byTousers?: Prisma.finance_ticketsUncheckedCreateNestedManyWithoutUsers_finance_tickets_restored_byTousersInput
+  finance_transactions_finance_transactions_approved_byTousers?: Prisma.finance_transactionsUncheckedCreateNestedManyWithoutUsers_finance_transactions_approved_byTousersInput
+  finance_transactions_finance_transactions_created_byTousers?: Prisma.finance_transactionsUncheckedCreateNestedManyWithoutUsers_finance_transactions_created_byTousersInput
+  finance_transactions_finance_transactions_deleted_byTousers?: Prisma.finance_transactionsUncheckedCreateNestedManyWithoutUsers_finance_transactions_deleted_byTousersInput
+  geofence_logs?: Prisma.geofence_logsUncheckedCreateNestedManyWithoutUsersInput
+  ledger_entries_ledger_entries_approved_byTousers?: Prisma.ledger_entriesUncheckedCreateNestedManyWithoutUsers_ledger_entries_approved_byTousersInput
+  ledger_entries_ledger_entries_created_byTousers?: Prisma.ledger_entriesUncheckedCreateNestedManyWithoutUsers_ledger_entries_created_byTousersInput
+  ledger_entries_ledger_entries_deleted_byTousers?: Prisma.ledger_entriesUncheckedCreateNestedManyWithoutUsers_ledger_entries_deleted_byTousersInput
+  ledger_entries_ledger_entries_updated_byTousers?: Prisma.ledger_entriesUncheckedCreateNestedManyWithoutUsers_ledger_entries_updated_byTousersInput
+  ledger_heads?: Prisma.ledger_headsUncheckedCreateNestedManyWithoutUsersInput
+  login_sessions_login_sessions_revoked_byTousers?: Prisma.login_sessionsUncheckedCreateNestedManyWithoutUsers_login_sessions_revoked_byTousersInput
+  login_sessions_login_sessions_user_idTousers?: Prisma.login_sessionsUncheckedCreateNestedManyWithoutUsers_login_sessions_user_idTousersInput
+  notification_reads?: Prisma.notification_readsUncheckedCreateNestedManyWithoutUsersInput
+  notifications?: Prisma.notificationsUncheckedCreateNestedManyWithoutUsersInput
+  orders?: Prisma.ordersUncheckedCreateNestedManyWithoutUsersInput
+  packing_materials?: Prisma.packing_materialsUncheckedCreateNestedManyWithoutUsersInput
+  partner_expenses_partner_expenses_approved_byTousers?: Prisma.partner_expensesUncheckedCreateNestedManyWithoutUsers_partner_expenses_approved_byTousersInput
+  partner_expenses_partner_expenses_deleted_byTousers?: Prisma.partner_expensesUncheckedCreateNestedManyWithoutUsers_partner_expenses_deleted_byTousersInput
+  partner_expenses_partner_expenses_requested_byTousers?: Prisma.partner_expensesUncheckedCreateNestedManyWithoutUsers_partner_expenses_requested_byTousersInput
+  payment_method_settings?: Prisma.payment_method_settingsUncheckedCreateNestedManyWithoutUsersInput
+  product_price_history?: Prisma.product_price_historyUncheckedCreateNestedManyWithoutUsersInput
+  production_orders_production_orders_approved_byTousers?: Prisma.production_ordersUncheckedCreateNestedManyWithoutUsers_production_orders_approved_byTousersInput
+  production_orders_production_orders_cancelled_byTousers?: Prisma.production_ordersUncheckedCreateNestedManyWithoutUsers_production_orders_cancelled_byTousersInput
+  production_orders_production_orders_created_byTousers?: Prisma.production_ordersUncheckedCreateNestedManyWithoutUsers_production_orders_created_byTousersInput
+  production_orders_production_orders_verified_byTousers?: Prisma.production_ordersUncheckedCreateNestedManyWithoutUsers_production_orders_verified_byTousersInput
+  production_returns_production_returns_created_byTousers?: Prisma.production_returnsUncheckedCreateNestedManyWithoutUsers_production_returns_created_byTousersInput
+  production_returns_production_returns_reviewed_byTousers?: Prisma.production_returnsUncheckedCreateNestedManyWithoutUsers_production_returns_reviewed_byTousersInput
+  production_stock_history?: Prisma.production_stock_historyUncheckedCreateNestedManyWithoutUsersInput
+  push_subscriptions?: Prisma.push_subscriptionsUncheckedCreateNestedManyWithoutUsersInput
+  restriction_events?: Prisma.restriction_eventsUncheckedCreateNestedManyWithoutUsersInput
+  restriction_requests_restriction_requests_decided_byTousers?: Prisma.restriction_requestsUncheckedCreateNestedManyWithoutUsers_restriction_requests_decided_byTousersInput
+  restriction_requests_restriction_requests_requested_byTousers?: Prisma.restriction_requestsUncheckedCreateNestedManyWithoutUsers_restriction_requests_requested_byTousersInput
+  restriction_rules?: Prisma.restriction_rulesUncheckedCreateNestedManyWithoutUsersInput
+  return_stock_history?: Prisma.return_stock_historyUncheckedCreateNestedManyWithoutUsersInput
+  salary_payments_salary_payments_approved_byTousers?: Prisma.salary_paymentsUncheckedCreateNestedManyWithoutUsers_salary_payments_approved_byTousersInput
+  salary_payments_salary_payments_created_byTousers?: Prisma.salary_paymentsUncheckedCreateNestedManyWithoutUsers_salary_payments_created_byTousersInput
+  salary_payments_salary_payments_deleted_byTousers?: Prisma.salary_paymentsUncheckedCreateNestedManyWithoutUsers_salary_payments_deleted_byTousersInput
+  salary_revisions?: Prisma.salary_revisionsUncheckedCreateNestedManyWithoutUsersInput
+  settings?: Prisma.settingsUncheckedCreateNestedManyWithoutUsersInput
+  special_events?: Prisma.special_eventsUncheckedCreateNestedManyWithoutUsersInput
+  special_orders_special_orders_approved_byTousers?: Prisma.special_ordersUncheckedCreateNestedManyWithoutUsers_special_orders_approved_byTousersInput
+  special_orders_special_orders_created_byTousers?: Prisma.special_ordersUncheckedCreateNestedManyWithoutUsers_special_orders_created_byTousersInput
+  special_orders_special_orders_prepared_byTousers?: Prisma.special_ordersUncheckedCreateNestedManyWithoutUsers_special_orders_prepared_byTousersInput
+  special_orders_special_orders_verified_byTousers?: Prisma.special_ordersUncheckedCreateNestedManyWithoutUsers_special_orders_verified_byTousersInput
+  stock_audit_log?: Prisma.stock_audit_logUncheckedCreateNestedManyWithoutUsersInput
+  support_tickets_support_tickets_raised_byTousers?: Prisma.support_ticketsUncheckedCreateNestedManyWithoutUsers_support_tickets_raised_byTousersInput
+  support_tickets_support_tickets_resolved_byTousers?: Prisma.support_ticketsUncheckedCreateNestedManyWithoutUsers_support_tickets_resolved_byTousersInput
+  user_credentials?: Prisma.user_credentialsUncheckedCreateNestedOneWithoutUsersInput
+  other_users?: Prisma.usersUncheckedCreateNestedManyWithoutUsersInput
+}
+
+export type usersCreateOrConnectWithoutPassword_reset_tokensInput = {
+  where: Prisma.usersWhereUniqueInput
+  create: Prisma.XOR<Prisma.usersCreateWithoutPassword_reset_tokensInput, Prisma.usersUncheckedCreateWithoutPassword_reset_tokensInput>
+}
+
+export type usersUpsertWithoutPassword_reset_tokensInput = {
+  update: Prisma.XOR<Prisma.usersUpdateWithoutPassword_reset_tokensInput, Prisma.usersUncheckedUpdateWithoutPassword_reset_tokensInput>
+  create: Prisma.XOR<Prisma.usersCreateWithoutPassword_reset_tokensInput, Prisma.usersUncheckedCreateWithoutPassword_reset_tokensInput>
+  where?: Prisma.usersWhereInput
+}
+
+export type usersUpdateToOneWithWhereWithoutPassword_reset_tokensInput = {
+  where?: Prisma.usersWhereInput
+  data: Prisma.XOR<Prisma.usersUpdateWithoutPassword_reset_tokensInput, Prisma.usersUncheckedUpdateWithoutPassword_reset_tokensInput>
+}
+
+export type usersUpdateWithoutPassword_reset_tokensInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  email?: Prisma.StringFieldUpdateOperationsInput | string
+  display_name?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  phone?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  username?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  role?: Prisma.Enumuser_roleFieldUpdateOperationsInput | $Enums.user_role
+  branch_name?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  status?: Prisma.Enumuser_statusFieldUpdateOperationsInput | $Enums.user_status
+  last_login_at?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  must_change_password?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  last_password_reset?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  password_reset_by_name?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  created_at?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  updated_at?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  user_code?: Prisma.StringFieldUpdateOperationsInput | string
+  attachments?: Prisma.attachmentsUpdateManyWithoutUsersNestedInput
+  audit_logs_audit_logs_admin_idTousers?: Prisma.audit_logsUpdateManyWithoutUsers_audit_logs_admin_idTousersNestedInput
+  audit_logs_audit_logs_target_user_idTousers?: Prisma.audit_logsUpdateManyWithoutUsers_audit_logs_target_user_idTousersNestedInput
+  auth_sessions?: Prisma.auth_sessionsUpdateManyWithoutUsersNestedInput
+  backup_jobs?: Prisma.backup_jobsUpdateManyWithoutUsersNestedInput
+  branch_discounts_branch_discounts_created_byTousers?: Prisma.branch_discountsUpdateManyWithoutUsers_branch_discounts_created_byTousersNestedInput
+  branch_discounts_branch_discounts_reviewed_byTousers?: Prisma.branch_discountsUpdateManyWithoutUsers_branch_discounts_reviewed_byTousersNestedInput
+  branch_locations?: Prisma.branch_locationsUpdateManyWithoutUsersNestedInput
+  branch_share_payments_branch_share_payments_approved_byTousers?: Prisma.branch_share_paymentsUpdateManyWithoutUsers_branch_share_payments_approved_byTousersNestedInput
+  branch_share_payments_branch_share_payments_deleted_byTousers?: Prisma.branch_share_paymentsUpdateManyWithoutUsers_branch_share_payments_deleted_byTousersNestedInput
+  branch_share_payments_branch_share_payments_requested_byTousers?: Prisma.branch_share_paymentsUpdateManyWithoutUsers_branch_share_payments_requested_byTousersNestedInput
+  branches_branches_manager_idTousers?: Prisma.branchesUpdateManyWithoutUsers_branches_manager_idTousersNestedInput
+  cash_transfers_cash_transfers_approved_byTousers?: Prisma.cash_transfersUpdateManyWithoutUsers_cash_transfers_approved_byTousersNestedInput
+  cash_transfers_cash_transfers_created_byTousers?: Prisma.cash_transfersUpdateManyWithoutUsers_cash_transfers_created_byTousersNestedInput
+  cash_transfers_cash_transfers_deleted_byTousers?: Prisma.cash_transfersUpdateManyWithoutUsers_cash_transfers_deleted_byTousersNestedInput
+  cash_transfers_cash_transfers_updated_byTousers?: Prisma.cash_transfersUpdateManyWithoutUsers_cash_transfers_updated_byTousersNestedInput
+  daily_sale_record_audits?: Prisma.daily_sale_record_auditsUpdateManyWithoutUsersNestedInput
+  daily_sale_records_daily_sale_records_created_byTousers?: Prisma.daily_sale_recordsUpdateManyWithoutUsers_daily_sale_records_created_byTousersNestedInput
+  daily_sale_records_daily_sale_records_fed_byTousers?: Prisma.daily_sale_recordsUpdateManyWithoutUsers_daily_sale_records_fed_byTousersNestedInput
+  daily_sale_records_daily_sale_records_locked_byTousers?: Prisma.daily_sale_recordsUpdateManyWithoutUsers_daily_sale_records_locked_byTousersNestedInput
+  daily_sale_records_daily_sale_records_verified_byTousers?: Prisma.daily_sale_recordsUpdateManyWithoutUsers_daily_sale_records_verified_byTousersNestedInput
+  employee_advances_employee_advances_approved_byTousers?: Prisma.employee_advancesUpdateManyWithoutUsers_employee_advances_approved_byTousersNestedInput
+  employee_advances_employee_advances_created_byTousers?: Prisma.employee_advancesUpdateManyWithoutUsers_employee_advances_created_byTousersNestedInput
+  employee_advances_employee_advances_deleted_byTousers?: Prisma.employee_advancesUpdateManyWithoutUsers_employee_advances_deleted_byTousersNestedInput
+  event_branch_demands_event_branch_demands_reviewed_byTousers?: Prisma.event_branch_demandsUpdateManyWithoutUsers_event_branch_demands_reviewed_byTousersNestedInput
+  event_branch_demands_event_branch_demands_submitted_byTousers?: Prisma.event_branch_demandsUpdateManyWithoutUsers_event_branch_demands_submitted_byTousersNestedInput
+  event_production_status?: Prisma.event_production_statusUpdateManyWithoutUsersNestedInput
+  expenses?: Prisma.expensesUpdateManyWithoutUsersNestedInput
+  finance_amendments?: Prisma.finance_amendmentsUpdateManyWithoutUsersNestedInput
+  finance_audit_logs?: Prisma.finance_audit_logsUpdateManyWithoutUsersNestedInput
+  finance_day_closings?: Prisma.finance_day_closingsUpdateManyWithoutUsersNestedInput
+  finance_income_approvals_finance_income_approvals_approved_byTousers?: Prisma.finance_income_approvalsUpdateManyWithoutUsers_finance_income_approvals_approved_byTousersNestedInput
+  finance_income_approvals_finance_income_approvals_deleted_byTousers?: Prisma.finance_income_approvalsUpdateManyWithoutUsers_finance_income_approvals_deleted_byTousersNestedInput
+  finance_income_approvals_finance_income_approvals_verified_byTousers?: Prisma.finance_income_approvalsUpdateManyWithoutUsers_finance_income_approvals_verified_byTousersNestedInput
+  finance_queries_finance_queries_created_byTousers?: Prisma.finance_queriesUpdateManyWithoutUsers_finance_queries_created_byTousersNestedInput
+  finance_queries_finance_queries_updated_byTousers?: Prisma.finance_queriesUpdateManyWithoutUsers_finance_queries_updated_byTousersNestedInput
+  finance_ticket_messages?: Prisma.finance_ticket_messagesUpdateManyWithoutUsersNestedInput
+  finance_ticket_versions?: Prisma.finance_ticket_versionsUpdateManyWithoutUsersNestedInput
+  finance_tickets_finance_tickets_amended_byTousers?: Prisma.finance_ticketsUpdateManyWithoutUsers_finance_tickets_amended_byTousersNestedInput
+  finance_tickets_finance_tickets_assigned_toTousers?: Prisma.finance_ticketsUpdateManyWithoutUsers_finance_tickets_assigned_toTousersNestedInput
+  finance_tickets_finance_tickets_deleted_byTousers?: Prisma.finance_ticketsUpdateManyWithoutUsers_finance_tickets_deleted_byTousersNestedInput
+  finance_tickets_finance_tickets_raised_byTousers?: Prisma.finance_ticketsUpdateManyWithoutUsers_finance_tickets_raised_byTousersNestedInput
+  finance_tickets_finance_tickets_reopened_byTousers?: Prisma.finance_ticketsUpdateManyWithoutUsers_finance_tickets_reopened_byTousersNestedInput
+  finance_tickets_finance_tickets_resolved_byTousers?: Prisma.finance_ticketsUpdateManyWithoutUsers_finance_tickets_resolved_byTousersNestedInput
+  finance_tickets_finance_tickets_responded_byTousers?: Prisma.finance_ticketsUpdateManyWithoutUsers_finance_tickets_responded_byTousersNestedInput
+  finance_tickets_finance_tickets_restored_byTousers?: Prisma.finance_ticketsUpdateManyWithoutUsers_finance_tickets_restored_byTousersNestedInput
+  finance_transactions_finance_transactions_approved_byTousers?: Prisma.finance_transactionsUpdateManyWithoutUsers_finance_transactions_approved_byTousersNestedInput
+  finance_transactions_finance_transactions_created_byTousers?: Prisma.finance_transactionsUpdateManyWithoutUsers_finance_transactions_created_byTousersNestedInput
+  finance_transactions_finance_transactions_deleted_byTousers?: Prisma.finance_transactionsUpdateManyWithoutUsers_finance_transactions_deleted_byTousersNestedInput
+  geofence_logs?: Prisma.geofence_logsUpdateManyWithoutUsersNestedInput
+  ledger_entries_ledger_entries_approved_byTousers?: Prisma.ledger_entriesUpdateManyWithoutUsers_ledger_entries_approved_byTousersNestedInput
+  ledger_entries_ledger_entries_created_byTousers?: Prisma.ledger_entriesUpdateManyWithoutUsers_ledger_entries_created_byTousersNestedInput
+  ledger_entries_ledger_entries_deleted_byTousers?: Prisma.ledger_entriesUpdateManyWithoutUsers_ledger_entries_deleted_byTousersNestedInput
+  ledger_entries_ledger_entries_updated_byTousers?: Prisma.ledger_entriesUpdateManyWithoutUsers_ledger_entries_updated_byTousersNestedInput
+  ledger_heads?: Prisma.ledger_headsUpdateManyWithoutUsersNestedInput
+  login_sessions_login_sessions_revoked_byTousers?: Prisma.login_sessionsUpdateManyWithoutUsers_login_sessions_revoked_byTousersNestedInput
+  login_sessions_login_sessions_user_idTousers?: Prisma.login_sessionsUpdateManyWithoutUsers_login_sessions_user_idTousersNestedInput
+  notification_reads?: Prisma.notification_readsUpdateManyWithoutUsersNestedInput
+  notifications?: Prisma.notificationsUpdateManyWithoutUsersNestedInput
+  orders?: Prisma.ordersUpdateManyWithoutUsersNestedInput
+  packing_materials?: Prisma.packing_materialsUpdateManyWithoutUsersNestedInput
+  partner_expenses_partner_expenses_approved_byTousers?: Prisma.partner_expensesUpdateManyWithoutUsers_partner_expenses_approved_byTousersNestedInput
+  partner_expenses_partner_expenses_deleted_byTousers?: Prisma.partner_expensesUpdateManyWithoutUsers_partner_expenses_deleted_byTousersNestedInput
+  partner_expenses_partner_expenses_requested_byTousers?: Prisma.partner_expensesUpdateManyWithoutUsers_partner_expenses_requested_byTousersNestedInput
+  payment_method_settings?: Prisma.payment_method_settingsUpdateManyWithoutUsersNestedInput
+  product_price_history?: Prisma.product_price_historyUpdateManyWithoutUsersNestedInput
+  production_orders_production_orders_approved_byTousers?: Prisma.production_ordersUpdateManyWithoutUsers_production_orders_approved_byTousersNestedInput
+  production_orders_production_orders_cancelled_byTousers?: Prisma.production_ordersUpdateManyWithoutUsers_production_orders_cancelled_byTousersNestedInput
+  production_orders_production_orders_created_byTousers?: Prisma.production_ordersUpdateManyWithoutUsers_production_orders_created_byTousersNestedInput
+  production_orders_production_orders_verified_byTousers?: Prisma.production_ordersUpdateManyWithoutUsers_production_orders_verified_byTousersNestedInput
+  production_returns_production_returns_created_byTousers?: Prisma.production_returnsUpdateManyWithoutUsers_production_returns_created_byTousersNestedInput
+  production_returns_production_returns_reviewed_byTousers?: Prisma.production_returnsUpdateManyWithoutUsers_production_returns_reviewed_byTousersNestedInput
+  production_stock_history?: Prisma.production_stock_historyUpdateManyWithoutUsersNestedInput
+  push_subscriptions?: Prisma.push_subscriptionsUpdateManyWithoutUsersNestedInput
+  restriction_events?: Prisma.restriction_eventsUpdateManyWithoutUsersNestedInput
+  restriction_requests_restriction_requests_decided_byTousers?: Prisma.restriction_requestsUpdateManyWithoutUsers_restriction_requests_decided_byTousersNestedInput
+  restriction_requests_restriction_requests_requested_byTousers?: Prisma.restriction_requestsUpdateManyWithoutUsers_restriction_requests_requested_byTousersNestedInput
+  restriction_rules?: Prisma.restriction_rulesUpdateManyWithoutUsersNestedInput
+  return_stock_history?: Prisma.return_stock_historyUpdateManyWithoutUsersNestedInput
+  salary_payments_salary_payments_approved_byTousers?: Prisma.salary_paymentsUpdateManyWithoutUsers_salary_payments_approved_byTousersNestedInput
+  salary_payments_salary_payments_created_byTousers?: Prisma.salary_paymentsUpdateManyWithoutUsers_salary_payments_created_byTousersNestedInput
+  salary_payments_salary_payments_deleted_byTousers?: Prisma.salary_paymentsUpdateManyWithoutUsers_salary_payments_deleted_byTousersNestedInput
+  salary_revisions?: Prisma.salary_revisionsUpdateManyWithoutUsersNestedInput
+  settings?: Prisma.settingsUpdateManyWithoutUsersNestedInput
+  special_events?: Prisma.special_eventsUpdateManyWithoutUsersNestedInput
+  special_orders_special_orders_approved_byTousers?: Prisma.special_ordersUpdateManyWithoutUsers_special_orders_approved_byTousersNestedInput
+  special_orders_special_orders_created_byTousers?: Prisma.special_ordersUpdateManyWithoutUsers_special_orders_created_byTousersNestedInput
+  special_orders_special_orders_prepared_byTousers?: Prisma.special_ordersUpdateManyWithoutUsers_special_orders_prepared_byTousersNestedInput
+  special_orders_special_orders_verified_byTousers?: Prisma.special_ordersUpdateManyWithoutUsers_special_orders_verified_byTousersNestedInput
+  stock_audit_log?: Prisma.stock_audit_logUpdateManyWithoutUsersNestedInput
+  support_tickets_support_tickets_raised_byTousers?: Prisma.support_ticketsUpdateManyWithoutUsers_support_tickets_raised_byTousersNestedInput
+  support_tickets_support_tickets_resolved_byTousers?: Prisma.support_ticketsUpdateManyWithoutUsers_support_tickets_resolved_byTousersNestedInput
+  user_credentials?: Prisma.user_credentialsUpdateOneWithoutUsersNestedInput
+  branches_users_branch_idTobranches?: Prisma.branchesUpdateOneWithoutUsers_users_branch_idTobranchesNestedInput
+  users?: Prisma.usersUpdateOneWithoutOther_usersNestedInput
+  other_users?: Prisma.usersUpdateManyWithoutUsersNestedInput
+}
+
+export type usersUncheckedUpdateWithoutPassword_reset_tokensInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  email?: Prisma.StringFieldUpdateOperationsInput | string
+  display_name?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  phone?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  username?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  role?: Prisma.Enumuser_roleFieldUpdateOperationsInput | $Enums.user_role
+  branch_id?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  branch_name?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  status?: Prisma.Enumuser_statusFieldUpdateOperationsInput | $Enums.user_status
+  last_login_at?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  must_change_password?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  last_password_reset?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  password_reset_by?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  password_reset_by_name?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  created_at?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  updated_at?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  user_code?: Prisma.StringFieldUpdateOperationsInput | string
+  attachments?: Prisma.attachmentsUncheckedUpdateManyWithoutUsersNestedInput
+  audit_logs_audit_logs_admin_idTousers?: Prisma.audit_logsUncheckedUpdateManyWithoutUsers_audit_logs_admin_idTousersNestedInput
+  audit_logs_audit_logs_target_user_idTousers?: Prisma.audit_logsUncheckedUpdateManyWithoutUsers_audit_logs_target_user_idTousersNestedInput
+  auth_sessions?: Prisma.auth_sessionsUncheckedUpdateManyWithoutUsersNestedInput
+  backup_jobs?: Prisma.backup_jobsUncheckedUpdateManyWithoutUsersNestedInput
+  branch_discounts_branch_discounts_created_byTousers?: Prisma.branch_discountsUncheckedUpdateManyWithoutUsers_branch_discounts_created_byTousersNestedInput
+  branch_discounts_branch_discounts_reviewed_byTousers?: Prisma.branch_discountsUncheckedUpdateManyWithoutUsers_branch_discounts_reviewed_byTousersNestedInput
+  branch_locations?: Prisma.branch_locationsUncheckedUpdateManyWithoutUsersNestedInput
+  branch_share_payments_branch_share_payments_approved_byTousers?: Prisma.branch_share_paymentsUncheckedUpdateManyWithoutUsers_branch_share_payments_approved_byTousersNestedInput
+  branch_share_payments_branch_share_payments_deleted_byTousers?: Prisma.branch_share_paymentsUncheckedUpdateManyWithoutUsers_branch_share_payments_deleted_byTousersNestedInput
+  branch_share_payments_branch_share_payments_requested_byTousers?: Prisma.branch_share_paymentsUncheckedUpdateManyWithoutUsers_branch_share_payments_requested_byTousersNestedInput
+  branches_branches_manager_idTousers?: Prisma.branchesUncheckedUpdateManyWithoutUsers_branches_manager_idTousersNestedInput
+  cash_transfers_cash_transfers_approved_byTousers?: Prisma.cash_transfersUncheckedUpdateManyWithoutUsers_cash_transfers_approved_byTousersNestedInput
+  cash_transfers_cash_transfers_created_byTousers?: Prisma.cash_transfersUncheckedUpdateManyWithoutUsers_cash_transfers_created_byTousersNestedInput
+  cash_transfers_cash_transfers_deleted_byTousers?: Prisma.cash_transfersUncheckedUpdateManyWithoutUsers_cash_transfers_deleted_byTousersNestedInput
+  cash_transfers_cash_transfers_updated_byTousers?: Prisma.cash_transfersUncheckedUpdateManyWithoutUsers_cash_transfers_updated_byTousersNestedInput
+  daily_sale_record_audits?: Prisma.daily_sale_record_auditsUncheckedUpdateManyWithoutUsersNestedInput
+  daily_sale_records_daily_sale_records_created_byTousers?: Prisma.daily_sale_recordsUncheckedUpdateManyWithoutUsers_daily_sale_records_created_byTousersNestedInput
+  daily_sale_records_daily_sale_records_fed_byTousers?: Prisma.daily_sale_recordsUncheckedUpdateManyWithoutUsers_daily_sale_records_fed_byTousersNestedInput
+  daily_sale_records_daily_sale_records_locked_byTousers?: Prisma.daily_sale_recordsUncheckedUpdateManyWithoutUsers_daily_sale_records_locked_byTousersNestedInput
+  daily_sale_records_daily_sale_records_verified_byTousers?: Prisma.daily_sale_recordsUncheckedUpdateManyWithoutUsers_daily_sale_records_verified_byTousersNestedInput
+  employee_advances_employee_advances_approved_byTousers?: Prisma.employee_advancesUncheckedUpdateManyWithoutUsers_employee_advances_approved_byTousersNestedInput
+  employee_advances_employee_advances_created_byTousers?: Prisma.employee_advancesUncheckedUpdateManyWithoutUsers_employee_advances_created_byTousersNestedInput
+  employee_advances_employee_advances_deleted_byTousers?: Prisma.employee_advancesUncheckedUpdateManyWithoutUsers_employee_advances_deleted_byTousersNestedInput
+  event_branch_demands_event_branch_demands_reviewed_byTousers?: Prisma.event_branch_demandsUncheckedUpdateManyWithoutUsers_event_branch_demands_reviewed_byTousersNestedInput
+  event_branch_demands_event_branch_demands_submitted_byTousers?: Prisma.event_branch_demandsUncheckedUpdateManyWithoutUsers_event_branch_demands_submitted_byTousersNestedInput
+  event_production_status?: Prisma.event_production_statusUncheckedUpdateManyWithoutUsersNestedInput
+  expenses?: Prisma.expensesUncheckedUpdateManyWithoutUsersNestedInput
+  finance_amendments?: Prisma.finance_amendmentsUncheckedUpdateManyWithoutUsersNestedInput
+  finance_audit_logs?: Prisma.finance_audit_logsUncheckedUpdateManyWithoutUsersNestedInput
+  finance_day_closings?: Prisma.finance_day_closingsUncheckedUpdateManyWithoutUsersNestedInput
+  finance_income_approvals_finance_income_approvals_approved_byTousers?: Prisma.finance_income_approvalsUncheckedUpdateManyWithoutUsers_finance_income_approvals_approved_byTousersNestedInput
+  finance_income_approvals_finance_income_approvals_deleted_byTousers?: Prisma.finance_income_approvalsUncheckedUpdateManyWithoutUsers_finance_income_approvals_deleted_byTousersNestedInput
+  finance_income_approvals_finance_income_approvals_verified_byTousers?: Prisma.finance_income_approvalsUncheckedUpdateManyWithoutUsers_finance_income_approvals_verified_byTousersNestedInput
+  finance_queries_finance_queries_created_byTousers?: Prisma.finance_queriesUncheckedUpdateManyWithoutUsers_finance_queries_created_byTousersNestedInput
+  finance_queries_finance_queries_updated_byTousers?: Prisma.finance_queriesUncheckedUpdateManyWithoutUsers_finance_queries_updated_byTousersNestedInput
+  finance_ticket_messages?: Prisma.finance_ticket_messagesUncheckedUpdateManyWithoutUsersNestedInput
+  finance_ticket_versions?: Prisma.finance_ticket_versionsUncheckedUpdateManyWithoutUsersNestedInput
+  finance_tickets_finance_tickets_amended_byTousers?: Prisma.finance_ticketsUncheckedUpdateManyWithoutUsers_finance_tickets_amended_byTousersNestedInput
+  finance_tickets_finance_tickets_assigned_toTousers?: Prisma.finance_ticketsUncheckedUpdateManyWithoutUsers_finance_tickets_assigned_toTousersNestedInput
+  finance_tickets_finance_tickets_deleted_byTousers?: Prisma.finance_ticketsUncheckedUpdateManyWithoutUsers_finance_tickets_deleted_byTousersNestedInput
+  finance_tickets_finance_tickets_raised_byTousers?: Prisma.finance_ticketsUncheckedUpdateManyWithoutUsers_finance_tickets_raised_byTousersNestedInput
+  finance_tickets_finance_tickets_reopened_byTousers?: Prisma.finance_ticketsUncheckedUpdateManyWithoutUsers_finance_tickets_reopened_byTousersNestedInput
+  finance_tickets_finance_tickets_resolved_byTousers?: Prisma.finance_ticketsUncheckedUpdateManyWithoutUsers_finance_tickets_resolved_byTousersNestedInput
+  finance_tickets_finance_tickets_responded_byTousers?: Prisma.finance_ticketsUncheckedUpdateManyWithoutUsers_finance_tickets_responded_byTousersNestedInput
+  finance_tickets_finance_tickets_restored_byTousers?: Prisma.finance_ticketsUncheckedUpdateManyWithoutUsers_finance_tickets_restored_byTousersNestedInput
+  finance_transactions_finance_transactions_approved_byTousers?: Prisma.finance_transactionsUncheckedUpdateManyWithoutUsers_finance_transactions_approved_byTousersNestedInput
+  finance_transactions_finance_transactions_created_byTousers?: Prisma.finance_transactionsUncheckedUpdateManyWithoutUsers_finance_transactions_created_byTousersNestedInput
+  finance_transactions_finance_transactions_deleted_byTousers?: Prisma.finance_transactionsUncheckedUpdateManyWithoutUsers_finance_transactions_deleted_byTousersNestedInput
+  geofence_logs?: Prisma.geofence_logsUncheckedUpdateManyWithoutUsersNestedInput
+  ledger_entries_ledger_entries_approved_byTousers?: Prisma.ledger_entriesUncheckedUpdateManyWithoutUsers_ledger_entries_approved_byTousersNestedInput
+  ledger_entries_ledger_entries_created_byTousers?: Prisma.ledger_entriesUncheckedUpdateManyWithoutUsers_ledger_entries_created_byTousersNestedInput
+  ledger_entries_ledger_entries_deleted_byTousers?: Prisma.ledger_entriesUncheckedUpdateManyWithoutUsers_ledger_entries_deleted_byTousersNestedInput
+  ledger_entries_ledger_entries_updated_byTousers?: Prisma.ledger_entriesUncheckedUpdateManyWithoutUsers_ledger_entries_updated_byTousersNestedInput
+  ledger_heads?: Prisma.ledger_headsUncheckedUpdateManyWithoutUsersNestedInput
+  login_sessions_login_sessions_revoked_byTousers?: Prisma.login_sessionsUncheckedUpdateManyWithoutUsers_login_sessions_revoked_byTousersNestedInput
+  login_sessions_login_sessions_user_idTousers?: Prisma.login_sessionsUncheckedUpdateManyWithoutUsers_login_sessions_user_idTousersNestedInput
+  notification_reads?: Prisma.notification_readsUncheckedUpdateManyWithoutUsersNestedInput
+  notifications?: Prisma.notificationsUncheckedUpdateManyWithoutUsersNestedInput
+  orders?: Prisma.ordersUncheckedUpdateManyWithoutUsersNestedInput
+  packing_materials?: Prisma.packing_materialsUncheckedUpdateManyWithoutUsersNestedInput
+  partner_expenses_partner_expenses_approved_byTousers?: Prisma.partner_expensesUncheckedUpdateManyWithoutUsers_partner_expenses_approved_byTousersNestedInput
+  partner_expenses_partner_expenses_deleted_byTousers?: Prisma.partner_expensesUncheckedUpdateManyWithoutUsers_partner_expenses_deleted_byTousersNestedInput
+  partner_expenses_partner_expenses_requested_byTousers?: Prisma.partner_expensesUncheckedUpdateManyWithoutUsers_partner_expenses_requested_byTousersNestedInput
+  payment_method_settings?: Prisma.payment_method_settingsUncheckedUpdateManyWithoutUsersNestedInput
+  product_price_history?: Prisma.product_price_historyUncheckedUpdateManyWithoutUsersNestedInput
+  production_orders_production_orders_approved_byTousers?: Prisma.production_ordersUncheckedUpdateManyWithoutUsers_production_orders_approved_byTousersNestedInput
+  production_orders_production_orders_cancelled_byTousers?: Prisma.production_ordersUncheckedUpdateManyWithoutUsers_production_orders_cancelled_byTousersNestedInput
+  production_orders_production_orders_created_byTousers?: Prisma.production_ordersUncheckedUpdateManyWithoutUsers_production_orders_created_byTousersNestedInput
+  production_orders_production_orders_verified_byTousers?: Prisma.production_ordersUncheckedUpdateManyWithoutUsers_production_orders_verified_byTousersNestedInput
+  production_returns_production_returns_created_byTousers?: Prisma.production_returnsUncheckedUpdateManyWithoutUsers_production_returns_created_byTousersNestedInput
+  production_returns_production_returns_reviewed_byTousers?: Prisma.production_returnsUncheckedUpdateManyWithoutUsers_production_returns_reviewed_byTousersNestedInput
+  production_stock_history?: Prisma.production_stock_historyUncheckedUpdateManyWithoutUsersNestedInput
+  push_subscriptions?: Prisma.push_subscriptionsUncheckedUpdateManyWithoutUsersNestedInput
+  restriction_events?: Prisma.restriction_eventsUncheckedUpdateManyWithoutUsersNestedInput
+  restriction_requests_restriction_requests_decided_byTousers?: Prisma.restriction_requestsUncheckedUpdateManyWithoutUsers_restriction_requests_decided_byTousersNestedInput
+  restriction_requests_restriction_requests_requested_byTousers?: Prisma.restriction_requestsUncheckedUpdateManyWithoutUsers_restriction_requests_requested_byTousersNestedInput
+  restriction_rules?: Prisma.restriction_rulesUncheckedUpdateManyWithoutUsersNestedInput
+  return_stock_history?: Prisma.return_stock_historyUncheckedUpdateManyWithoutUsersNestedInput
+  salary_payments_salary_payments_approved_byTousers?: Prisma.salary_paymentsUncheckedUpdateManyWithoutUsers_salary_payments_approved_byTousersNestedInput
+  salary_payments_salary_payments_created_byTousers?: Prisma.salary_paymentsUncheckedUpdateManyWithoutUsers_salary_payments_created_byTousersNestedInput
+  salary_payments_salary_payments_deleted_byTousers?: Prisma.salary_paymentsUncheckedUpdateManyWithoutUsers_salary_payments_deleted_byTousersNestedInput
+  salary_revisions?: Prisma.salary_revisionsUncheckedUpdateManyWithoutUsersNestedInput
+  settings?: Prisma.settingsUncheckedUpdateManyWithoutUsersNestedInput
+  special_events?: Prisma.special_eventsUncheckedUpdateManyWithoutUsersNestedInput
+  special_orders_special_orders_approved_byTousers?: Prisma.special_ordersUncheckedUpdateManyWithoutUsers_special_orders_approved_byTousersNestedInput
+  special_orders_special_orders_created_byTousers?: Prisma.special_ordersUncheckedUpdateManyWithoutUsers_special_orders_created_byTousersNestedInput
+  special_orders_special_orders_prepared_byTousers?: Prisma.special_ordersUncheckedUpdateManyWithoutUsers_special_orders_prepared_byTousersNestedInput
+  special_orders_special_orders_verified_byTousers?: Prisma.special_ordersUncheckedUpdateManyWithoutUsers_special_orders_verified_byTousersNestedInput
+  stock_audit_log?: Prisma.stock_audit_logUncheckedUpdateManyWithoutUsersNestedInput
+  support_tickets_support_tickets_raised_byTousers?: Prisma.support_ticketsUncheckedUpdateManyWithoutUsers_support_tickets_raised_byTousersNestedInput
+  support_tickets_support_tickets_resolved_byTousers?: Prisma.support_ticketsUncheckedUpdateManyWithoutUsers_support_tickets_resolved_byTousersNestedInput
+  user_credentials?: Prisma.user_credentialsUncheckedUpdateOneWithoutUsersNestedInput
+  other_users?: Prisma.usersUncheckedUpdateManyWithoutUsersNestedInput
+}
+
 export type usersCreateWithoutPayment_method_settingsInput = {
-  id: string
+  id?: string
   email: string
   display_name?: string | null
   phone?: string | null
@@ -32986,7 +33929,7 @@ export type usersCreateWithoutPayment_method_settingsInput = {
 }
 
 export type usersUncheckedCreateWithoutPayment_method_settingsInput = {
-  id: string
+  id?: string
   email: string
   display_name?: string | null
   phone?: string | null
@@ -33344,7 +34287,7 @@ export type usersUncheckedUpdateWithoutPayment_method_settingsInput = {
 }
 
 export type usersCreateWithoutProduct_price_historyInput = {
-  id: string
+  id?: string
   email: string
   display_name?: string | null
   phone?: string | null
@@ -33458,7 +34401,7 @@ export type usersCreateWithoutProduct_price_historyInput = {
 }
 
 export type usersUncheckedCreateWithoutProduct_price_historyInput = {
-  id: string
+  id?: string
   email: string
   display_name?: string | null
   phone?: string | null
@@ -33816,7 +34759,7 @@ export type usersUncheckedUpdateWithoutProduct_price_historyInput = {
 }
 
 export type usersCreateWithoutProduction_orders_production_orders_approved_byTousersInput = {
-  id: string
+  id?: string
   email: string
   display_name?: string | null
   phone?: string | null
@@ -33930,7 +34873,7 @@ export type usersCreateWithoutProduction_orders_production_orders_approved_byTou
 }
 
 export type usersUncheckedCreateWithoutProduction_orders_production_orders_approved_byTousersInput = {
-  id: string
+  id?: string
   email: string
   display_name?: string | null
   phone?: string | null
@@ -34049,7 +34992,7 @@ export type usersCreateOrConnectWithoutProduction_orders_production_orders_appro
 }
 
 export type usersCreateWithoutProduction_orders_production_orders_cancelled_byTousersInput = {
-  id: string
+  id?: string
   email: string
   display_name?: string | null
   phone?: string | null
@@ -34163,7 +35106,7 @@ export type usersCreateWithoutProduction_orders_production_orders_cancelled_byTo
 }
 
 export type usersUncheckedCreateWithoutProduction_orders_production_orders_cancelled_byTousersInput = {
-  id: string
+  id?: string
   email: string
   display_name?: string | null
   phone?: string | null
@@ -34282,7 +35225,7 @@ export type usersCreateOrConnectWithoutProduction_orders_production_orders_cance
 }
 
 export type usersCreateWithoutProduction_orders_production_orders_created_byTousersInput = {
-  id: string
+  id?: string
   email: string
   display_name?: string | null
   phone?: string | null
@@ -34396,7 +35339,7 @@ export type usersCreateWithoutProduction_orders_production_orders_created_byTous
 }
 
 export type usersUncheckedCreateWithoutProduction_orders_production_orders_created_byTousersInput = {
-  id: string
+  id?: string
   email: string
   display_name?: string | null
   phone?: string | null
@@ -34515,7 +35458,7 @@ export type usersCreateOrConnectWithoutProduction_orders_production_orders_creat
 }
 
 export type usersCreateWithoutProduction_orders_production_orders_verified_byTousersInput = {
-  id: string
+  id?: string
   email: string
   display_name?: string | null
   phone?: string | null
@@ -34629,7 +35572,7 @@ export type usersCreateWithoutProduction_orders_production_orders_verified_byTou
 }
 
 export type usersUncheckedCreateWithoutProduction_orders_production_orders_verified_byTousersInput = {
-  id: string
+  id?: string
   email: string
   display_name?: string | null
   phone?: string | null
@@ -35704,7 +36647,7 @@ export type usersUncheckedUpdateWithoutProduction_orders_production_orders_verif
 }
 
 export type usersCreateWithoutProduction_returns_production_returns_created_byTousersInput = {
-  id: string
+  id?: string
   email: string
   display_name?: string | null
   phone?: string | null
@@ -35818,7 +36761,7 @@ export type usersCreateWithoutProduction_returns_production_returns_created_byTo
 }
 
 export type usersUncheckedCreateWithoutProduction_returns_production_returns_created_byTousersInput = {
-  id: string
+  id?: string
   email: string
   display_name?: string | null
   phone?: string | null
@@ -35937,7 +36880,7 @@ export type usersCreateOrConnectWithoutProduction_returns_production_returns_cre
 }
 
 export type usersCreateWithoutProduction_returns_production_returns_reviewed_byTousersInput = {
-  id: string
+  id?: string
   email: string
   display_name?: string | null
   phone?: string | null
@@ -36051,7 +36994,7 @@ export type usersCreateWithoutProduction_returns_production_returns_reviewed_byT
 }
 
 export type usersUncheckedCreateWithoutProduction_returns_production_returns_reviewed_byTousersInput = {
-  id: string
+  id?: string
   email: string
   display_name?: string | null
   phone?: string | null
@@ -36648,7 +37591,7 @@ export type usersUncheckedUpdateWithoutProduction_returns_production_returns_rev
 }
 
 export type usersCreateWithoutProduction_stock_historyInput = {
-  id: string
+  id?: string
   email: string
   display_name?: string | null
   phone?: string | null
@@ -36762,7 +37705,7 @@ export type usersCreateWithoutProduction_stock_historyInput = {
 }
 
 export type usersUncheckedCreateWithoutProduction_stock_historyInput = {
-  id: string
+  id?: string
   email: string
   display_name?: string | null
   phone?: string | null
@@ -37120,7 +38063,7 @@ export type usersUncheckedUpdateWithoutProduction_stock_historyInput = {
 }
 
 export type usersCreateWithoutPush_subscriptionsInput = {
-  id: string
+  id?: string
   email: string
   display_name?: string | null
   phone?: string | null
@@ -37234,7 +38177,7 @@ export type usersCreateWithoutPush_subscriptionsInput = {
 }
 
 export type usersUncheckedCreateWithoutPush_subscriptionsInput = {
-  id: string
+  id?: string
   email: string
   display_name?: string | null
   phone?: string | null
@@ -37592,7 +38535,7 @@ export type usersUncheckedUpdateWithoutPush_subscriptionsInput = {
 }
 
 export type usersCreateWithoutRestriction_eventsInput = {
-  id: string
+  id?: string
   email: string
   display_name?: string | null
   phone?: string | null
@@ -37706,7 +38649,7 @@ export type usersCreateWithoutRestriction_eventsInput = {
 }
 
 export type usersUncheckedCreateWithoutRestriction_eventsInput = {
-  id: string
+  id?: string
   email: string
   display_name?: string | null
   phone?: string | null
@@ -38064,7 +39007,7 @@ export type usersUncheckedUpdateWithoutRestriction_eventsInput = {
 }
 
 export type usersCreateWithoutRestriction_requests_restriction_requests_decided_byTousersInput = {
-  id: string
+  id?: string
   email: string
   display_name?: string | null
   phone?: string | null
@@ -38178,7 +39121,7 @@ export type usersCreateWithoutRestriction_requests_restriction_requests_decided_
 }
 
 export type usersUncheckedCreateWithoutRestriction_requests_restriction_requests_decided_byTousersInput = {
-  id: string
+  id?: string
   email: string
   display_name?: string | null
   phone?: string | null
@@ -38297,7 +39240,7 @@ export type usersCreateOrConnectWithoutRestriction_requests_restriction_requests
 }
 
 export type usersCreateWithoutRestriction_requests_restriction_requests_requested_byTousersInput = {
-  id: string
+  id?: string
   email: string
   display_name?: string | null
   phone?: string | null
@@ -38411,7 +39354,7 @@ export type usersCreateWithoutRestriction_requests_restriction_requests_requeste
 }
 
 export type usersUncheckedCreateWithoutRestriction_requests_restriction_requests_requested_byTousersInput = {
-  id: string
+  id?: string
   email: string
   display_name?: string | null
   phone?: string | null
@@ -39008,7 +39951,7 @@ export type usersUncheckedUpdateWithoutRestriction_requests_restriction_requests
 }
 
 export type usersCreateWithoutRestriction_rulesInput = {
-  id: string
+  id?: string
   email: string
   display_name?: string | null
   phone?: string | null
@@ -39122,7 +40065,7 @@ export type usersCreateWithoutRestriction_rulesInput = {
 }
 
 export type usersUncheckedCreateWithoutRestriction_rulesInput = {
-  id: string
+  id?: string
   email: string
   display_name?: string | null
   phone?: string | null
@@ -39480,7 +40423,7 @@ export type usersUncheckedUpdateWithoutRestriction_rulesInput = {
 }
 
 export type usersCreateWithoutReturn_stock_historyInput = {
-  id: string
+  id?: string
   email: string
   display_name?: string | null
   phone?: string | null
@@ -39594,7 +40537,7 @@ export type usersCreateWithoutReturn_stock_historyInput = {
 }
 
 export type usersUncheckedCreateWithoutReturn_stock_historyInput = {
-  id: string
+  id?: string
   email: string
   display_name?: string | null
   phone?: string | null
@@ -39952,7 +40895,7 @@ export type usersUncheckedUpdateWithoutReturn_stock_historyInput = {
 }
 
 export type usersCreateWithoutSalary_payments_salary_payments_approved_byTousersInput = {
-  id: string
+  id?: string
   email: string
   display_name?: string | null
   phone?: string | null
@@ -40066,7 +41009,7 @@ export type usersCreateWithoutSalary_payments_salary_payments_approved_byTousers
 }
 
 export type usersUncheckedCreateWithoutSalary_payments_salary_payments_approved_byTousersInput = {
-  id: string
+  id?: string
   email: string
   display_name?: string | null
   phone?: string | null
@@ -40185,7 +41128,7 @@ export type usersCreateOrConnectWithoutSalary_payments_salary_payments_approved_
 }
 
 export type usersCreateWithoutSalary_payments_salary_payments_created_byTousersInput = {
-  id: string
+  id?: string
   email: string
   display_name?: string | null
   phone?: string | null
@@ -40299,7 +41242,7 @@ export type usersCreateWithoutSalary_payments_salary_payments_created_byTousersI
 }
 
 export type usersUncheckedCreateWithoutSalary_payments_salary_payments_created_byTousersInput = {
-  id: string
+  id?: string
   email: string
   display_name?: string | null
   phone?: string | null
@@ -40418,7 +41361,7 @@ export type usersCreateOrConnectWithoutSalary_payments_salary_payments_created_b
 }
 
 export type usersCreateWithoutSalary_payments_salary_payments_deleted_byTousersInput = {
-  id: string
+  id?: string
   email: string
   display_name?: string | null
   phone?: string | null
@@ -40532,7 +41475,7 @@ export type usersCreateWithoutSalary_payments_salary_payments_deleted_byTousersI
 }
 
 export type usersUncheckedCreateWithoutSalary_payments_salary_payments_deleted_byTousersInput = {
-  id: string
+  id?: string
   email: string
   display_name?: string | null
   phone?: string | null
@@ -41368,7 +42311,7 @@ export type usersUncheckedUpdateWithoutSalary_payments_salary_payments_deleted_b
 }
 
 export type usersCreateWithoutSalary_revisionsInput = {
-  id: string
+  id?: string
   email: string
   display_name?: string | null
   phone?: string | null
@@ -41482,7 +42425,7 @@ export type usersCreateWithoutSalary_revisionsInput = {
 }
 
 export type usersUncheckedCreateWithoutSalary_revisionsInput = {
-  id: string
+  id?: string
   email: string
   display_name?: string | null
   phone?: string | null
@@ -41840,7 +42783,7 @@ export type usersUncheckedUpdateWithoutSalary_revisionsInput = {
 }
 
 export type usersCreateWithoutSettingsInput = {
-  id: string
+  id?: string
   email: string
   display_name?: string | null
   phone?: string | null
@@ -41954,7 +42897,7 @@ export type usersCreateWithoutSettingsInput = {
 }
 
 export type usersUncheckedCreateWithoutSettingsInput = {
-  id: string
+  id?: string
   email: string
   display_name?: string | null
   phone?: string | null
@@ -42312,7 +43255,7 @@ export type usersUncheckedUpdateWithoutSettingsInput = {
 }
 
 export type usersCreateWithoutSpecial_eventsInput = {
-  id: string
+  id?: string
   email: string
   display_name?: string | null
   phone?: string | null
@@ -42426,7 +43369,7 @@ export type usersCreateWithoutSpecial_eventsInput = {
 }
 
 export type usersUncheckedCreateWithoutSpecial_eventsInput = {
-  id: string
+  id?: string
   email: string
   display_name?: string | null
   phone?: string | null
@@ -42784,7 +43727,7 @@ export type usersUncheckedUpdateWithoutSpecial_eventsInput = {
 }
 
 export type usersCreateWithoutSpecial_orders_special_orders_approved_byTousersInput = {
-  id: string
+  id?: string
   email: string
   display_name?: string | null
   phone?: string | null
@@ -42898,7 +43841,7 @@ export type usersCreateWithoutSpecial_orders_special_orders_approved_byTousersIn
 }
 
 export type usersUncheckedCreateWithoutSpecial_orders_special_orders_approved_byTousersInput = {
-  id: string
+  id?: string
   email: string
   display_name?: string | null
   phone?: string | null
@@ -43017,7 +43960,7 @@ export type usersCreateOrConnectWithoutSpecial_orders_special_orders_approved_by
 }
 
 export type usersCreateWithoutSpecial_orders_special_orders_created_byTousersInput = {
-  id: string
+  id?: string
   email: string
   display_name?: string | null
   phone?: string | null
@@ -43131,7 +44074,7 @@ export type usersCreateWithoutSpecial_orders_special_orders_created_byTousersInp
 }
 
 export type usersUncheckedCreateWithoutSpecial_orders_special_orders_created_byTousersInput = {
-  id: string
+  id?: string
   email: string
   display_name?: string | null
   phone?: string | null
@@ -43250,7 +44193,7 @@ export type usersCreateOrConnectWithoutSpecial_orders_special_orders_created_byT
 }
 
 export type usersCreateWithoutSpecial_orders_special_orders_prepared_byTousersInput = {
-  id: string
+  id?: string
   email: string
   display_name?: string | null
   phone?: string | null
@@ -43364,7 +44307,7 @@ export type usersCreateWithoutSpecial_orders_special_orders_prepared_byTousersIn
 }
 
 export type usersUncheckedCreateWithoutSpecial_orders_special_orders_prepared_byTousersInput = {
-  id: string
+  id?: string
   email: string
   display_name?: string | null
   phone?: string | null
@@ -43483,7 +44426,7 @@ export type usersCreateOrConnectWithoutSpecial_orders_special_orders_prepared_by
 }
 
 export type usersCreateWithoutSpecial_orders_special_orders_verified_byTousersInput = {
-  id: string
+  id?: string
   email: string
   display_name?: string | null
   phone?: string | null
@@ -43597,7 +44540,7 @@ export type usersCreateWithoutSpecial_orders_special_orders_verified_byTousersIn
 }
 
 export type usersUncheckedCreateWithoutSpecial_orders_special_orders_verified_byTousersInput = {
-  id: string
+  id?: string
   email: string
   display_name?: string | null
   phone?: string | null
@@ -44672,7 +45615,7 @@ export type usersUncheckedUpdateWithoutSpecial_orders_special_orders_verified_by
 }
 
 export type usersCreateWithoutStock_audit_logInput = {
-  id: string
+  id?: string
   email: string
   display_name?: string | null
   phone?: string | null
@@ -44786,7 +45729,7 @@ export type usersCreateWithoutStock_audit_logInput = {
 }
 
 export type usersUncheckedCreateWithoutStock_audit_logInput = {
-  id: string
+  id?: string
   email: string
   display_name?: string | null
   phone?: string | null
@@ -45144,7 +46087,7 @@ export type usersUncheckedUpdateWithoutStock_audit_logInput = {
 }
 
 export type usersCreateWithoutSupport_tickets_support_tickets_raised_byTousersInput = {
-  id: string
+  id?: string
   email: string
   display_name?: string | null
   phone?: string | null
@@ -45258,7 +46201,7 @@ export type usersCreateWithoutSupport_tickets_support_tickets_raised_byTousersIn
 }
 
 export type usersUncheckedCreateWithoutSupport_tickets_support_tickets_raised_byTousersInput = {
-  id: string
+  id?: string
   email: string
   display_name?: string | null
   phone?: string | null
@@ -45377,7 +46320,7 @@ export type usersCreateOrConnectWithoutSupport_tickets_support_tickets_raised_by
 }
 
 export type usersCreateWithoutSupport_tickets_support_tickets_resolved_byTousersInput = {
-  id: string
+  id?: string
   email: string
   display_name?: string | null
   phone?: string | null
@@ -45491,7 +46434,7 @@ export type usersCreateWithoutSupport_tickets_support_tickets_resolved_byTousers
 }
 
 export type usersUncheckedCreateWithoutSupport_tickets_support_tickets_resolved_byTousersInput = {
-  id: string
+  id?: string
   email: string
   display_name?: string | null
   phone?: string | null
@@ -46087,8 +47030,480 @@ export type usersUncheckedUpdateWithoutSupport_tickets_support_tickets_resolved_
   other_users?: Prisma.usersUncheckedUpdateManyWithoutUsersNestedInput
 }
 
+export type usersCreateWithoutUser_credentialsInput = {
+  id?: string
+  email: string
+  display_name?: string | null
+  phone?: string | null
+  username?: string | null
+  role: $Enums.user_role
+  branch_name?: string | null
+  status?: $Enums.user_status
+  last_login_at?: Date | string | null
+  must_change_password?: boolean
+  last_password_reset?: Date | string | null
+  password_reset_by_name?: string | null
+  created_at?: Date | string
+  updated_at?: Date | string
+  user_code?: string
+  attachments?: Prisma.attachmentsCreateNestedManyWithoutUsersInput
+  audit_logs_audit_logs_admin_idTousers?: Prisma.audit_logsCreateNestedManyWithoutUsers_audit_logs_admin_idTousersInput
+  audit_logs_audit_logs_target_user_idTousers?: Prisma.audit_logsCreateNestedManyWithoutUsers_audit_logs_target_user_idTousersInput
+  auth_sessions?: Prisma.auth_sessionsCreateNestedManyWithoutUsersInput
+  backup_jobs?: Prisma.backup_jobsCreateNestedManyWithoutUsersInput
+  branch_discounts_branch_discounts_created_byTousers?: Prisma.branch_discountsCreateNestedManyWithoutUsers_branch_discounts_created_byTousersInput
+  branch_discounts_branch_discounts_reviewed_byTousers?: Prisma.branch_discountsCreateNestedManyWithoutUsers_branch_discounts_reviewed_byTousersInput
+  branch_locations?: Prisma.branch_locationsCreateNestedManyWithoutUsersInput
+  branch_share_payments_branch_share_payments_approved_byTousers?: Prisma.branch_share_paymentsCreateNestedManyWithoutUsers_branch_share_payments_approved_byTousersInput
+  branch_share_payments_branch_share_payments_deleted_byTousers?: Prisma.branch_share_paymentsCreateNestedManyWithoutUsers_branch_share_payments_deleted_byTousersInput
+  branch_share_payments_branch_share_payments_requested_byTousers?: Prisma.branch_share_paymentsCreateNestedManyWithoutUsers_branch_share_payments_requested_byTousersInput
+  branches_branches_manager_idTousers?: Prisma.branchesCreateNestedManyWithoutUsers_branches_manager_idTousersInput
+  cash_transfers_cash_transfers_approved_byTousers?: Prisma.cash_transfersCreateNestedManyWithoutUsers_cash_transfers_approved_byTousersInput
+  cash_transfers_cash_transfers_created_byTousers?: Prisma.cash_transfersCreateNestedManyWithoutUsers_cash_transfers_created_byTousersInput
+  cash_transfers_cash_transfers_deleted_byTousers?: Prisma.cash_transfersCreateNestedManyWithoutUsers_cash_transfers_deleted_byTousersInput
+  cash_transfers_cash_transfers_updated_byTousers?: Prisma.cash_transfersCreateNestedManyWithoutUsers_cash_transfers_updated_byTousersInput
+  daily_sale_record_audits?: Prisma.daily_sale_record_auditsCreateNestedManyWithoutUsersInput
+  daily_sale_records_daily_sale_records_created_byTousers?: Prisma.daily_sale_recordsCreateNestedManyWithoutUsers_daily_sale_records_created_byTousersInput
+  daily_sale_records_daily_sale_records_fed_byTousers?: Prisma.daily_sale_recordsCreateNestedManyWithoutUsers_daily_sale_records_fed_byTousersInput
+  daily_sale_records_daily_sale_records_locked_byTousers?: Prisma.daily_sale_recordsCreateNestedManyWithoutUsers_daily_sale_records_locked_byTousersInput
+  daily_sale_records_daily_sale_records_verified_byTousers?: Prisma.daily_sale_recordsCreateNestedManyWithoutUsers_daily_sale_records_verified_byTousersInput
+  employee_advances_employee_advances_approved_byTousers?: Prisma.employee_advancesCreateNestedManyWithoutUsers_employee_advances_approved_byTousersInput
+  employee_advances_employee_advances_created_byTousers?: Prisma.employee_advancesCreateNestedManyWithoutUsers_employee_advances_created_byTousersInput
+  employee_advances_employee_advances_deleted_byTousers?: Prisma.employee_advancesCreateNestedManyWithoutUsers_employee_advances_deleted_byTousersInput
+  event_branch_demands_event_branch_demands_reviewed_byTousers?: Prisma.event_branch_demandsCreateNestedManyWithoutUsers_event_branch_demands_reviewed_byTousersInput
+  event_branch_demands_event_branch_demands_submitted_byTousers?: Prisma.event_branch_demandsCreateNestedManyWithoutUsers_event_branch_demands_submitted_byTousersInput
+  event_production_status?: Prisma.event_production_statusCreateNestedManyWithoutUsersInput
+  expenses?: Prisma.expensesCreateNestedManyWithoutUsersInput
+  finance_amendments?: Prisma.finance_amendmentsCreateNestedManyWithoutUsersInput
+  finance_audit_logs?: Prisma.finance_audit_logsCreateNestedManyWithoutUsersInput
+  finance_day_closings?: Prisma.finance_day_closingsCreateNestedManyWithoutUsersInput
+  finance_income_approvals_finance_income_approvals_approved_byTousers?: Prisma.finance_income_approvalsCreateNestedManyWithoutUsers_finance_income_approvals_approved_byTousersInput
+  finance_income_approvals_finance_income_approvals_deleted_byTousers?: Prisma.finance_income_approvalsCreateNestedManyWithoutUsers_finance_income_approvals_deleted_byTousersInput
+  finance_income_approvals_finance_income_approvals_verified_byTousers?: Prisma.finance_income_approvalsCreateNestedManyWithoutUsers_finance_income_approvals_verified_byTousersInput
+  finance_queries_finance_queries_created_byTousers?: Prisma.finance_queriesCreateNestedManyWithoutUsers_finance_queries_created_byTousersInput
+  finance_queries_finance_queries_updated_byTousers?: Prisma.finance_queriesCreateNestedManyWithoutUsers_finance_queries_updated_byTousersInput
+  finance_ticket_messages?: Prisma.finance_ticket_messagesCreateNestedManyWithoutUsersInput
+  finance_ticket_versions?: Prisma.finance_ticket_versionsCreateNestedManyWithoutUsersInput
+  finance_tickets_finance_tickets_amended_byTousers?: Prisma.finance_ticketsCreateNestedManyWithoutUsers_finance_tickets_amended_byTousersInput
+  finance_tickets_finance_tickets_assigned_toTousers?: Prisma.finance_ticketsCreateNestedManyWithoutUsers_finance_tickets_assigned_toTousersInput
+  finance_tickets_finance_tickets_deleted_byTousers?: Prisma.finance_ticketsCreateNestedManyWithoutUsers_finance_tickets_deleted_byTousersInput
+  finance_tickets_finance_tickets_raised_byTousers?: Prisma.finance_ticketsCreateNestedManyWithoutUsers_finance_tickets_raised_byTousersInput
+  finance_tickets_finance_tickets_reopened_byTousers?: Prisma.finance_ticketsCreateNestedManyWithoutUsers_finance_tickets_reopened_byTousersInput
+  finance_tickets_finance_tickets_resolved_byTousers?: Prisma.finance_ticketsCreateNestedManyWithoutUsers_finance_tickets_resolved_byTousersInput
+  finance_tickets_finance_tickets_responded_byTousers?: Prisma.finance_ticketsCreateNestedManyWithoutUsers_finance_tickets_responded_byTousersInput
+  finance_tickets_finance_tickets_restored_byTousers?: Prisma.finance_ticketsCreateNestedManyWithoutUsers_finance_tickets_restored_byTousersInput
+  finance_transactions_finance_transactions_approved_byTousers?: Prisma.finance_transactionsCreateNestedManyWithoutUsers_finance_transactions_approved_byTousersInput
+  finance_transactions_finance_transactions_created_byTousers?: Prisma.finance_transactionsCreateNestedManyWithoutUsers_finance_transactions_created_byTousersInput
+  finance_transactions_finance_transactions_deleted_byTousers?: Prisma.finance_transactionsCreateNestedManyWithoutUsers_finance_transactions_deleted_byTousersInput
+  geofence_logs?: Prisma.geofence_logsCreateNestedManyWithoutUsersInput
+  ledger_entries_ledger_entries_approved_byTousers?: Prisma.ledger_entriesCreateNestedManyWithoutUsers_ledger_entries_approved_byTousersInput
+  ledger_entries_ledger_entries_created_byTousers?: Prisma.ledger_entriesCreateNestedManyWithoutUsers_ledger_entries_created_byTousersInput
+  ledger_entries_ledger_entries_deleted_byTousers?: Prisma.ledger_entriesCreateNestedManyWithoutUsers_ledger_entries_deleted_byTousersInput
+  ledger_entries_ledger_entries_updated_byTousers?: Prisma.ledger_entriesCreateNestedManyWithoutUsers_ledger_entries_updated_byTousersInput
+  ledger_heads?: Prisma.ledger_headsCreateNestedManyWithoutUsersInput
+  login_sessions_login_sessions_revoked_byTousers?: Prisma.login_sessionsCreateNestedManyWithoutUsers_login_sessions_revoked_byTousersInput
+  login_sessions_login_sessions_user_idTousers?: Prisma.login_sessionsCreateNestedManyWithoutUsers_login_sessions_user_idTousersInput
+  notification_reads?: Prisma.notification_readsCreateNestedManyWithoutUsersInput
+  notifications?: Prisma.notificationsCreateNestedManyWithoutUsersInput
+  orders?: Prisma.ordersCreateNestedManyWithoutUsersInput
+  packing_materials?: Prisma.packing_materialsCreateNestedManyWithoutUsersInput
+  partner_expenses_partner_expenses_approved_byTousers?: Prisma.partner_expensesCreateNestedManyWithoutUsers_partner_expenses_approved_byTousersInput
+  partner_expenses_partner_expenses_deleted_byTousers?: Prisma.partner_expensesCreateNestedManyWithoutUsers_partner_expenses_deleted_byTousersInput
+  partner_expenses_partner_expenses_requested_byTousers?: Prisma.partner_expensesCreateNestedManyWithoutUsers_partner_expenses_requested_byTousersInput
+  password_reset_tokens?: Prisma.password_reset_tokensCreateNestedManyWithoutUsersInput
+  payment_method_settings?: Prisma.payment_method_settingsCreateNestedManyWithoutUsersInput
+  product_price_history?: Prisma.product_price_historyCreateNestedManyWithoutUsersInput
+  production_orders_production_orders_approved_byTousers?: Prisma.production_ordersCreateNestedManyWithoutUsers_production_orders_approved_byTousersInput
+  production_orders_production_orders_cancelled_byTousers?: Prisma.production_ordersCreateNestedManyWithoutUsers_production_orders_cancelled_byTousersInput
+  production_orders_production_orders_created_byTousers?: Prisma.production_ordersCreateNestedManyWithoutUsers_production_orders_created_byTousersInput
+  production_orders_production_orders_verified_byTousers?: Prisma.production_ordersCreateNestedManyWithoutUsers_production_orders_verified_byTousersInput
+  production_returns_production_returns_created_byTousers?: Prisma.production_returnsCreateNestedManyWithoutUsers_production_returns_created_byTousersInput
+  production_returns_production_returns_reviewed_byTousers?: Prisma.production_returnsCreateNestedManyWithoutUsers_production_returns_reviewed_byTousersInput
+  production_stock_history?: Prisma.production_stock_historyCreateNestedManyWithoutUsersInput
+  push_subscriptions?: Prisma.push_subscriptionsCreateNestedManyWithoutUsersInput
+  restriction_events?: Prisma.restriction_eventsCreateNestedManyWithoutUsersInput
+  restriction_requests_restriction_requests_decided_byTousers?: Prisma.restriction_requestsCreateNestedManyWithoutUsers_restriction_requests_decided_byTousersInput
+  restriction_requests_restriction_requests_requested_byTousers?: Prisma.restriction_requestsCreateNestedManyWithoutUsers_restriction_requests_requested_byTousersInput
+  restriction_rules?: Prisma.restriction_rulesCreateNestedManyWithoutUsersInput
+  return_stock_history?: Prisma.return_stock_historyCreateNestedManyWithoutUsersInput
+  salary_payments_salary_payments_approved_byTousers?: Prisma.salary_paymentsCreateNestedManyWithoutUsers_salary_payments_approved_byTousersInput
+  salary_payments_salary_payments_created_byTousers?: Prisma.salary_paymentsCreateNestedManyWithoutUsers_salary_payments_created_byTousersInput
+  salary_payments_salary_payments_deleted_byTousers?: Prisma.salary_paymentsCreateNestedManyWithoutUsers_salary_payments_deleted_byTousersInput
+  salary_revisions?: Prisma.salary_revisionsCreateNestedManyWithoutUsersInput
+  settings?: Prisma.settingsCreateNestedManyWithoutUsersInput
+  special_events?: Prisma.special_eventsCreateNestedManyWithoutUsersInput
+  special_orders_special_orders_approved_byTousers?: Prisma.special_ordersCreateNestedManyWithoutUsers_special_orders_approved_byTousersInput
+  special_orders_special_orders_created_byTousers?: Prisma.special_ordersCreateNestedManyWithoutUsers_special_orders_created_byTousersInput
+  special_orders_special_orders_prepared_byTousers?: Prisma.special_ordersCreateNestedManyWithoutUsers_special_orders_prepared_byTousersInput
+  special_orders_special_orders_verified_byTousers?: Prisma.special_ordersCreateNestedManyWithoutUsers_special_orders_verified_byTousersInput
+  stock_audit_log?: Prisma.stock_audit_logCreateNestedManyWithoutUsersInput
+  support_tickets_support_tickets_raised_byTousers?: Prisma.support_ticketsCreateNestedManyWithoutUsers_support_tickets_raised_byTousersInput
+  support_tickets_support_tickets_resolved_byTousers?: Prisma.support_ticketsCreateNestedManyWithoutUsers_support_tickets_resolved_byTousersInput
+  branches_users_branch_idTobranches?: Prisma.branchesCreateNestedOneWithoutUsers_users_branch_idTobranchesInput
+  users?: Prisma.usersCreateNestedOneWithoutOther_usersInput
+  other_users?: Prisma.usersCreateNestedManyWithoutUsersInput
+}
+
+export type usersUncheckedCreateWithoutUser_credentialsInput = {
+  id?: string
+  email: string
+  display_name?: string | null
+  phone?: string | null
+  username?: string | null
+  role: $Enums.user_role
+  branch_id?: string | null
+  branch_name?: string | null
+  status?: $Enums.user_status
+  last_login_at?: Date | string | null
+  must_change_password?: boolean
+  last_password_reset?: Date | string | null
+  password_reset_by?: string | null
+  password_reset_by_name?: string | null
+  created_at?: Date | string
+  updated_at?: Date | string
+  user_code?: string
+  attachments?: Prisma.attachmentsUncheckedCreateNestedManyWithoutUsersInput
+  audit_logs_audit_logs_admin_idTousers?: Prisma.audit_logsUncheckedCreateNestedManyWithoutUsers_audit_logs_admin_idTousersInput
+  audit_logs_audit_logs_target_user_idTousers?: Prisma.audit_logsUncheckedCreateNestedManyWithoutUsers_audit_logs_target_user_idTousersInput
+  auth_sessions?: Prisma.auth_sessionsUncheckedCreateNestedManyWithoutUsersInput
+  backup_jobs?: Prisma.backup_jobsUncheckedCreateNestedManyWithoutUsersInput
+  branch_discounts_branch_discounts_created_byTousers?: Prisma.branch_discountsUncheckedCreateNestedManyWithoutUsers_branch_discounts_created_byTousersInput
+  branch_discounts_branch_discounts_reviewed_byTousers?: Prisma.branch_discountsUncheckedCreateNestedManyWithoutUsers_branch_discounts_reviewed_byTousersInput
+  branch_locations?: Prisma.branch_locationsUncheckedCreateNestedManyWithoutUsersInput
+  branch_share_payments_branch_share_payments_approved_byTousers?: Prisma.branch_share_paymentsUncheckedCreateNestedManyWithoutUsers_branch_share_payments_approved_byTousersInput
+  branch_share_payments_branch_share_payments_deleted_byTousers?: Prisma.branch_share_paymentsUncheckedCreateNestedManyWithoutUsers_branch_share_payments_deleted_byTousersInput
+  branch_share_payments_branch_share_payments_requested_byTousers?: Prisma.branch_share_paymentsUncheckedCreateNestedManyWithoutUsers_branch_share_payments_requested_byTousersInput
+  branches_branches_manager_idTousers?: Prisma.branchesUncheckedCreateNestedManyWithoutUsers_branches_manager_idTousersInput
+  cash_transfers_cash_transfers_approved_byTousers?: Prisma.cash_transfersUncheckedCreateNestedManyWithoutUsers_cash_transfers_approved_byTousersInput
+  cash_transfers_cash_transfers_created_byTousers?: Prisma.cash_transfersUncheckedCreateNestedManyWithoutUsers_cash_transfers_created_byTousersInput
+  cash_transfers_cash_transfers_deleted_byTousers?: Prisma.cash_transfersUncheckedCreateNestedManyWithoutUsers_cash_transfers_deleted_byTousersInput
+  cash_transfers_cash_transfers_updated_byTousers?: Prisma.cash_transfersUncheckedCreateNestedManyWithoutUsers_cash_transfers_updated_byTousersInput
+  daily_sale_record_audits?: Prisma.daily_sale_record_auditsUncheckedCreateNestedManyWithoutUsersInput
+  daily_sale_records_daily_sale_records_created_byTousers?: Prisma.daily_sale_recordsUncheckedCreateNestedManyWithoutUsers_daily_sale_records_created_byTousersInput
+  daily_sale_records_daily_sale_records_fed_byTousers?: Prisma.daily_sale_recordsUncheckedCreateNestedManyWithoutUsers_daily_sale_records_fed_byTousersInput
+  daily_sale_records_daily_sale_records_locked_byTousers?: Prisma.daily_sale_recordsUncheckedCreateNestedManyWithoutUsers_daily_sale_records_locked_byTousersInput
+  daily_sale_records_daily_sale_records_verified_byTousers?: Prisma.daily_sale_recordsUncheckedCreateNestedManyWithoutUsers_daily_sale_records_verified_byTousersInput
+  employee_advances_employee_advances_approved_byTousers?: Prisma.employee_advancesUncheckedCreateNestedManyWithoutUsers_employee_advances_approved_byTousersInput
+  employee_advances_employee_advances_created_byTousers?: Prisma.employee_advancesUncheckedCreateNestedManyWithoutUsers_employee_advances_created_byTousersInput
+  employee_advances_employee_advances_deleted_byTousers?: Prisma.employee_advancesUncheckedCreateNestedManyWithoutUsers_employee_advances_deleted_byTousersInput
+  event_branch_demands_event_branch_demands_reviewed_byTousers?: Prisma.event_branch_demandsUncheckedCreateNestedManyWithoutUsers_event_branch_demands_reviewed_byTousersInput
+  event_branch_demands_event_branch_demands_submitted_byTousers?: Prisma.event_branch_demandsUncheckedCreateNestedManyWithoutUsers_event_branch_demands_submitted_byTousersInput
+  event_production_status?: Prisma.event_production_statusUncheckedCreateNestedManyWithoutUsersInput
+  expenses?: Prisma.expensesUncheckedCreateNestedManyWithoutUsersInput
+  finance_amendments?: Prisma.finance_amendmentsUncheckedCreateNestedManyWithoutUsersInput
+  finance_audit_logs?: Prisma.finance_audit_logsUncheckedCreateNestedManyWithoutUsersInput
+  finance_day_closings?: Prisma.finance_day_closingsUncheckedCreateNestedManyWithoutUsersInput
+  finance_income_approvals_finance_income_approvals_approved_byTousers?: Prisma.finance_income_approvalsUncheckedCreateNestedManyWithoutUsers_finance_income_approvals_approved_byTousersInput
+  finance_income_approvals_finance_income_approvals_deleted_byTousers?: Prisma.finance_income_approvalsUncheckedCreateNestedManyWithoutUsers_finance_income_approvals_deleted_byTousersInput
+  finance_income_approvals_finance_income_approvals_verified_byTousers?: Prisma.finance_income_approvalsUncheckedCreateNestedManyWithoutUsers_finance_income_approvals_verified_byTousersInput
+  finance_queries_finance_queries_created_byTousers?: Prisma.finance_queriesUncheckedCreateNestedManyWithoutUsers_finance_queries_created_byTousersInput
+  finance_queries_finance_queries_updated_byTousers?: Prisma.finance_queriesUncheckedCreateNestedManyWithoutUsers_finance_queries_updated_byTousersInput
+  finance_ticket_messages?: Prisma.finance_ticket_messagesUncheckedCreateNestedManyWithoutUsersInput
+  finance_ticket_versions?: Prisma.finance_ticket_versionsUncheckedCreateNestedManyWithoutUsersInput
+  finance_tickets_finance_tickets_amended_byTousers?: Prisma.finance_ticketsUncheckedCreateNestedManyWithoutUsers_finance_tickets_amended_byTousersInput
+  finance_tickets_finance_tickets_assigned_toTousers?: Prisma.finance_ticketsUncheckedCreateNestedManyWithoutUsers_finance_tickets_assigned_toTousersInput
+  finance_tickets_finance_tickets_deleted_byTousers?: Prisma.finance_ticketsUncheckedCreateNestedManyWithoutUsers_finance_tickets_deleted_byTousersInput
+  finance_tickets_finance_tickets_raised_byTousers?: Prisma.finance_ticketsUncheckedCreateNestedManyWithoutUsers_finance_tickets_raised_byTousersInput
+  finance_tickets_finance_tickets_reopened_byTousers?: Prisma.finance_ticketsUncheckedCreateNestedManyWithoutUsers_finance_tickets_reopened_byTousersInput
+  finance_tickets_finance_tickets_resolved_byTousers?: Prisma.finance_ticketsUncheckedCreateNestedManyWithoutUsers_finance_tickets_resolved_byTousersInput
+  finance_tickets_finance_tickets_responded_byTousers?: Prisma.finance_ticketsUncheckedCreateNestedManyWithoutUsers_finance_tickets_responded_byTousersInput
+  finance_tickets_finance_tickets_restored_byTousers?: Prisma.finance_ticketsUncheckedCreateNestedManyWithoutUsers_finance_tickets_restored_byTousersInput
+  finance_transactions_finance_transactions_approved_byTousers?: Prisma.finance_transactionsUncheckedCreateNestedManyWithoutUsers_finance_transactions_approved_byTousersInput
+  finance_transactions_finance_transactions_created_byTousers?: Prisma.finance_transactionsUncheckedCreateNestedManyWithoutUsers_finance_transactions_created_byTousersInput
+  finance_transactions_finance_transactions_deleted_byTousers?: Prisma.finance_transactionsUncheckedCreateNestedManyWithoutUsers_finance_transactions_deleted_byTousersInput
+  geofence_logs?: Prisma.geofence_logsUncheckedCreateNestedManyWithoutUsersInput
+  ledger_entries_ledger_entries_approved_byTousers?: Prisma.ledger_entriesUncheckedCreateNestedManyWithoutUsers_ledger_entries_approved_byTousersInput
+  ledger_entries_ledger_entries_created_byTousers?: Prisma.ledger_entriesUncheckedCreateNestedManyWithoutUsers_ledger_entries_created_byTousersInput
+  ledger_entries_ledger_entries_deleted_byTousers?: Prisma.ledger_entriesUncheckedCreateNestedManyWithoutUsers_ledger_entries_deleted_byTousersInput
+  ledger_entries_ledger_entries_updated_byTousers?: Prisma.ledger_entriesUncheckedCreateNestedManyWithoutUsers_ledger_entries_updated_byTousersInput
+  ledger_heads?: Prisma.ledger_headsUncheckedCreateNestedManyWithoutUsersInput
+  login_sessions_login_sessions_revoked_byTousers?: Prisma.login_sessionsUncheckedCreateNestedManyWithoutUsers_login_sessions_revoked_byTousersInput
+  login_sessions_login_sessions_user_idTousers?: Prisma.login_sessionsUncheckedCreateNestedManyWithoutUsers_login_sessions_user_idTousersInput
+  notification_reads?: Prisma.notification_readsUncheckedCreateNestedManyWithoutUsersInput
+  notifications?: Prisma.notificationsUncheckedCreateNestedManyWithoutUsersInput
+  orders?: Prisma.ordersUncheckedCreateNestedManyWithoutUsersInput
+  packing_materials?: Prisma.packing_materialsUncheckedCreateNestedManyWithoutUsersInput
+  partner_expenses_partner_expenses_approved_byTousers?: Prisma.partner_expensesUncheckedCreateNestedManyWithoutUsers_partner_expenses_approved_byTousersInput
+  partner_expenses_partner_expenses_deleted_byTousers?: Prisma.partner_expensesUncheckedCreateNestedManyWithoutUsers_partner_expenses_deleted_byTousersInput
+  partner_expenses_partner_expenses_requested_byTousers?: Prisma.partner_expensesUncheckedCreateNestedManyWithoutUsers_partner_expenses_requested_byTousersInput
+  password_reset_tokens?: Prisma.password_reset_tokensUncheckedCreateNestedManyWithoutUsersInput
+  payment_method_settings?: Prisma.payment_method_settingsUncheckedCreateNestedManyWithoutUsersInput
+  product_price_history?: Prisma.product_price_historyUncheckedCreateNestedManyWithoutUsersInput
+  production_orders_production_orders_approved_byTousers?: Prisma.production_ordersUncheckedCreateNestedManyWithoutUsers_production_orders_approved_byTousersInput
+  production_orders_production_orders_cancelled_byTousers?: Prisma.production_ordersUncheckedCreateNestedManyWithoutUsers_production_orders_cancelled_byTousersInput
+  production_orders_production_orders_created_byTousers?: Prisma.production_ordersUncheckedCreateNestedManyWithoutUsers_production_orders_created_byTousersInput
+  production_orders_production_orders_verified_byTousers?: Prisma.production_ordersUncheckedCreateNestedManyWithoutUsers_production_orders_verified_byTousersInput
+  production_returns_production_returns_created_byTousers?: Prisma.production_returnsUncheckedCreateNestedManyWithoutUsers_production_returns_created_byTousersInput
+  production_returns_production_returns_reviewed_byTousers?: Prisma.production_returnsUncheckedCreateNestedManyWithoutUsers_production_returns_reviewed_byTousersInput
+  production_stock_history?: Prisma.production_stock_historyUncheckedCreateNestedManyWithoutUsersInput
+  push_subscriptions?: Prisma.push_subscriptionsUncheckedCreateNestedManyWithoutUsersInput
+  restriction_events?: Prisma.restriction_eventsUncheckedCreateNestedManyWithoutUsersInput
+  restriction_requests_restriction_requests_decided_byTousers?: Prisma.restriction_requestsUncheckedCreateNestedManyWithoutUsers_restriction_requests_decided_byTousersInput
+  restriction_requests_restriction_requests_requested_byTousers?: Prisma.restriction_requestsUncheckedCreateNestedManyWithoutUsers_restriction_requests_requested_byTousersInput
+  restriction_rules?: Prisma.restriction_rulesUncheckedCreateNestedManyWithoutUsersInput
+  return_stock_history?: Prisma.return_stock_historyUncheckedCreateNestedManyWithoutUsersInput
+  salary_payments_salary_payments_approved_byTousers?: Prisma.salary_paymentsUncheckedCreateNestedManyWithoutUsers_salary_payments_approved_byTousersInput
+  salary_payments_salary_payments_created_byTousers?: Prisma.salary_paymentsUncheckedCreateNestedManyWithoutUsers_salary_payments_created_byTousersInput
+  salary_payments_salary_payments_deleted_byTousers?: Prisma.salary_paymentsUncheckedCreateNestedManyWithoutUsers_salary_payments_deleted_byTousersInput
+  salary_revisions?: Prisma.salary_revisionsUncheckedCreateNestedManyWithoutUsersInput
+  settings?: Prisma.settingsUncheckedCreateNestedManyWithoutUsersInput
+  special_events?: Prisma.special_eventsUncheckedCreateNestedManyWithoutUsersInput
+  special_orders_special_orders_approved_byTousers?: Prisma.special_ordersUncheckedCreateNestedManyWithoutUsers_special_orders_approved_byTousersInput
+  special_orders_special_orders_created_byTousers?: Prisma.special_ordersUncheckedCreateNestedManyWithoutUsers_special_orders_created_byTousersInput
+  special_orders_special_orders_prepared_byTousers?: Prisma.special_ordersUncheckedCreateNestedManyWithoutUsers_special_orders_prepared_byTousersInput
+  special_orders_special_orders_verified_byTousers?: Prisma.special_ordersUncheckedCreateNestedManyWithoutUsers_special_orders_verified_byTousersInput
+  stock_audit_log?: Prisma.stock_audit_logUncheckedCreateNestedManyWithoutUsersInput
+  support_tickets_support_tickets_raised_byTousers?: Prisma.support_ticketsUncheckedCreateNestedManyWithoutUsers_support_tickets_raised_byTousersInput
+  support_tickets_support_tickets_resolved_byTousers?: Prisma.support_ticketsUncheckedCreateNestedManyWithoutUsers_support_tickets_resolved_byTousersInput
+  other_users?: Prisma.usersUncheckedCreateNestedManyWithoutUsersInput
+}
+
+export type usersCreateOrConnectWithoutUser_credentialsInput = {
+  where: Prisma.usersWhereUniqueInput
+  create: Prisma.XOR<Prisma.usersCreateWithoutUser_credentialsInput, Prisma.usersUncheckedCreateWithoutUser_credentialsInput>
+}
+
+export type usersUpsertWithoutUser_credentialsInput = {
+  update: Prisma.XOR<Prisma.usersUpdateWithoutUser_credentialsInput, Prisma.usersUncheckedUpdateWithoutUser_credentialsInput>
+  create: Prisma.XOR<Prisma.usersCreateWithoutUser_credentialsInput, Prisma.usersUncheckedCreateWithoutUser_credentialsInput>
+  where?: Prisma.usersWhereInput
+}
+
+export type usersUpdateToOneWithWhereWithoutUser_credentialsInput = {
+  where?: Prisma.usersWhereInput
+  data: Prisma.XOR<Prisma.usersUpdateWithoutUser_credentialsInput, Prisma.usersUncheckedUpdateWithoutUser_credentialsInput>
+}
+
+export type usersUpdateWithoutUser_credentialsInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  email?: Prisma.StringFieldUpdateOperationsInput | string
+  display_name?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  phone?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  username?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  role?: Prisma.Enumuser_roleFieldUpdateOperationsInput | $Enums.user_role
+  branch_name?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  status?: Prisma.Enumuser_statusFieldUpdateOperationsInput | $Enums.user_status
+  last_login_at?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  must_change_password?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  last_password_reset?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  password_reset_by_name?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  created_at?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  updated_at?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  user_code?: Prisma.StringFieldUpdateOperationsInput | string
+  attachments?: Prisma.attachmentsUpdateManyWithoutUsersNestedInput
+  audit_logs_audit_logs_admin_idTousers?: Prisma.audit_logsUpdateManyWithoutUsers_audit_logs_admin_idTousersNestedInput
+  audit_logs_audit_logs_target_user_idTousers?: Prisma.audit_logsUpdateManyWithoutUsers_audit_logs_target_user_idTousersNestedInput
+  auth_sessions?: Prisma.auth_sessionsUpdateManyWithoutUsersNestedInput
+  backup_jobs?: Prisma.backup_jobsUpdateManyWithoutUsersNestedInput
+  branch_discounts_branch_discounts_created_byTousers?: Prisma.branch_discountsUpdateManyWithoutUsers_branch_discounts_created_byTousersNestedInput
+  branch_discounts_branch_discounts_reviewed_byTousers?: Prisma.branch_discountsUpdateManyWithoutUsers_branch_discounts_reviewed_byTousersNestedInput
+  branch_locations?: Prisma.branch_locationsUpdateManyWithoutUsersNestedInput
+  branch_share_payments_branch_share_payments_approved_byTousers?: Prisma.branch_share_paymentsUpdateManyWithoutUsers_branch_share_payments_approved_byTousersNestedInput
+  branch_share_payments_branch_share_payments_deleted_byTousers?: Prisma.branch_share_paymentsUpdateManyWithoutUsers_branch_share_payments_deleted_byTousersNestedInput
+  branch_share_payments_branch_share_payments_requested_byTousers?: Prisma.branch_share_paymentsUpdateManyWithoutUsers_branch_share_payments_requested_byTousersNestedInput
+  branches_branches_manager_idTousers?: Prisma.branchesUpdateManyWithoutUsers_branches_manager_idTousersNestedInput
+  cash_transfers_cash_transfers_approved_byTousers?: Prisma.cash_transfersUpdateManyWithoutUsers_cash_transfers_approved_byTousersNestedInput
+  cash_transfers_cash_transfers_created_byTousers?: Prisma.cash_transfersUpdateManyWithoutUsers_cash_transfers_created_byTousersNestedInput
+  cash_transfers_cash_transfers_deleted_byTousers?: Prisma.cash_transfersUpdateManyWithoutUsers_cash_transfers_deleted_byTousersNestedInput
+  cash_transfers_cash_transfers_updated_byTousers?: Prisma.cash_transfersUpdateManyWithoutUsers_cash_transfers_updated_byTousersNestedInput
+  daily_sale_record_audits?: Prisma.daily_sale_record_auditsUpdateManyWithoutUsersNestedInput
+  daily_sale_records_daily_sale_records_created_byTousers?: Prisma.daily_sale_recordsUpdateManyWithoutUsers_daily_sale_records_created_byTousersNestedInput
+  daily_sale_records_daily_sale_records_fed_byTousers?: Prisma.daily_sale_recordsUpdateManyWithoutUsers_daily_sale_records_fed_byTousersNestedInput
+  daily_sale_records_daily_sale_records_locked_byTousers?: Prisma.daily_sale_recordsUpdateManyWithoutUsers_daily_sale_records_locked_byTousersNestedInput
+  daily_sale_records_daily_sale_records_verified_byTousers?: Prisma.daily_sale_recordsUpdateManyWithoutUsers_daily_sale_records_verified_byTousersNestedInput
+  employee_advances_employee_advances_approved_byTousers?: Prisma.employee_advancesUpdateManyWithoutUsers_employee_advances_approved_byTousersNestedInput
+  employee_advances_employee_advances_created_byTousers?: Prisma.employee_advancesUpdateManyWithoutUsers_employee_advances_created_byTousersNestedInput
+  employee_advances_employee_advances_deleted_byTousers?: Prisma.employee_advancesUpdateManyWithoutUsers_employee_advances_deleted_byTousersNestedInput
+  event_branch_demands_event_branch_demands_reviewed_byTousers?: Prisma.event_branch_demandsUpdateManyWithoutUsers_event_branch_demands_reviewed_byTousersNestedInput
+  event_branch_demands_event_branch_demands_submitted_byTousers?: Prisma.event_branch_demandsUpdateManyWithoutUsers_event_branch_demands_submitted_byTousersNestedInput
+  event_production_status?: Prisma.event_production_statusUpdateManyWithoutUsersNestedInput
+  expenses?: Prisma.expensesUpdateManyWithoutUsersNestedInput
+  finance_amendments?: Prisma.finance_amendmentsUpdateManyWithoutUsersNestedInput
+  finance_audit_logs?: Prisma.finance_audit_logsUpdateManyWithoutUsersNestedInput
+  finance_day_closings?: Prisma.finance_day_closingsUpdateManyWithoutUsersNestedInput
+  finance_income_approvals_finance_income_approvals_approved_byTousers?: Prisma.finance_income_approvalsUpdateManyWithoutUsers_finance_income_approvals_approved_byTousersNestedInput
+  finance_income_approvals_finance_income_approvals_deleted_byTousers?: Prisma.finance_income_approvalsUpdateManyWithoutUsers_finance_income_approvals_deleted_byTousersNestedInput
+  finance_income_approvals_finance_income_approvals_verified_byTousers?: Prisma.finance_income_approvalsUpdateManyWithoutUsers_finance_income_approvals_verified_byTousersNestedInput
+  finance_queries_finance_queries_created_byTousers?: Prisma.finance_queriesUpdateManyWithoutUsers_finance_queries_created_byTousersNestedInput
+  finance_queries_finance_queries_updated_byTousers?: Prisma.finance_queriesUpdateManyWithoutUsers_finance_queries_updated_byTousersNestedInput
+  finance_ticket_messages?: Prisma.finance_ticket_messagesUpdateManyWithoutUsersNestedInput
+  finance_ticket_versions?: Prisma.finance_ticket_versionsUpdateManyWithoutUsersNestedInput
+  finance_tickets_finance_tickets_amended_byTousers?: Prisma.finance_ticketsUpdateManyWithoutUsers_finance_tickets_amended_byTousersNestedInput
+  finance_tickets_finance_tickets_assigned_toTousers?: Prisma.finance_ticketsUpdateManyWithoutUsers_finance_tickets_assigned_toTousersNestedInput
+  finance_tickets_finance_tickets_deleted_byTousers?: Prisma.finance_ticketsUpdateManyWithoutUsers_finance_tickets_deleted_byTousersNestedInput
+  finance_tickets_finance_tickets_raised_byTousers?: Prisma.finance_ticketsUpdateManyWithoutUsers_finance_tickets_raised_byTousersNestedInput
+  finance_tickets_finance_tickets_reopened_byTousers?: Prisma.finance_ticketsUpdateManyWithoutUsers_finance_tickets_reopened_byTousersNestedInput
+  finance_tickets_finance_tickets_resolved_byTousers?: Prisma.finance_ticketsUpdateManyWithoutUsers_finance_tickets_resolved_byTousersNestedInput
+  finance_tickets_finance_tickets_responded_byTousers?: Prisma.finance_ticketsUpdateManyWithoutUsers_finance_tickets_responded_byTousersNestedInput
+  finance_tickets_finance_tickets_restored_byTousers?: Prisma.finance_ticketsUpdateManyWithoutUsers_finance_tickets_restored_byTousersNestedInput
+  finance_transactions_finance_transactions_approved_byTousers?: Prisma.finance_transactionsUpdateManyWithoutUsers_finance_transactions_approved_byTousersNestedInput
+  finance_transactions_finance_transactions_created_byTousers?: Prisma.finance_transactionsUpdateManyWithoutUsers_finance_transactions_created_byTousersNestedInput
+  finance_transactions_finance_transactions_deleted_byTousers?: Prisma.finance_transactionsUpdateManyWithoutUsers_finance_transactions_deleted_byTousersNestedInput
+  geofence_logs?: Prisma.geofence_logsUpdateManyWithoutUsersNestedInput
+  ledger_entries_ledger_entries_approved_byTousers?: Prisma.ledger_entriesUpdateManyWithoutUsers_ledger_entries_approved_byTousersNestedInput
+  ledger_entries_ledger_entries_created_byTousers?: Prisma.ledger_entriesUpdateManyWithoutUsers_ledger_entries_created_byTousersNestedInput
+  ledger_entries_ledger_entries_deleted_byTousers?: Prisma.ledger_entriesUpdateManyWithoutUsers_ledger_entries_deleted_byTousersNestedInput
+  ledger_entries_ledger_entries_updated_byTousers?: Prisma.ledger_entriesUpdateManyWithoutUsers_ledger_entries_updated_byTousersNestedInput
+  ledger_heads?: Prisma.ledger_headsUpdateManyWithoutUsersNestedInput
+  login_sessions_login_sessions_revoked_byTousers?: Prisma.login_sessionsUpdateManyWithoutUsers_login_sessions_revoked_byTousersNestedInput
+  login_sessions_login_sessions_user_idTousers?: Prisma.login_sessionsUpdateManyWithoutUsers_login_sessions_user_idTousersNestedInput
+  notification_reads?: Prisma.notification_readsUpdateManyWithoutUsersNestedInput
+  notifications?: Prisma.notificationsUpdateManyWithoutUsersNestedInput
+  orders?: Prisma.ordersUpdateManyWithoutUsersNestedInput
+  packing_materials?: Prisma.packing_materialsUpdateManyWithoutUsersNestedInput
+  partner_expenses_partner_expenses_approved_byTousers?: Prisma.partner_expensesUpdateManyWithoutUsers_partner_expenses_approved_byTousersNestedInput
+  partner_expenses_partner_expenses_deleted_byTousers?: Prisma.partner_expensesUpdateManyWithoutUsers_partner_expenses_deleted_byTousersNestedInput
+  partner_expenses_partner_expenses_requested_byTousers?: Prisma.partner_expensesUpdateManyWithoutUsers_partner_expenses_requested_byTousersNestedInput
+  password_reset_tokens?: Prisma.password_reset_tokensUpdateManyWithoutUsersNestedInput
+  payment_method_settings?: Prisma.payment_method_settingsUpdateManyWithoutUsersNestedInput
+  product_price_history?: Prisma.product_price_historyUpdateManyWithoutUsersNestedInput
+  production_orders_production_orders_approved_byTousers?: Prisma.production_ordersUpdateManyWithoutUsers_production_orders_approved_byTousersNestedInput
+  production_orders_production_orders_cancelled_byTousers?: Prisma.production_ordersUpdateManyWithoutUsers_production_orders_cancelled_byTousersNestedInput
+  production_orders_production_orders_created_byTousers?: Prisma.production_ordersUpdateManyWithoutUsers_production_orders_created_byTousersNestedInput
+  production_orders_production_orders_verified_byTousers?: Prisma.production_ordersUpdateManyWithoutUsers_production_orders_verified_byTousersNestedInput
+  production_returns_production_returns_created_byTousers?: Prisma.production_returnsUpdateManyWithoutUsers_production_returns_created_byTousersNestedInput
+  production_returns_production_returns_reviewed_byTousers?: Prisma.production_returnsUpdateManyWithoutUsers_production_returns_reviewed_byTousersNestedInput
+  production_stock_history?: Prisma.production_stock_historyUpdateManyWithoutUsersNestedInput
+  push_subscriptions?: Prisma.push_subscriptionsUpdateManyWithoutUsersNestedInput
+  restriction_events?: Prisma.restriction_eventsUpdateManyWithoutUsersNestedInput
+  restriction_requests_restriction_requests_decided_byTousers?: Prisma.restriction_requestsUpdateManyWithoutUsers_restriction_requests_decided_byTousersNestedInput
+  restriction_requests_restriction_requests_requested_byTousers?: Prisma.restriction_requestsUpdateManyWithoutUsers_restriction_requests_requested_byTousersNestedInput
+  restriction_rules?: Prisma.restriction_rulesUpdateManyWithoutUsersNestedInput
+  return_stock_history?: Prisma.return_stock_historyUpdateManyWithoutUsersNestedInput
+  salary_payments_salary_payments_approved_byTousers?: Prisma.salary_paymentsUpdateManyWithoutUsers_salary_payments_approved_byTousersNestedInput
+  salary_payments_salary_payments_created_byTousers?: Prisma.salary_paymentsUpdateManyWithoutUsers_salary_payments_created_byTousersNestedInput
+  salary_payments_salary_payments_deleted_byTousers?: Prisma.salary_paymentsUpdateManyWithoutUsers_salary_payments_deleted_byTousersNestedInput
+  salary_revisions?: Prisma.salary_revisionsUpdateManyWithoutUsersNestedInput
+  settings?: Prisma.settingsUpdateManyWithoutUsersNestedInput
+  special_events?: Prisma.special_eventsUpdateManyWithoutUsersNestedInput
+  special_orders_special_orders_approved_byTousers?: Prisma.special_ordersUpdateManyWithoutUsers_special_orders_approved_byTousersNestedInput
+  special_orders_special_orders_created_byTousers?: Prisma.special_ordersUpdateManyWithoutUsers_special_orders_created_byTousersNestedInput
+  special_orders_special_orders_prepared_byTousers?: Prisma.special_ordersUpdateManyWithoutUsers_special_orders_prepared_byTousersNestedInput
+  special_orders_special_orders_verified_byTousers?: Prisma.special_ordersUpdateManyWithoutUsers_special_orders_verified_byTousersNestedInput
+  stock_audit_log?: Prisma.stock_audit_logUpdateManyWithoutUsersNestedInput
+  support_tickets_support_tickets_raised_byTousers?: Prisma.support_ticketsUpdateManyWithoutUsers_support_tickets_raised_byTousersNestedInput
+  support_tickets_support_tickets_resolved_byTousers?: Prisma.support_ticketsUpdateManyWithoutUsers_support_tickets_resolved_byTousersNestedInput
+  branches_users_branch_idTobranches?: Prisma.branchesUpdateOneWithoutUsers_users_branch_idTobranchesNestedInput
+  users?: Prisma.usersUpdateOneWithoutOther_usersNestedInput
+  other_users?: Prisma.usersUpdateManyWithoutUsersNestedInput
+}
+
+export type usersUncheckedUpdateWithoutUser_credentialsInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  email?: Prisma.StringFieldUpdateOperationsInput | string
+  display_name?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  phone?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  username?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  role?: Prisma.Enumuser_roleFieldUpdateOperationsInput | $Enums.user_role
+  branch_id?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  branch_name?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  status?: Prisma.Enumuser_statusFieldUpdateOperationsInput | $Enums.user_status
+  last_login_at?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  must_change_password?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  last_password_reset?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  password_reset_by?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  password_reset_by_name?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  created_at?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  updated_at?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  user_code?: Prisma.StringFieldUpdateOperationsInput | string
+  attachments?: Prisma.attachmentsUncheckedUpdateManyWithoutUsersNestedInput
+  audit_logs_audit_logs_admin_idTousers?: Prisma.audit_logsUncheckedUpdateManyWithoutUsers_audit_logs_admin_idTousersNestedInput
+  audit_logs_audit_logs_target_user_idTousers?: Prisma.audit_logsUncheckedUpdateManyWithoutUsers_audit_logs_target_user_idTousersNestedInput
+  auth_sessions?: Prisma.auth_sessionsUncheckedUpdateManyWithoutUsersNestedInput
+  backup_jobs?: Prisma.backup_jobsUncheckedUpdateManyWithoutUsersNestedInput
+  branch_discounts_branch_discounts_created_byTousers?: Prisma.branch_discountsUncheckedUpdateManyWithoutUsers_branch_discounts_created_byTousersNestedInput
+  branch_discounts_branch_discounts_reviewed_byTousers?: Prisma.branch_discountsUncheckedUpdateManyWithoutUsers_branch_discounts_reviewed_byTousersNestedInput
+  branch_locations?: Prisma.branch_locationsUncheckedUpdateManyWithoutUsersNestedInput
+  branch_share_payments_branch_share_payments_approved_byTousers?: Prisma.branch_share_paymentsUncheckedUpdateManyWithoutUsers_branch_share_payments_approved_byTousersNestedInput
+  branch_share_payments_branch_share_payments_deleted_byTousers?: Prisma.branch_share_paymentsUncheckedUpdateManyWithoutUsers_branch_share_payments_deleted_byTousersNestedInput
+  branch_share_payments_branch_share_payments_requested_byTousers?: Prisma.branch_share_paymentsUncheckedUpdateManyWithoutUsers_branch_share_payments_requested_byTousersNestedInput
+  branches_branches_manager_idTousers?: Prisma.branchesUncheckedUpdateManyWithoutUsers_branches_manager_idTousersNestedInput
+  cash_transfers_cash_transfers_approved_byTousers?: Prisma.cash_transfersUncheckedUpdateManyWithoutUsers_cash_transfers_approved_byTousersNestedInput
+  cash_transfers_cash_transfers_created_byTousers?: Prisma.cash_transfersUncheckedUpdateManyWithoutUsers_cash_transfers_created_byTousersNestedInput
+  cash_transfers_cash_transfers_deleted_byTousers?: Prisma.cash_transfersUncheckedUpdateManyWithoutUsers_cash_transfers_deleted_byTousersNestedInput
+  cash_transfers_cash_transfers_updated_byTousers?: Prisma.cash_transfersUncheckedUpdateManyWithoutUsers_cash_transfers_updated_byTousersNestedInput
+  daily_sale_record_audits?: Prisma.daily_sale_record_auditsUncheckedUpdateManyWithoutUsersNestedInput
+  daily_sale_records_daily_sale_records_created_byTousers?: Prisma.daily_sale_recordsUncheckedUpdateManyWithoutUsers_daily_sale_records_created_byTousersNestedInput
+  daily_sale_records_daily_sale_records_fed_byTousers?: Prisma.daily_sale_recordsUncheckedUpdateManyWithoutUsers_daily_sale_records_fed_byTousersNestedInput
+  daily_sale_records_daily_sale_records_locked_byTousers?: Prisma.daily_sale_recordsUncheckedUpdateManyWithoutUsers_daily_sale_records_locked_byTousersNestedInput
+  daily_sale_records_daily_sale_records_verified_byTousers?: Prisma.daily_sale_recordsUncheckedUpdateManyWithoutUsers_daily_sale_records_verified_byTousersNestedInput
+  employee_advances_employee_advances_approved_byTousers?: Prisma.employee_advancesUncheckedUpdateManyWithoutUsers_employee_advances_approved_byTousersNestedInput
+  employee_advances_employee_advances_created_byTousers?: Prisma.employee_advancesUncheckedUpdateManyWithoutUsers_employee_advances_created_byTousersNestedInput
+  employee_advances_employee_advances_deleted_byTousers?: Prisma.employee_advancesUncheckedUpdateManyWithoutUsers_employee_advances_deleted_byTousersNestedInput
+  event_branch_demands_event_branch_demands_reviewed_byTousers?: Prisma.event_branch_demandsUncheckedUpdateManyWithoutUsers_event_branch_demands_reviewed_byTousersNestedInput
+  event_branch_demands_event_branch_demands_submitted_byTousers?: Prisma.event_branch_demandsUncheckedUpdateManyWithoutUsers_event_branch_demands_submitted_byTousersNestedInput
+  event_production_status?: Prisma.event_production_statusUncheckedUpdateManyWithoutUsersNestedInput
+  expenses?: Prisma.expensesUncheckedUpdateManyWithoutUsersNestedInput
+  finance_amendments?: Prisma.finance_amendmentsUncheckedUpdateManyWithoutUsersNestedInput
+  finance_audit_logs?: Prisma.finance_audit_logsUncheckedUpdateManyWithoutUsersNestedInput
+  finance_day_closings?: Prisma.finance_day_closingsUncheckedUpdateManyWithoutUsersNestedInput
+  finance_income_approvals_finance_income_approvals_approved_byTousers?: Prisma.finance_income_approvalsUncheckedUpdateManyWithoutUsers_finance_income_approvals_approved_byTousersNestedInput
+  finance_income_approvals_finance_income_approvals_deleted_byTousers?: Prisma.finance_income_approvalsUncheckedUpdateManyWithoutUsers_finance_income_approvals_deleted_byTousersNestedInput
+  finance_income_approvals_finance_income_approvals_verified_byTousers?: Prisma.finance_income_approvalsUncheckedUpdateManyWithoutUsers_finance_income_approvals_verified_byTousersNestedInput
+  finance_queries_finance_queries_created_byTousers?: Prisma.finance_queriesUncheckedUpdateManyWithoutUsers_finance_queries_created_byTousersNestedInput
+  finance_queries_finance_queries_updated_byTousers?: Prisma.finance_queriesUncheckedUpdateManyWithoutUsers_finance_queries_updated_byTousersNestedInput
+  finance_ticket_messages?: Prisma.finance_ticket_messagesUncheckedUpdateManyWithoutUsersNestedInput
+  finance_ticket_versions?: Prisma.finance_ticket_versionsUncheckedUpdateManyWithoutUsersNestedInput
+  finance_tickets_finance_tickets_amended_byTousers?: Prisma.finance_ticketsUncheckedUpdateManyWithoutUsers_finance_tickets_amended_byTousersNestedInput
+  finance_tickets_finance_tickets_assigned_toTousers?: Prisma.finance_ticketsUncheckedUpdateManyWithoutUsers_finance_tickets_assigned_toTousersNestedInput
+  finance_tickets_finance_tickets_deleted_byTousers?: Prisma.finance_ticketsUncheckedUpdateManyWithoutUsers_finance_tickets_deleted_byTousersNestedInput
+  finance_tickets_finance_tickets_raised_byTousers?: Prisma.finance_ticketsUncheckedUpdateManyWithoutUsers_finance_tickets_raised_byTousersNestedInput
+  finance_tickets_finance_tickets_reopened_byTousers?: Prisma.finance_ticketsUncheckedUpdateManyWithoutUsers_finance_tickets_reopened_byTousersNestedInput
+  finance_tickets_finance_tickets_resolved_byTousers?: Prisma.finance_ticketsUncheckedUpdateManyWithoutUsers_finance_tickets_resolved_byTousersNestedInput
+  finance_tickets_finance_tickets_responded_byTousers?: Prisma.finance_ticketsUncheckedUpdateManyWithoutUsers_finance_tickets_responded_byTousersNestedInput
+  finance_tickets_finance_tickets_restored_byTousers?: Prisma.finance_ticketsUncheckedUpdateManyWithoutUsers_finance_tickets_restored_byTousersNestedInput
+  finance_transactions_finance_transactions_approved_byTousers?: Prisma.finance_transactionsUncheckedUpdateManyWithoutUsers_finance_transactions_approved_byTousersNestedInput
+  finance_transactions_finance_transactions_created_byTousers?: Prisma.finance_transactionsUncheckedUpdateManyWithoutUsers_finance_transactions_created_byTousersNestedInput
+  finance_transactions_finance_transactions_deleted_byTousers?: Prisma.finance_transactionsUncheckedUpdateManyWithoutUsers_finance_transactions_deleted_byTousersNestedInput
+  geofence_logs?: Prisma.geofence_logsUncheckedUpdateManyWithoutUsersNestedInput
+  ledger_entries_ledger_entries_approved_byTousers?: Prisma.ledger_entriesUncheckedUpdateManyWithoutUsers_ledger_entries_approved_byTousersNestedInput
+  ledger_entries_ledger_entries_created_byTousers?: Prisma.ledger_entriesUncheckedUpdateManyWithoutUsers_ledger_entries_created_byTousersNestedInput
+  ledger_entries_ledger_entries_deleted_byTousers?: Prisma.ledger_entriesUncheckedUpdateManyWithoutUsers_ledger_entries_deleted_byTousersNestedInput
+  ledger_entries_ledger_entries_updated_byTousers?: Prisma.ledger_entriesUncheckedUpdateManyWithoutUsers_ledger_entries_updated_byTousersNestedInput
+  ledger_heads?: Prisma.ledger_headsUncheckedUpdateManyWithoutUsersNestedInput
+  login_sessions_login_sessions_revoked_byTousers?: Prisma.login_sessionsUncheckedUpdateManyWithoutUsers_login_sessions_revoked_byTousersNestedInput
+  login_sessions_login_sessions_user_idTousers?: Prisma.login_sessionsUncheckedUpdateManyWithoutUsers_login_sessions_user_idTousersNestedInput
+  notification_reads?: Prisma.notification_readsUncheckedUpdateManyWithoutUsersNestedInput
+  notifications?: Prisma.notificationsUncheckedUpdateManyWithoutUsersNestedInput
+  orders?: Prisma.ordersUncheckedUpdateManyWithoutUsersNestedInput
+  packing_materials?: Prisma.packing_materialsUncheckedUpdateManyWithoutUsersNestedInput
+  partner_expenses_partner_expenses_approved_byTousers?: Prisma.partner_expensesUncheckedUpdateManyWithoutUsers_partner_expenses_approved_byTousersNestedInput
+  partner_expenses_partner_expenses_deleted_byTousers?: Prisma.partner_expensesUncheckedUpdateManyWithoutUsers_partner_expenses_deleted_byTousersNestedInput
+  partner_expenses_partner_expenses_requested_byTousers?: Prisma.partner_expensesUncheckedUpdateManyWithoutUsers_partner_expenses_requested_byTousersNestedInput
+  password_reset_tokens?: Prisma.password_reset_tokensUncheckedUpdateManyWithoutUsersNestedInput
+  payment_method_settings?: Prisma.payment_method_settingsUncheckedUpdateManyWithoutUsersNestedInput
+  product_price_history?: Prisma.product_price_historyUncheckedUpdateManyWithoutUsersNestedInput
+  production_orders_production_orders_approved_byTousers?: Prisma.production_ordersUncheckedUpdateManyWithoutUsers_production_orders_approved_byTousersNestedInput
+  production_orders_production_orders_cancelled_byTousers?: Prisma.production_ordersUncheckedUpdateManyWithoutUsers_production_orders_cancelled_byTousersNestedInput
+  production_orders_production_orders_created_byTousers?: Prisma.production_ordersUncheckedUpdateManyWithoutUsers_production_orders_created_byTousersNestedInput
+  production_orders_production_orders_verified_byTousers?: Prisma.production_ordersUncheckedUpdateManyWithoutUsers_production_orders_verified_byTousersNestedInput
+  production_returns_production_returns_created_byTousers?: Prisma.production_returnsUncheckedUpdateManyWithoutUsers_production_returns_created_byTousersNestedInput
+  production_returns_production_returns_reviewed_byTousers?: Prisma.production_returnsUncheckedUpdateManyWithoutUsers_production_returns_reviewed_byTousersNestedInput
+  production_stock_history?: Prisma.production_stock_historyUncheckedUpdateManyWithoutUsersNestedInput
+  push_subscriptions?: Prisma.push_subscriptionsUncheckedUpdateManyWithoutUsersNestedInput
+  restriction_events?: Prisma.restriction_eventsUncheckedUpdateManyWithoutUsersNestedInput
+  restriction_requests_restriction_requests_decided_byTousers?: Prisma.restriction_requestsUncheckedUpdateManyWithoutUsers_restriction_requests_decided_byTousersNestedInput
+  restriction_requests_restriction_requests_requested_byTousers?: Prisma.restriction_requestsUncheckedUpdateManyWithoutUsers_restriction_requests_requested_byTousersNestedInput
+  restriction_rules?: Prisma.restriction_rulesUncheckedUpdateManyWithoutUsersNestedInput
+  return_stock_history?: Prisma.return_stock_historyUncheckedUpdateManyWithoutUsersNestedInput
+  salary_payments_salary_payments_approved_byTousers?: Prisma.salary_paymentsUncheckedUpdateManyWithoutUsers_salary_payments_approved_byTousersNestedInput
+  salary_payments_salary_payments_created_byTousers?: Prisma.salary_paymentsUncheckedUpdateManyWithoutUsers_salary_payments_created_byTousersNestedInput
+  salary_payments_salary_payments_deleted_byTousers?: Prisma.salary_paymentsUncheckedUpdateManyWithoutUsers_salary_payments_deleted_byTousersNestedInput
+  salary_revisions?: Prisma.salary_revisionsUncheckedUpdateManyWithoutUsersNestedInput
+  settings?: Prisma.settingsUncheckedUpdateManyWithoutUsersNestedInput
+  special_events?: Prisma.special_eventsUncheckedUpdateManyWithoutUsersNestedInput
+  special_orders_special_orders_approved_byTousers?: Prisma.special_ordersUncheckedUpdateManyWithoutUsers_special_orders_approved_byTousersNestedInput
+  special_orders_special_orders_created_byTousers?: Prisma.special_ordersUncheckedUpdateManyWithoutUsers_special_orders_created_byTousersNestedInput
+  special_orders_special_orders_prepared_byTousers?: Prisma.special_ordersUncheckedUpdateManyWithoutUsers_special_orders_prepared_byTousersNestedInput
+  special_orders_special_orders_verified_byTousers?: Prisma.special_ordersUncheckedUpdateManyWithoutUsers_special_orders_verified_byTousersNestedInput
+  stock_audit_log?: Prisma.stock_audit_logUncheckedUpdateManyWithoutUsersNestedInput
+  support_tickets_support_tickets_raised_byTousers?: Prisma.support_ticketsUncheckedUpdateManyWithoutUsers_support_tickets_raised_byTousersNestedInput
+  support_tickets_support_tickets_resolved_byTousers?: Prisma.support_ticketsUncheckedUpdateManyWithoutUsers_support_tickets_resolved_byTousersNestedInput
+  other_users?: Prisma.usersUncheckedUpdateManyWithoutUsersNestedInput
+}
+
 export type usersCreateWithoutOther_usersInput = {
-  id: string
+  id?: string
   email: string
   display_name?: string | null
   phone?: string | null
@@ -46202,7 +47617,7 @@ export type usersCreateWithoutOther_usersInput = {
 }
 
 export type usersUncheckedCreateWithoutOther_usersInput = {
-  id: string
+  id?: string
   email: string
   display_name?: string | null
   phone?: string | null
@@ -46321,7 +47736,7 @@ export type usersCreateOrConnectWithoutOther_usersInput = {
 }
 
 export type usersCreateWithoutUsersInput = {
-  id: string
+  id?: string
   email: string
   display_name?: string | null
   phone?: string | null
@@ -46435,7 +47850,7 @@ export type usersCreateWithoutUsersInput = {
 }
 
 export type usersUncheckedCreateWithoutUsersInput = {
-  id: string
+  id?: string
   email: string
   display_name?: string | null
   phone?: string | null
@@ -46813,1424 +48228,8 @@ export type usersUpdateManyWithWhereWithoutUsersInput = {
   data: Prisma.XOR<Prisma.usersUpdateManyMutationInput, Prisma.usersUncheckedUpdateManyWithoutUsersInput>
 }
 
-export type usersCreateWithoutAuth_sessionsInput = {
-  id: string
-  email: string
-  display_name?: string | null
-  phone?: string | null
-  username?: string | null
-  role: $Enums.user_role
-  branch_name?: string | null
-  status?: $Enums.user_status
-  last_login_at?: Date | string | null
-  must_change_password?: boolean
-  last_password_reset?: Date | string | null
-  password_reset_by_name?: string | null
-  created_at?: Date | string
-  updated_at?: Date | string
-  user_code?: string
-  attachments?: Prisma.attachmentsCreateNestedManyWithoutUsersInput
-  audit_logs_audit_logs_admin_idTousers?: Prisma.audit_logsCreateNestedManyWithoutUsers_audit_logs_admin_idTousersInput
-  audit_logs_audit_logs_target_user_idTousers?: Prisma.audit_logsCreateNestedManyWithoutUsers_audit_logs_target_user_idTousersInput
-  backup_jobs?: Prisma.backup_jobsCreateNestedManyWithoutUsersInput
-  branch_discounts_branch_discounts_created_byTousers?: Prisma.branch_discountsCreateNestedManyWithoutUsers_branch_discounts_created_byTousersInput
-  branch_discounts_branch_discounts_reviewed_byTousers?: Prisma.branch_discountsCreateNestedManyWithoutUsers_branch_discounts_reviewed_byTousersInput
-  branch_locations?: Prisma.branch_locationsCreateNestedManyWithoutUsersInput
-  branch_share_payments_branch_share_payments_approved_byTousers?: Prisma.branch_share_paymentsCreateNestedManyWithoutUsers_branch_share_payments_approved_byTousersInput
-  branch_share_payments_branch_share_payments_deleted_byTousers?: Prisma.branch_share_paymentsCreateNestedManyWithoutUsers_branch_share_payments_deleted_byTousersInput
-  branch_share_payments_branch_share_payments_requested_byTousers?: Prisma.branch_share_paymentsCreateNestedManyWithoutUsers_branch_share_payments_requested_byTousersInput
-  branches_branches_manager_idTousers?: Prisma.branchesCreateNestedManyWithoutUsers_branches_manager_idTousersInput
-  cash_transfers_cash_transfers_approved_byTousers?: Prisma.cash_transfersCreateNestedManyWithoutUsers_cash_transfers_approved_byTousersInput
-  cash_transfers_cash_transfers_created_byTousers?: Prisma.cash_transfersCreateNestedManyWithoutUsers_cash_transfers_created_byTousersInput
-  cash_transfers_cash_transfers_deleted_byTousers?: Prisma.cash_transfersCreateNestedManyWithoutUsers_cash_transfers_deleted_byTousersInput
-  cash_transfers_cash_transfers_updated_byTousers?: Prisma.cash_transfersCreateNestedManyWithoutUsers_cash_transfers_updated_byTousersInput
-  daily_sale_record_audits?: Prisma.daily_sale_record_auditsCreateNestedManyWithoutUsersInput
-  daily_sale_records_daily_sale_records_created_byTousers?: Prisma.daily_sale_recordsCreateNestedManyWithoutUsers_daily_sale_records_created_byTousersInput
-  daily_sale_records_daily_sale_records_fed_byTousers?: Prisma.daily_sale_recordsCreateNestedManyWithoutUsers_daily_sale_records_fed_byTousersInput
-  daily_sale_records_daily_sale_records_locked_byTousers?: Prisma.daily_sale_recordsCreateNestedManyWithoutUsers_daily_sale_records_locked_byTousersInput
-  daily_sale_records_daily_sale_records_verified_byTousers?: Prisma.daily_sale_recordsCreateNestedManyWithoutUsers_daily_sale_records_verified_byTousersInput
-  employee_advances_employee_advances_approved_byTousers?: Prisma.employee_advancesCreateNestedManyWithoutUsers_employee_advances_approved_byTousersInput
-  employee_advances_employee_advances_created_byTousers?: Prisma.employee_advancesCreateNestedManyWithoutUsers_employee_advances_created_byTousersInput
-  employee_advances_employee_advances_deleted_byTousers?: Prisma.employee_advancesCreateNestedManyWithoutUsers_employee_advances_deleted_byTousersInput
-  event_branch_demands_event_branch_demands_reviewed_byTousers?: Prisma.event_branch_demandsCreateNestedManyWithoutUsers_event_branch_demands_reviewed_byTousersInput
-  event_branch_demands_event_branch_demands_submitted_byTousers?: Prisma.event_branch_demandsCreateNestedManyWithoutUsers_event_branch_demands_submitted_byTousersInput
-  event_production_status?: Prisma.event_production_statusCreateNestedManyWithoutUsersInput
-  expenses?: Prisma.expensesCreateNestedManyWithoutUsersInput
-  finance_amendments?: Prisma.finance_amendmentsCreateNestedManyWithoutUsersInput
-  finance_audit_logs?: Prisma.finance_audit_logsCreateNestedManyWithoutUsersInput
-  finance_day_closings?: Prisma.finance_day_closingsCreateNestedManyWithoutUsersInput
-  finance_income_approvals_finance_income_approvals_approved_byTousers?: Prisma.finance_income_approvalsCreateNestedManyWithoutUsers_finance_income_approvals_approved_byTousersInput
-  finance_income_approvals_finance_income_approvals_deleted_byTousers?: Prisma.finance_income_approvalsCreateNestedManyWithoutUsers_finance_income_approvals_deleted_byTousersInput
-  finance_income_approvals_finance_income_approvals_verified_byTousers?: Prisma.finance_income_approvalsCreateNestedManyWithoutUsers_finance_income_approvals_verified_byTousersInput
-  finance_queries_finance_queries_created_byTousers?: Prisma.finance_queriesCreateNestedManyWithoutUsers_finance_queries_created_byTousersInput
-  finance_queries_finance_queries_updated_byTousers?: Prisma.finance_queriesCreateNestedManyWithoutUsers_finance_queries_updated_byTousersInput
-  finance_ticket_messages?: Prisma.finance_ticket_messagesCreateNestedManyWithoutUsersInput
-  finance_ticket_versions?: Prisma.finance_ticket_versionsCreateNestedManyWithoutUsersInput
-  finance_tickets_finance_tickets_amended_byTousers?: Prisma.finance_ticketsCreateNestedManyWithoutUsers_finance_tickets_amended_byTousersInput
-  finance_tickets_finance_tickets_assigned_toTousers?: Prisma.finance_ticketsCreateNestedManyWithoutUsers_finance_tickets_assigned_toTousersInput
-  finance_tickets_finance_tickets_deleted_byTousers?: Prisma.finance_ticketsCreateNestedManyWithoutUsers_finance_tickets_deleted_byTousersInput
-  finance_tickets_finance_tickets_raised_byTousers?: Prisma.finance_ticketsCreateNestedManyWithoutUsers_finance_tickets_raised_byTousersInput
-  finance_tickets_finance_tickets_reopened_byTousers?: Prisma.finance_ticketsCreateNestedManyWithoutUsers_finance_tickets_reopened_byTousersInput
-  finance_tickets_finance_tickets_resolved_byTousers?: Prisma.finance_ticketsCreateNestedManyWithoutUsers_finance_tickets_resolved_byTousersInput
-  finance_tickets_finance_tickets_responded_byTousers?: Prisma.finance_ticketsCreateNestedManyWithoutUsers_finance_tickets_responded_byTousersInput
-  finance_tickets_finance_tickets_restored_byTousers?: Prisma.finance_ticketsCreateNestedManyWithoutUsers_finance_tickets_restored_byTousersInput
-  finance_transactions_finance_transactions_approved_byTousers?: Prisma.finance_transactionsCreateNestedManyWithoutUsers_finance_transactions_approved_byTousersInput
-  finance_transactions_finance_transactions_created_byTousers?: Prisma.finance_transactionsCreateNestedManyWithoutUsers_finance_transactions_created_byTousersInput
-  finance_transactions_finance_transactions_deleted_byTousers?: Prisma.finance_transactionsCreateNestedManyWithoutUsers_finance_transactions_deleted_byTousersInput
-  geofence_logs?: Prisma.geofence_logsCreateNestedManyWithoutUsersInput
-  ledger_entries_ledger_entries_approved_byTousers?: Prisma.ledger_entriesCreateNestedManyWithoutUsers_ledger_entries_approved_byTousersInput
-  ledger_entries_ledger_entries_created_byTousers?: Prisma.ledger_entriesCreateNestedManyWithoutUsers_ledger_entries_created_byTousersInput
-  ledger_entries_ledger_entries_deleted_byTousers?: Prisma.ledger_entriesCreateNestedManyWithoutUsers_ledger_entries_deleted_byTousersInput
-  ledger_entries_ledger_entries_updated_byTousers?: Prisma.ledger_entriesCreateNestedManyWithoutUsers_ledger_entries_updated_byTousersInput
-  ledger_heads?: Prisma.ledger_headsCreateNestedManyWithoutUsersInput
-  login_sessions_login_sessions_revoked_byTousers?: Prisma.login_sessionsCreateNestedManyWithoutUsers_login_sessions_revoked_byTousersInput
-  login_sessions_login_sessions_user_idTousers?: Prisma.login_sessionsCreateNestedManyWithoutUsers_login_sessions_user_idTousersInput
-  notification_reads?: Prisma.notification_readsCreateNestedManyWithoutUsersInput
-  notifications?: Prisma.notificationsCreateNestedManyWithoutUsersInput
-  orders?: Prisma.ordersCreateNestedManyWithoutUsersInput
-  packing_materials?: Prisma.packing_materialsCreateNestedManyWithoutUsersInput
-  partner_expenses_partner_expenses_approved_byTousers?: Prisma.partner_expensesCreateNestedManyWithoutUsers_partner_expenses_approved_byTousersInput
-  partner_expenses_partner_expenses_deleted_byTousers?: Prisma.partner_expensesCreateNestedManyWithoutUsers_partner_expenses_deleted_byTousersInput
-  partner_expenses_partner_expenses_requested_byTousers?: Prisma.partner_expensesCreateNestedManyWithoutUsers_partner_expenses_requested_byTousersInput
-  password_reset_tokens?: Prisma.password_reset_tokensCreateNestedManyWithoutUsersInput
-  payment_method_settings?: Prisma.payment_method_settingsCreateNestedManyWithoutUsersInput
-  product_price_history?: Prisma.product_price_historyCreateNestedManyWithoutUsersInput
-  production_orders_production_orders_approved_byTousers?: Prisma.production_ordersCreateNestedManyWithoutUsers_production_orders_approved_byTousersInput
-  production_orders_production_orders_cancelled_byTousers?: Prisma.production_ordersCreateNestedManyWithoutUsers_production_orders_cancelled_byTousersInput
-  production_orders_production_orders_created_byTousers?: Prisma.production_ordersCreateNestedManyWithoutUsers_production_orders_created_byTousersInput
-  production_orders_production_orders_verified_byTousers?: Prisma.production_ordersCreateNestedManyWithoutUsers_production_orders_verified_byTousersInput
-  production_returns_production_returns_created_byTousers?: Prisma.production_returnsCreateNestedManyWithoutUsers_production_returns_created_byTousersInput
-  production_returns_production_returns_reviewed_byTousers?: Prisma.production_returnsCreateNestedManyWithoutUsers_production_returns_reviewed_byTousersInput
-  production_stock_history?: Prisma.production_stock_historyCreateNestedManyWithoutUsersInput
-  push_subscriptions?: Prisma.push_subscriptionsCreateNestedManyWithoutUsersInput
-  restriction_events?: Prisma.restriction_eventsCreateNestedManyWithoutUsersInput
-  restriction_requests_restriction_requests_decided_byTousers?: Prisma.restriction_requestsCreateNestedManyWithoutUsers_restriction_requests_decided_byTousersInput
-  restriction_requests_restriction_requests_requested_byTousers?: Prisma.restriction_requestsCreateNestedManyWithoutUsers_restriction_requests_requested_byTousersInput
-  restriction_rules?: Prisma.restriction_rulesCreateNestedManyWithoutUsersInput
-  return_stock_history?: Prisma.return_stock_historyCreateNestedManyWithoutUsersInput
-  salary_payments_salary_payments_approved_byTousers?: Prisma.salary_paymentsCreateNestedManyWithoutUsers_salary_payments_approved_byTousersInput
-  salary_payments_salary_payments_created_byTousers?: Prisma.salary_paymentsCreateNestedManyWithoutUsers_salary_payments_created_byTousersInput
-  salary_payments_salary_payments_deleted_byTousers?: Prisma.salary_paymentsCreateNestedManyWithoutUsers_salary_payments_deleted_byTousersInput
-  salary_revisions?: Prisma.salary_revisionsCreateNestedManyWithoutUsersInput
-  settings?: Prisma.settingsCreateNestedManyWithoutUsersInput
-  special_events?: Prisma.special_eventsCreateNestedManyWithoutUsersInput
-  special_orders_special_orders_approved_byTousers?: Prisma.special_ordersCreateNestedManyWithoutUsers_special_orders_approved_byTousersInput
-  special_orders_special_orders_created_byTousers?: Prisma.special_ordersCreateNestedManyWithoutUsers_special_orders_created_byTousersInput
-  special_orders_special_orders_prepared_byTousers?: Prisma.special_ordersCreateNestedManyWithoutUsers_special_orders_prepared_byTousersInput
-  special_orders_special_orders_verified_byTousers?: Prisma.special_ordersCreateNestedManyWithoutUsers_special_orders_verified_byTousersInput
-  stock_audit_log?: Prisma.stock_audit_logCreateNestedManyWithoutUsersInput
-  support_tickets_support_tickets_raised_byTousers?: Prisma.support_ticketsCreateNestedManyWithoutUsers_support_tickets_raised_byTousersInput
-  support_tickets_support_tickets_resolved_byTousers?: Prisma.support_ticketsCreateNestedManyWithoutUsers_support_tickets_resolved_byTousersInput
-  user_credentials?: Prisma.user_credentialsCreateNestedOneWithoutUsersInput
-  branches_users_branch_idTobranches?: Prisma.branchesCreateNestedOneWithoutUsers_users_branch_idTobranchesInput
-  users?: Prisma.usersCreateNestedOneWithoutOther_usersInput
-  other_users?: Prisma.usersCreateNestedManyWithoutUsersInput
-}
-
-export type usersUncheckedCreateWithoutAuth_sessionsInput = {
-  id: string
-  email: string
-  display_name?: string | null
-  phone?: string | null
-  username?: string | null
-  role: $Enums.user_role
-  branch_id?: string | null
-  branch_name?: string | null
-  status?: $Enums.user_status
-  last_login_at?: Date | string | null
-  must_change_password?: boolean
-  last_password_reset?: Date | string | null
-  password_reset_by?: string | null
-  password_reset_by_name?: string | null
-  created_at?: Date | string
-  updated_at?: Date | string
-  user_code?: string
-  attachments?: Prisma.attachmentsUncheckedCreateNestedManyWithoutUsersInput
-  audit_logs_audit_logs_admin_idTousers?: Prisma.audit_logsUncheckedCreateNestedManyWithoutUsers_audit_logs_admin_idTousersInput
-  audit_logs_audit_logs_target_user_idTousers?: Prisma.audit_logsUncheckedCreateNestedManyWithoutUsers_audit_logs_target_user_idTousersInput
-  backup_jobs?: Prisma.backup_jobsUncheckedCreateNestedManyWithoutUsersInput
-  branch_discounts_branch_discounts_created_byTousers?: Prisma.branch_discountsUncheckedCreateNestedManyWithoutUsers_branch_discounts_created_byTousersInput
-  branch_discounts_branch_discounts_reviewed_byTousers?: Prisma.branch_discountsUncheckedCreateNestedManyWithoutUsers_branch_discounts_reviewed_byTousersInput
-  branch_locations?: Prisma.branch_locationsUncheckedCreateNestedManyWithoutUsersInput
-  branch_share_payments_branch_share_payments_approved_byTousers?: Prisma.branch_share_paymentsUncheckedCreateNestedManyWithoutUsers_branch_share_payments_approved_byTousersInput
-  branch_share_payments_branch_share_payments_deleted_byTousers?: Prisma.branch_share_paymentsUncheckedCreateNestedManyWithoutUsers_branch_share_payments_deleted_byTousersInput
-  branch_share_payments_branch_share_payments_requested_byTousers?: Prisma.branch_share_paymentsUncheckedCreateNestedManyWithoutUsers_branch_share_payments_requested_byTousersInput
-  branches_branches_manager_idTousers?: Prisma.branchesUncheckedCreateNestedManyWithoutUsers_branches_manager_idTousersInput
-  cash_transfers_cash_transfers_approved_byTousers?: Prisma.cash_transfersUncheckedCreateNestedManyWithoutUsers_cash_transfers_approved_byTousersInput
-  cash_transfers_cash_transfers_created_byTousers?: Prisma.cash_transfersUncheckedCreateNestedManyWithoutUsers_cash_transfers_created_byTousersInput
-  cash_transfers_cash_transfers_deleted_byTousers?: Prisma.cash_transfersUncheckedCreateNestedManyWithoutUsers_cash_transfers_deleted_byTousersInput
-  cash_transfers_cash_transfers_updated_byTousers?: Prisma.cash_transfersUncheckedCreateNestedManyWithoutUsers_cash_transfers_updated_byTousersInput
-  daily_sale_record_audits?: Prisma.daily_sale_record_auditsUncheckedCreateNestedManyWithoutUsersInput
-  daily_sale_records_daily_sale_records_created_byTousers?: Prisma.daily_sale_recordsUncheckedCreateNestedManyWithoutUsers_daily_sale_records_created_byTousersInput
-  daily_sale_records_daily_sale_records_fed_byTousers?: Prisma.daily_sale_recordsUncheckedCreateNestedManyWithoutUsers_daily_sale_records_fed_byTousersInput
-  daily_sale_records_daily_sale_records_locked_byTousers?: Prisma.daily_sale_recordsUncheckedCreateNestedManyWithoutUsers_daily_sale_records_locked_byTousersInput
-  daily_sale_records_daily_sale_records_verified_byTousers?: Prisma.daily_sale_recordsUncheckedCreateNestedManyWithoutUsers_daily_sale_records_verified_byTousersInput
-  employee_advances_employee_advances_approved_byTousers?: Prisma.employee_advancesUncheckedCreateNestedManyWithoutUsers_employee_advances_approved_byTousersInput
-  employee_advances_employee_advances_created_byTousers?: Prisma.employee_advancesUncheckedCreateNestedManyWithoutUsers_employee_advances_created_byTousersInput
-  employee_advances_employee_advances_deleted_byTousers?: Prisma.employee_advancesUncheckedCreateNestedManyWithoutUsers_employee_advances_deleted_byTousersInput
-  event_branch_demands_event_branch_demands_reviewed_byTousers?: Prisma.event_branch_demandsUncheckedCreateNestedManyWithoutUsers_event_branch_demands_reviewed_byTousersInput
-  event_branch_demands_event_branch_demands_submitted_byTousers?: Prisma.event_branch_demandsUncheckedCreateNestedManyWithoutUsers_event_branch_demands_submitted_byTousersInput
-  event_production_status?: Prisma.event_production_statusUncheckedCreateNestedManyWithoutUsersInput
-  expenses?: Prisma.expensesUncheckedCreateNestedManyWithoutUsersInput
-  finance_amendments?: Prisma.finance_amendmentsUncheckedCreateNestedManyWithoutUsersInput
-  finance_audit_logs?: Prisma.finance_audit_logsUncheckedCreateNestedManyWithoutUsersInput
-  finance_day_closings?: Prisma.finance_day_closingsUncheckedCreateNestedManyWithoutUsersInput
-  finance_income_approvals_finance_income_approvals_approved_byTousers?: Prisma.finance_income_approvalsUncheckedCreateNestedManyWithoutUsers_finance_income_approvals_approved_byTousersInput
-  finance_income_approvals_finance_income_approvals_deleted_byTousers?: Prisma.finance_income_approvalsUncheckedCreateNestedManyWithoutUsers_finance_income_approvals_deleted_byTousersInput
-  finance_income_approvals_finance_income_approvals_verified_byTousers?: Prisma.finance_income_approvalsUncheckedCreateNestedManyWithoutUsers_finance_income_approvals_verified_byTousersInput
-  finance_queries_finance_queries_created_byTousers?: Prisma.finance_queriesUncheckedCreateNestedManyWithoutUsers_finance_queries_created_byTousersInput
-  finance_queries_finance_queries_updated_byTousers?: Prisma.finance_queriesUncheckedCreateNestedManyWithoutUsers_finance_queries_updated_byTousersInput
-  finance_ticket_messages?: Prisma.finance_ticket_messagesUncheckedCreateNestedManyWithoutUsersInput
-  finance_ticket_versions?: Prisma.finance_ticket_versionsUncheckedCreateNestedManyWithoutUsersInput
-  finance_tickets_finance_tickets_amended_byTousers?: Prisma.finance_ticketsUncheckedCreateNestedManyWithoutUsers_finance_tickets_amended_byTousersInput
-  finance_tickets_finance_tickets_assigned_toTousers?: Prisma.finance_ticketsUncheckedCreateNestedManyWithoutUsers_finance_tickets_assigned_toTousersInput
-  finance_tickets_finance_tickets_deleted_byTousers?: Prisma.finance_ticketsUncheckedCreateNestedManyWithoutUsers_finance_tickets_deleted_byTousersInput
-  finance_tickets_finance_tickets_raised_byTousers?: Prisma.finance_ticketsUncheckedCreateNestedManyWithoutUsers_finance_tickets_raised_byTousersInput
-  finance_tickets_finance_tickets_reopened_byTousers?: Prisma.finance_ticketsUncheckedCreateNestedManyWithoutUsers_finance_tickets_reopened_byTousersInput
-  finance_tickets_finance_tickets_resolved_byTousers?: Prisma.finance_ticketsUncheckedCreateNestedManyWithoutUsers_finance_tickets_resolved_byTousersInput
-  finance_tickets_finance_tickets_responded_byTousers?: Prisma.finance_ticketsUncheckedCreateNestedManyWithoutUsers_finance_tickets_responded_byTousersInput
-  finance_tickets_finance_tickets_restored_byTousers?: Prisma.finance_ticketsUncheckedCreateNestedManyWithoutUsers_finance_tickets_restored_byTousersInput
-  finance_transactions_finance_transactions_approved_byTousers?: Prisma.finance_transactionsUncheckedCreateNestedManyWithoutUsers_finance_transactions_approved_byTousersInput
-  finance_transactions_finance_transactions_created_byTousers?: Prisma.finance_transactionsUncheckedCreateNestedManyWithoutUsers_finance_transactions_created_byTousersInput
-  finance_transactions_finance_transactions_deleted_byTousers?: Prisma.finance_transactionsUncheckedCreateNestedManyWithoutUsers_finance_transactions_deleted_byTousersInput
-  geofence_logs?: Prisma.geofence_logsUncheckedCreateNestedManyWithoutUsersInput
-  ledger_entries_ledger_entries_approved_byTousers?: Prisma.ledger_entriesUncheckedCreateNestedManyWithoutUsers_ledger_entries_approved_byTousersInput
-  ledger_entries_ledger_entries_created_byTousers?: Prisma.ledger_entriesUncheckedCreateNestedManyWithoutUsers_ledger_entries_created_byTousersInput
-  ledger_entries_ledger_entries_deleted_byTousers?: Prisma.ledger_entriesUncheckedCreateNestedManyWithoutUsers_ledger_entries_deleted_byTousersInput
-  ledger_entries_ledger_entries_updated_byTousers?: Prisma.ledger_entriesUncheckedCreateNestedManyWithoutUsers_ledger_entries_updated_byTousersInput
-  ledger_heads?: Prisma.ledger_headsUncheckedCreateNestedManyWithoutUsersInput
-  login_sessions_login_sessions_revoked_byTousers?: Prisma.login_sessionsUncheckedCreateNestedManyWithoutUsers_login_sessions_revoked_byTousersInput
-  login_sessions_login_sessions_user_idTousers?: Prisma.login_sessionsUncheckedCreateNestedManyWithoutUsers_login_sessions_user_idTousersInput
-  notification_reads?: Prisma.notification_readsUncheckedCreateNestedManyWithoutUsersInput
-  notifications?: Prisma.notificationsUncheckedCreateNestedManyWithoutUsersInput
-  orders?: Prisma.ordersUncheckedCreateNestedManyWithoutUsersInput
-  packing_materials?: Prisma.packing_materialsUncheckedCreateNestedManyWithoutUsersInput
-  partner_expenses_partner_expenses_approved_byTousers?: Prisma.partner_expensesUncheckedCreateNestedManyWithoutUsers_partner_expenses_approved_byTousersInput
-  partner_expenses_partner_expenses_deleted_byTousers?: Prisma.partner_expensesUncheckedCreateNestedManyWithoutUsers_partner_expenses_deleted_byTousersInput
-  partner_expenses_partner_expenses_requested_byTousers?: Prisma.partner_expensesUncheckedCreateNestedManyWithoutUsers_partner_expenses_requested_byTousersInput
-  password_reset_tokens?: Prisma.password_reset_tokensUncheckedCreateNestedManyWithoutUsersInput
-  payment_method_settings?: Prisma.payment_method_settingsUncheckedCreateNestedManyWithoutUsersInput
-  product_price_history?: Prisma.product_price_historyUncheckedCreateNestedManyWithoutUsersInput
-  production_orders_production_orders_approved_byTousers?: Prisma.production_ordersUncheckedCreateNestedManyWithoutUsers_production_orders_approved_byTousersInput
-  production_orders_production_orders_cancelled_byTousers?: Prisma.production_ordersUncheckedCreateNestedManyWithoutUsers_production_orders_cancelled_byTousersInput
-  production_orders_production_orders_created_byTousers?: Prisma.production_ordersUncheckedCreateNestedManyWithoutUsers_production_orders_created_byTousersInput
-  production_orders_production_orders_verified_byTousers?: Prisma.production_ordersUncheckedCreateNestedManyWithoutUsers_production_orders_verified_byTousersInput
-  production_returns_production_returns_created_byTousers?: Prisma.production_returnsUncheckedCreateNestedManyWithoutUsers_production_returns_created_byTousersInput
-  production_returns_production_returns_reviewed_byTousers?: Prisma.production_returnsUncheckedCreateNestedManyWithoutUsers_production_returns_reviewed_byTousersInput
-  production_stock_history?: Prisma.production_stock_historyUncheckedCreateNestedManyWithoutUsersInput
-  push_subscriptions?: Prisma.push_subscriptionsUncheckedCreateNestedManyWithoutUsersInput
-  restriction_events?: Prisma.restriction_eventsUncheckedCreateNestedManyWithoutUsersInput
-  restriction_requests_restriction_requests_decided_byTousers?: Prisma.restriction_requestsUncheckedCreateNestedManyWithoutUsers_restriction_requests_decided_byTousersInput
-  restriction_requests_restriction_requests_requested_byTousers?: Prisma.restriction_requestsUncheckedCreateNestedManyWithoutUsers_restriction_requests_requested_byTousersInput
-  restriction_rules?: Prisma.restriction_rulesUncheckedCreateNestedManyWithoutUsersInput
-  return_stock_history?: Prisma.return_stock_historyUncheckedCreateNestedManyWithoutUsersInput
-  salary_payments_salary_payments_approved_byTousers?: Prisma.salary_paymentsUncheckedCreateNestedManyWithoutUsers_salary_payments_approved_byTousersInput
-  salary_payments_salary_payments_created_byTousers?: Prisma.salary_paymentsUncheckedCreateNestedManyWithoutUsers_salary_payments_created_byTousersInput
-  salary_payments_salary_payments_deleted_byTousers?: Prisma.salary_paymentsUncheckedCreateNestedManyWithoutUsers_salary_payments_deleted_byTousersInput
-  salary_revisions?: Prisma.salary_revisionsUncheckedCreateNestedManyWithoutUsersInput
-  settings?: Prisma.settingsUncheckedCreateNestedManyWithoutUsersInput
-  special_events?: Prisma.special_eventsUncheckedCreateNestedManyWithoutUsersInput
-  special_orders_special_orders_approved_byTousers?: Prisma.special_ordersUncheckedCreateNestedManyWithoutUsers_special_orders_approved_byTousersInput
-  special_orders_special_orders_created_byTousers?: Prisma.special_ordersUncheckedCreateNestedManyWithoutUsers_special_orders_created_byTousersInput
-  special_orders_special_orders_prepared_byTousers?: Prisma.special_ordersUncheckedCreateNestedManyWithoutUsers_special_orders_prepared_byTousersInput
-  special_orders_special_orders_verified_byTousers?: Prisma.special_ordersUncheckedCreateNestedManyWithoutUsers_special_orders_verified_byTousersInput
-  stock_audit_log?: Prisma.stock_audit_logUncheckedCreateNestedManyWithoutUsersInput
-  support_tickets_support_tickets_raised_byTousers?: Prisma.support_ticketsUncheckedCreateNestedManyWithoutUsers_support_tickets_raised_byTousersInput
-  support_tickets_support_tickets_resolved_byTousers?: Prisma.support_ticketsUncheckedCreateNestedManyWithoutUsers_support_tickets_resolved_byTousersInput
-  user_credentials?: Prisma.user_credentialsUncheckedCreateNestedOneWithoutUsersInput
-  other_users?: Prisma.usersUncheckedCreateNestedManyWithoutUsersInput
-}
-
-export type usersCreateOrConnectWithoutAuth_sessionsInput = {
-  where: Prisma.usersWhereUniqueInput
-  create: Prisma.XOR<Prisma.usersCreateWithoutAuth_sessionsInput, Prisma.usersUncheckedCreateWithoutAuth_sessionsInput>
-}
-
-export type usersUpsertWithoutAuth_sessionsInput = {
-  update: Prisma.XOR<Prisma.usersUpdateWithoutAuth_sessionsInput, Prisma.usersUncheckedUpdateWithoutAuth_sessionsInput>
-  create: Prisma.XOR<Prisma.usersCreateWithoutAuth_sessionsInput, Prisma.usersUncheckedCreateWithoutAuth_sessionsInput>
-  where?: Prisma.usersWhereInput
-}
-
-export type usersUpdateToOneWithWhereWithoutAuth_sessionsInput = {
-  where?: Prisma.usersWhereInput
-  data: Prisma.XOR<Prisma.usersUpdateWithoutAuth_sessionsInput, Prisma.usersUncheckedUpdateWithoutAuth_sessionsInput>
-}
-
-export type usersUpdateWithoutAuth_sessionsInput = {
-  id?: Prisma.StringFieldUpdateOperationsInput | string
-  email?: Prisma.StringFieldUpdateOperationsInput | string
-  display_name?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
-  phone?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
-  username?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
-  role?: Prisma.Enumuser_roleFieldUpdateOperationsInput | $Enums.user_role
-  branch_name?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
-  status?: Prisma.Enumuser_statusFieldUpdateOperationsInput | $Enums.user_status
-  last_login_at?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
-  must_change_password?: Prisma.BoolFieldUpdateOperationsInput | boolean
-  last_password_reset?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
-  password_reset_by_name?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
-  created_at?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
-  updated_at?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
-  user_code?: Prisma.StringFieldUpdateOperationsInput | string
-  attachments?: Prisma.attachmentsUpdateManyWithoutUsersNestedInput
-  audit_logs_audit_logs_admin_idTousers?: Prisma.audit_logsUpdateManyWithoutUsers_audit_logs_admin_idTousersNestedInput
-  audit_logs_audit_logs_target_user_idTousers?: Prisma.audit_logsUpdateManyWithoutUsers_audit_logs_target_user_idTousersNestedInput
-  backup_jobs?: Prisma.backup_jobsUpdateManyWithoutUsersNestedInput
-  branch_discounts_branch_discounts_created_byTousers?: Prisma.branch_discountsUpdateManyWithoutUsers_branch_discounts_created_byTousersNestedInput
-  branch_discounts_branch_discounts_reviewed_byTousers?: Prisma.branch_discountsUpdateManyWithoutUsers_branch_discounts_reviewed_byTousersNestedInput
-  branch_locations?: Prisma.branch_locationsUpdateManyWithoutUsersNestedInput
-  branch_share_payments_branch_share_payments_approved_byTousers?: Prisma.branch_share_paymentsUpdateManyWithoutUsers_branch_share_payments_approved_byTousersNestedInput
-  branch_share_payments_branch_share_payments_deleted_byTousers?: Prisma.branch_share_paymentsUpdateManyWithoutUsers_branch_share_payments_deleted_byTousersNestedInput
-  branch_share_payments_branch_share_payments_requested_byTousers?: Prisma.branch_share_paymentsUpdateManyWithoutUsers_branch_share_payments_requested_byTousersNestedInput
-  branches_branches_manager_idTousers?: Prisma.branchesUpdateManyWithoutUsers_branches_manager_idTousersNestedInput
-  cash_transfers_cash_transfers_approved_byTousers?: Prisma.cash_transfersUpdateManyWithoutUsers_cash_transfers_approved_byTousersNestedInput
-  cash_transfers_cash_transfers_created_byTousers?: Prisma.cash_transfersUpdateManyWithoutUsers_cash_transfers_created_byTousersNestedInput
-  cash_transfers_cash_transfers_deleted_byTousers?: Prisma.cash_transfersUpdateManyWithoutUsers_cash_transfers_deleted_byTousersNestedInput
-  cash_transfers_cash_transfers_updated_byTousers?: Prisma.cash_transfersUpdateManyWithoutUsers_cash_transfers_updated_byTousersNestedInput
-  daily_sale_record_audits?: Prisma.daily_sale_record_auditsUpdateManyWithoutUsersNestedInput
-  daily_sale_records_daily_sale_records_created_byTousers?: Prisma.daily_sale_recordsUpdateManyWithoutUsers_daily_sale_records_created_byTousersNestedInput
-  daily_sale_records_daily_sale_records_fed_byTousers?: Prisma.daily_sale_recordsUpdateManyWithoutUsers_daily_sale_records_fed_byTousersNestedInput
-  daily_sale_records_daily_sale_records_locked_byTousers?: Prisma.daily_sale_recordsUpdateManyWithoutUsers_daily_sale_records_locked_byTousersNestedInput
-  daily_sale_records_daily_sale_records_verified_byTousers?: Prisma.daily_sale_recordsUpdateManyWithoutUsers_daily_sale_records_verified_byTousersNestedInput
-  employee_advances_employee_advances_approved_byTousers?: Prisma.employee_advancesUpdateManyWithoutUsers_employee_advances_approved_byTousersNestedInput
-  employee_advances_employee_advances_created_byTousers?: Prisma.employee_advancesUpdateManyWithoutUsers_employee_advances_created_byTousersNestedInput
-  employee_advances_employee_advances_deleted_byTousers?: Prisma.employee_advancesUpdateManyWithoutUsers_employee_advances_deleted_byTousersNestedInput
-  event_branch_demands_event_branch_demands_reviewed_byTousers?: Prisma.event_branch_demandsUpdateManyWithoutUsers_event_branch_demands_reviewed_byTousersNestedInput
-  event_branch_demands_event_branch_demands_submitted_byTousers?: Prisma.event_branch_demandsUpdateManyWithoutUsers_event_branch_demands_submitted_byTousersNestedInput
-  event_production_status?: Prisma.event_production_statusUpdateManyWithoutUsersNestedInput
-  expenses?: Prisma.expensesUpdateManyWithoutUsersNestedInput
-  finance_amendments?: Prisma.finance_amendmentsUpdateManyWithoutUsersNestedInput
-  finance_audit_logs?: Prisma.finance_audit_logsUpdateManyWithoutUsersNestedInput
-  finance_day_closings?: Prisma.finance_day_closingsUpdateManyWithoutUsersNestedInput
-  finance_income_approvals_finance_income_approvals_approved_byTousers?: Prisma.finance_income_approvalsUpdateManyWithoutUsers_finance_income_approvals_approved_byTousersNestedInput
-  finance_income_approvals_finance_income_approvals_deleted_byTousers?: Prisma.finance_income_approvalsUpdateManyWithoutUsers_finance_income_approvals_deleted_byTousersNestedInput
-  finance_income_approvals_finance_income_approvals_verified_byTousers?: Prisma.finance_income_approvalsUpdateManyWithoutUsers_finance_income_approvals_verified_byTousersNestedInput
-  finance_queries_finance_queries_created_byTousers?: Prisma.finance_queriesUpdateManyWithoutUsers_finance_queries_created_byTousersNestedInput
-  finance_queries_finance_queries_updated_byTousers?: Prisma.finance_queriesUpdateManyWithoutUsers_finance_queries_updated_byTousersNestedInput
-  finance_ticket_messages?: Prisma.finance_ticket_messagesUpdateManyWithoutUsersNestedInput
-  finance_ticket_versions?: Prisma.finance_ticket_versionsUpdateManyWithoutUsersNestedInput
-  finance_tickets_finance_tickets_amended_byTousers?: Prisma.finance_ticketsUpdateManyWithoutUsers_finance_tickets_amended_byTousersNestedInput
-  finance_tickets_finance_tickets_assigned_toTousers?: Prisma.finance_ticketsUpdateManyWithoutUsers_finance_tickets_assigned_toTousersNestedInput
-  finance_tickets_finance_tickets_deleted_byTousers?: Prisma.finance_ticketsUpdateManyWithoutUsers_finance_tickets_deleted_byTousersNestedInput
-  finance_tickets_finance_tickets_raised_byTousers?: Prisma.finance_ticketsUpdateManyWithoutUsers_finance_tickets_raised_byTousersNestedInput
-  finance_tickets_finance_tickets_reopened_byTousers?: Prisma.finance_ticketsUpdateManyWithoutUsers_finance_tickets_reopened_byTousersNestedInput
-  finance_tickets_finance_tickets_resolved_byTousers?: Prisma.finance_ticketsUpdateManyWithoutUsers_finance_tickets_resolved_byTousersNestedInput
-  finance_tickets_finance_tickets_responded_byTousers?: Prisma.finance_ticketsUpdateManyWithoutUsers_finance_tickets_responded_byTousersNestedInput
-  finance_tickets_finance_tickets_restored_byTousers?: Prisma.finance_ticketsUpdateManyWithoutUsers_finance_tickets_restored_byTousersNestedInput
-  finance_transactions_finance_transactions_approved_byTousers?: Prisma.finance_transactionsUpdateManyWithoutUsers_finance_transactions_approved_byTousersNestedInput
-  finance_transactions_finance_transactions_created_byTousers?: Prisma.finance_transactionsUpdateManyWithoutUsers_finance_transactions_created_byTousersNestedInput
-  finance_transactions_finance_transactions_deleted_byTousers?: Prisma.finance_transactionsUpdateManyWithoutUsers_finance_transactions_deleted_byTousersNestedInput
-  geofence_logs?: Prisma.geofence_logsUpdateManyWithoutUsersNestedInput
-  ledger_entries_ledger_entries_approved_byTousers?: Prisma.ledger_entriesUpdateManyWithoutUsers_ledger_entries_approved_byTousersNestedInput
-  ledger_entries_ledger_entries_created_byTousers?: Prisma.ledger_entriesUpdateManyWithoutUsers_ledger_entries_created_byTousersNestedInput
-  ledger_entries_ledger_entries_deleted_byTousers?: Prisma.ledger_entriesUpdateManyWithoutUsers_ledger_entries_deleted_byTousersNestedInput
-  ledger_entries_ledger_entries_updated_byTousers?: Prisma.ledger_entriesUpdateManyWithoutUsers_ledger_entries_updated_byTousersNestedInput
-  ledger_heads?: Prisma.ledger_headsUpdateManyWithoutUsersNestedInput
-  login_sessions_login_sessions_revoked_byTousers?: Prisma.login_sessionsUpdateManyWithoutUsers_login_sessions_revoked_byTousersNestedInput
-  login_sessions_login_sessions_user_idTousers?: Prisma.login_sessionsUpdateManyWithoutUsers_login_sessions_user_idTousersNestedInput
-  notification_reads?: Prisma.notification_readsUpdateManyWithoutUsersNestedInput
-  notifications?: Prisma.notificationsUpdateManyWithoutUsersNestedInput
-  orders?: Prisma.ordersUpdateManyWithoutUsersNestedInput
-  packing_materials?: Prisma.packing_materialsUpdateManyWithoutUsersNestedInput
-  partner_expenses_partner_expenses_approved_byTousers?: Prisma.partner_expensesUpdateManyWithoutUsers_partner_expenses_approved_byTousersNestedInput
-  partner_expenses_partner_expenses_deleted_byTousers?: Prisma.partner_expensesUpdateManyWithoutUsers_partner_expenses_deleted_byTousersNestedInput
-  partner_expenses_partner_expenses_requested_byTousers?: Prisma.partner_expensesUpdateManyWithoutUsers_partner_expenses_requested_byTousersNestedInput
-  password_reset_tokens?: Prisma.password_reset_tokensUpdateManyWithoutUsersNestedInput
-  payment_method_settings?: Prisma.payment_method_settingsUpdateManyWithoutUsersNestedInput
-  product_price_history?: Prisma.product_price_historyUpdateManyWithoutUsersNestedInput
-  production_orders_production_orders_approved_byTousers?: Prisma.production_ordersUpdateManyWithoutUsers_production_orders_approved_byTousersNestedInput
-  production_orders_production_orders_cancelled_byTousers?: Prisma.production_ordersUpdateManyWithoutUsers_production_orders_cancelled_byTousersNestedInput
-  production_orders_production_orders_created_byTousers?: Prisma.production_ordersUpdateManyWithoutUsers_production_orders_created_byTousersNestedInput
-  production_orders_production_orders_verified_byTousers?: Prisma.production_ordersUpdateManyWithoutUsers_production_orders_verified_byTousersNestedInput
-  production_returns_production_returns_created_byTousers?: Prisma.production_returnsUpdateManyWithoutUsers_production_returns_created_byTousersNestedInput
-  production_returns_production_returns_reviewed_byTousers?: Prisma.production_returnsUpdateManyWithoutUsers_production_returns_reviewed_byTousersNestedInput
-  production_stock_history?: Prisma.production_stock_historyUpdateManyWithoutUsersNestedInput
-  push_subscriptions?: Prisma.push_subscriptionsUpdateManyWithoutUsersNestedInput
-  restriction_events?: Prisma.restriction_eventsUpdateManyWithoutUsersNestedInput
-  restriction_requests_restriction_requests_decided_byTousers?: Prisma.restriction_requestsUpdateManyWithoutUsers_restriction_requests_decided_byTousersNestedInput
-  restriction_requests_restriction_requests_requested_byTousers?: Prisma.restriction_requestsUpdateManyWithoutUsers_restriction_requests_requested_byTousersNestedInput
-  restriction_rules?: Prisma.restriction_rulesUpdateManyWithoutUsersNestedInput
-  return_stock_history?: Prisma.return_stock_historyUpdateManyWithoutUsersNestedInput
-  salary_payments_salary_payments_approved_byTousers?: Prisma.salary_paymentsUpdateManyWithoutUsers_salary_payments_approved_byTousersNestedInput
-  salary_payments_salary_payments_created_byTousers?: Prisma.salary_paymentsUpdateManyWithoutUsers_salary_payments_created_byTousersNestedInput
-  salary_payments_salary_payments_deleted_byTousers?: Prisma.salary_paymentsUpdateManyWithoutUsers_salary_payments_deleted_byTousersNestedInput
-  salary_revisions?: Prisma.salary_revisionsUpdateManyWithoutUsersNestedInput
-  settings?: Prisma.settingsUpdateManyWithoutUsersNestedInput
-  special_events?: Prisma.special_eventsUpdateManyWithoutUsersNestedInput
-  special_orders_special_orders_approved_byTousers?: Prisma.special_ordersUpdateManyWithoutUsers_special_orders_approved_byTousersNestedInput
-  special_orders_special_orders_created_byTousers?: Prisma.special_ordersUpdateManyWithoutUsers_special_orders_created_byTousersNestedInput
-  special_orders_special_orders_prepared_byTousers?: Prisma.special_ordersUpdateManyWithoutUsers_special_orders_prepared_byTousersNestedInput
-  special_orders_special_orders_verified_byTousers?: Prisma.special_ordersUpdateManyWithoutUsers_special_orders_verified_byTousersNestedInput
-  stock_audit_log?: Prisma.stock_audit_logUpdateManyWithoutUsersNestedInput
-  support_tickets_support_tickets_raised_byTousers?: Prisma.support_ticketsUpdateManyWithoutUsers_support_tickets_raised_byTousersNestedInput
-  support_tickets_support_tickets_resolved_byTousers?: Prisma.support_ticketsUpdateManyWithoutUsers_support_tickets_resolved_byTousersNestedInput
-  user_credentials?: Prisma.user_credentialsUpdateOneWithoutUsersNestedInput
-  branches_users_branch_idTobranches?: Prisma.branchesUpdateOneWithoutUsers_users_branch_idTobranchesNestedInput
-  users?: Prisma.usersUpdateOneWithoutOther_usersNestedInput
-  other_users?: Prisma.usersUpdateManyWithoutUsersNestedInput
-}
-
-export type usersUncheckedUpdateWithoutAuth_sessionsInput = {
-  id?: Prisma.StringFieldUpdateOperationsInput | string
-  email?: Prisma.StringFieldUpdateOperationsInput | string
-  display_name?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
-  phone?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
-  username?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
-  role?: Prisma.Enumuser_roleFieldUpdateOperationsInput | $Enums.user_role
-  branch_id?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
-  branch_name?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
-  status?: Prisma.Enumuser_statusFieldUpdateOperationsInput | $Enums.user_status
-  last_login_at?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
-  must_change_password?: Prisma.BoolFieldUpdateOperationsInput | boolean
-  last_password_reset?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
-  password_reset_by?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
-  password_reset_by_name?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
-  created_at?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
-  updated_at?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
-  user_code?: Prisma.StringFieldUpdateOperationsInput | string
-  attachments?: Prisma.attachmentsUncheckedUpdateManyWithoutUsersNestedInput
-  audit_logs_audit_logs_admin_idTousers?: Prisma.audit_logsUncheckedUpdateManyWithoutUsers_audit_logs_admin_idTousersNestedInput
-  audit_logs_audit_logs_target_user_idTousers?: Prisma.audit_logsUncheckedUpdateManyWithoutUsers_audit_logs_target_user_idTousersNestedInput
-  backup_jobs?: Prisma.backup_jobsUncheckedUpdateManyWithoutUsersNestedInput
-  branch_discounts_branch_discounts_created_byTousers?: Prisma.branch_discountsUncheckedUpdateManyWithoutUsers_branch_discounts_created_byTousersNestedInput
-  branch_discounts_branch_discounts_reviewed_byTousers?: Prisma.branch_discountsUncheckedUpdateManyWithoutUsers_branch_discounts_reviewed_byTousersNestedInput
-  branch_locations?: Prisma.branch_locationsUncheckedUpdateManyWithoutUsersNestedInput
-  branch_share_payments_branch_share_payments_approved_byTousers?: Prisma.branch_share_paymentsUncheckedUpdateManyWithoutUsers_branch_share_payments_approved_byTousersNestedInput
-  branch_share_payments_branch_share_payments_deleted_byTousers?: Prisma.branch_share_paymentsUncheckedUpdateManyWithoutUsers_branch_share_payments_deleted_byTousersNestedInput
-  branch_share_payments_branch_share_payments_requested_byTousers?: Prisma.branch_share_paymentsUncheckedUpdateManyWithoutUsers_branch_share_payments_requested_byTousersNestedInput
-  branches_branches_manager_idTousers?: Prisma.branchesUncheckedUpdateManyWithoutUsers_branches_manager_idTousersNestedInput
-  cash_transfers_cash_transfers_approved_byTousers?: Prisma.cash_transfersUncheckedUpdateManyWithoutUsers_cash_transfers_approved_byTousersNestedInput
-  cash_transfers_cash_transfers_created_byTousers?: Prisma.cash_transfersUncheckedUpdateManyWithoutUsers_cash_transfers_created_byTousersNestedInput
-  cash_transfers_cash_transfers_deleted_byTousers?: Prisma.cash_transfersUncheckedUpdateManyWithoutUsers_cash_transfers_deleted_byTousersNestedInput
-  cash_transfers_cash_transfers_updated_byTousers?: Prisma.cash_transfersUncheckedUpdateManyWithoutUsers_cash_transfers_updated_byTousersNestedInput
-  daily_sale_record_audits?: Prisma.daily_sale_record_auditsUncheckedUpdateManyWithoutUsersNestedInput
-  daily_sale_records_daily_sale_records_created_byTousers?: Prisma.daily_sale_recordsUncheckedUpdateManyWithoutUsers_daily_sale_records_created_byTousersNestedInput
-  daily_sale_records_daily_sale_records_fed_byTousers?: Prisma.daily_sale_recordsUncheckedUpdateManyWithoutUsers_daily_sale_records_fed_byTousersNestedInput
-  daily_sale_records_daily_sale_records_locked_byTousers?: Prisma.daily_sale_recordsUncheckedUpdateManyWithoutUsers_daily_sale_records_locked_byTousersNestedInput
-  daily_sale_records_daily_sale_records_verified_byTousers?: Prisma.daily_sale_recordsUncheckedUpdateManyWithoutUsers_daily_sale_records_verified_byTousersNestedInput
-  employee_advances_employee_advances_approved_byTousers?: Prisma.employee_advancesUncheckedUpdateManyWithoutUsers_employee_advances_approved_byTousersNestedInput
-  employee_advances_employee_advances_created_byTousers?: Prisma.employee_advancesUncheckedUpdateManyWithoutUsers_employee_advances_created_byTousersNestedInput
-  employee_advances_employee_advances_deleted_byTousers?: Prisma.employee_advancesUncheckedUpdateManyWithoutUsers_employee_advances_deleted_byTousersNestedInput
-  event_branch_demands_event_branch_demands_reviewed_byTousers?: Prisma.event_branch_demandsUncheckedUpdateManyWithoutUsers_event_branch_demands_reviewed_byTousersNestedInput
-  event_branch_demands_event_branch_demands_submitted_byTousers?: Prisma.event_branch_demandsUncheckedUpdateManyWithoutUsers_event_branch_demands_submitted_byTousersNestedInput
-  event_production_status?: Prisma.event_production_statusUncheckedUpdateManyWithoutUsersNestedInput
-  expenses?: Prisma.expensesUncheckedUpdateManyWithoutUsersNestedInput
-  finance_amendments?: Prisma.finance_amendmentsUncheckedUpdateManyWithoutUsersNestedInput
-  finance_audit_logs?: Prisma.finance_audit_logsUncheckedUpdateManyWithoutUsersNestedInput
-  finance_day_closings?: Prisma.finance_day_closingsUncheckedUpdateManyWithoutUsersNestedInput
-  finance_income_approvals_finance_income_approvals_approved_byTousers?: Prisma.finance_income_approvalsUncheckedUpdateManyWithoutUsers_finance_income_approvals_approved_byTousersNestedInput
-  finance_income_approvals_finance_income_approvals_deleted_byTousers?: Prisma.finance_income_approvalsUncheckedUpdateManyWithoutUsers_finance_income_approvals_deleted_byTousersNestedInput
-  finance_income_approvals_finance_income_approvals_verified_byTousers?: Prisma.finance_income_approvalsUncheckedUpdateManyWithoutUsers_finance_income_approvals_verified_byTousersNestedInput
-  finance_queries_finance_queries_created_byTousers?: Prisma.finance_queriesUncheckedUpdateManyWithoutUsers_finance_queries_created_byTousersNestedInput
-  finance_queries_finance_queries_updated_byTousers?: Prisma.finance_queriesUncheckedUpdateManyWithoutUsers_finance_queries_updated_byTousersNestedInput
-  finance_ticket_messages?: Prisma.finance_ticket_messagesUncheckedUpdateManyWithoutUsersNestedInput
-  finance_ticket_versions?: Prisma.finance_ticket_versionsUncheckedUpdateManyWithoutUsersNestedInput
-  finance_tickets_finance_tickets_amended_byTousers?: Prisma.finance_ticketsUncheckedUpdateManyWithoutUsers_finance_tickets_amended_byTousersNestedInput
-  finance_tickets_finance_tickets_assigned_toTousers?: Prisma.finance_ticketsUncheckedUpdateManyWithoutUsers_finance_tickets_assigned_toTousersNestedInput
-  finance_tickets_finance_tickets_deleted_byTousers?: Prisma.finance_ticketsUncheckedUpdateManyWithoutUsers_finance_tickets_deleted_byTousersNestedInput
-  finance_tickets_finance_tickets_raised_byTousers?: Prisma.finance_ticketsUncheckedUpdateManyWithoutUsers_finance_tickets_raised_byTousersNestedInput
-  finance_tickets_finance_tickets_reopened_byTousers?: Prisma.finance_ticketsUncheckedUpdateManyWithoutUsers_finance_tickets_reopened_byTousersNestedInput
-  finance_tickets_finance_tickets_resolved_byTousers?: Prisma.finance_ticketsUncheckedUpdateManyWithoutUsers_finance_tickets_resolved_byTousersNestedInput
-  finance_tickets_finance_tickets_responded_byTousers?: Prisma.finance_ticketsUncheckedUpdateManyWithoutUsers_finance_tickets_responded_byTousersNestedInput
-  finance_tickets_finance_tickets_restored_byTousers?: Prisma.finance_ticketsUncheckedUpdateManyWithoutUsers_finance_tickets_restored_byTousersNestedInput
-  finance_transactions_finance_transactions_approved_byTousers?: Prisma.finance_transactionsUncheckedUpdateManyWithoutUsers_finance_transactions_approved_byTousersNestedInput
-  finance_transactions_finance_transactions_created_byTousers?: Prisma.finance_transactionsUncheckedUpdateManyWithoutUsers_finance_transactions_created_byTousersNestedInput
-  finance_transactions_finance_transactions_deleted_byTousers?: Prisma.finance_transactionsUncheckedUpdateManyWithoutUsers_finance_transactions_deleted_byTousersNestedInput
-  geofence_logs?: Prisma.geofence_logsUncheckedUpdateManyWithoutUsersNestedInput
-  ledger_entries_ledger_entries_approved_byTousers?: Prisma.ledger_entriesUncheckedUpdateManyWithoutUsers_ledger_entries_approved_byTousersNestedInput
-  ledger_entries_ledger_entries_created_byTousers?: Prisma.ledger_entriesUncheckedUpdateManyWithoutUsers_ledger_entries_created_byTousersNestedInput
-  ledger_entries_ledger_entries_deleted_byTousers?: Prisma.ledger_entriesUncheckedUpdateManyWithoutUsers_ledger_entries_deleted_byTousersNestedInput
-  ledger_entries_ledger_entries_updated_byTousers?: Prisma.ledger_entriesUncheckedUpdateManyWithoutUsers_ledger_entries_updated_byTousersNestedInput
-  ledger_heads?: Prisma.ledger_headsUncheckedUpdateManyWithoutUsersNestedInput
-  login_sessions_login_sessions_revoked_byTousers?: Prisma.login_sessionsUncheckedUpdateManyWithoutUsers_login_sessions_revoked_byTousersNestedInput
-  login_sessions_login_sessions_user_idTousers?: Prisma.login_sessionsUncheckedUpdateManyWithoutUsers_login_sessions_user_idTousersNestedInput
-  notification_reads?: Prisma.notification_readsUncheckedUpdateManyWithoutUsersNestedInput
-  notifications?: Prisma.notificationsUncheckedUpdateManyWithoutUsersNestedInput
-  orders?: Prisma.ordersUncheckedUpdateManyWithoutUsersNestedInput
-  packing_materials?: Prisma.packing_materialsUncheckedUpdateManyWithoutUsersNestedInput
-  partner_expenses_partner_expenses_approved_byTousers?: Prisma.partner_expensesUncheckedUpdateManyWithoutUsers_partner_expenses_approved_byTousersNestedInput
-  partner_expenses_partner_expenses_deleted_byTousers?: Prisma.partner_expensesUncheckedUpdateManyWithoutUsers_partner_expenses_deleted_byTousersNestedInput
-  partner_expenses_partner_expenses_requested_byTousers?: Prisma.partner_expensesUncheckedUpdateManyWithoutUsers_partner_expenses_requested_byTousersNestedInput
-  password_reset_tokens?: Prisma.password_reset_tokensUncheckedUpdateManyWithoutUsersNestedInput
-  payment_method_settings?: Prisma.payment_method_settingsUncheckedUpdateManyWithoutUsersNestedInput
-  product_price_history?: Prisma.product_price_historyUncheckedUpdateManyWithoutUsersNestedInput
-  production_orders_production_orders_approved_byTousers?: Prisma.production_ordersUncheckedUpdateManyWithoutUsers_production_orders_approved_byTousersNestedInput
-  production_orders_production_orders_cancelled_byTousers?: Prisma.production_ordersUncheckedUpdateManyWithoutUsers_production_orders_cancelled_byTousersNestedInput
-  production_orders_production_orders_created_byTousers?: Prisma.production_ordersUncheckedUpdateManyWithoutUsers_production_orders_created_byTousersNestedInput
-  production_orders_production_orders_verified_byTousers?: Prisma.production_ordersUncheckedUpdateManyWithoutUsers_production_orders_verified_byTousersNestedInput
-  production_returns_production_returns_created_byTousers?: Prisma.production_returnsUncheckedUpdateManyWithoutUsers_production_returns_created_byTousersNestedInput
-  production_returns_production_returns_reviewed_byTousers?: Prisma.production_returnsUncheckedUpdateManyWithoutUsers_production_returns_reviewed_byTousersNestedInput
-  production_stock_history?: Prisma.production_stock_historyUncheckedUpdateManyWithoutUsersNestedInput
-  push_subscriptions?: Prisma.push_subscriptionsUncheckedUpdateManyWithoutUsersNestedInput
-  restriction_events?: Prisma.restriction_eventsUncheckedUpdateManyWithoutUsersNestedInput
-  restriction_requests_restriction_requests_decided_byTousers?: Prisma.restriction_requestsUncheckedUpdateManyWithoutUsers_restriction_requests_decided_byTousersNestedInput
-  restriction_requests_restriction_requests_requested_byTousers?: Prisma.restriction_requestsUncheckedUpdateManyWithoutUsers_restriction_requests_requested_byTousersNestedInput
-  restriction_rules?: Prisma.restriction_rulesUncheckedUpdateManyWithoutUsersNestedInput
-  return_stock_history?: Prisma.return_stock_historyUncheckedUpdateManyWithoutUsersNestedInput
-  salary_payments_salary_payments_approved_byTousers?: Prisma.salary_paymentsUncheckedUpdateManyWithoutUsers_salary_payments_approved_byTousersNestedInput
-  salary_payments_salary_payments_created_byTousers?: Prisma.salary_paymentsUncheckedUpdateManyWithoutUsers_salary_payments_created_byTousersNestedInput
-  salary_payments_salary_payments_deleted_byTousers?: Prisma.salary_paymentsUncheckedUpdateManyWithoutUsers_salary_payments_deleted_byTousersNestedInput
-  salary_revisions?: Prisma.salary_revisionsUncheckedUpdateManyWithoutUsersNestedInput
-  settings?: Prisma.settingsUncheckedUpdateManyWithoutUsersNestedInput
-  special_events?: Prisma.special_eventsUncheckedUpdateManyWithoutUsersNestedInput
-  special_orders_special_orders_approved_byTousers?: Prisma.special_ordersUncheckedUpdateManyWithoutUsers_special_orders_approved_byTousersNestedInput
-  special_orders_special_orders_created_byTousers?: Prisma.special_ordersUncheckedUpdateManyWithoutUsers_special_orders_created_byTousersNestedInput
-  special_orders_special_orders_prepared_byTousers?: Prisma.special_ordersUncheckedUpdateManyWithoutUsers_special_orders_prepared_byTousersNestedInput
-  special_orders_special_orders_verified_byTousers?: Prisma.special_ordersUncheckedUpdateManyWithoutUsers_special_orders_verified_byTousersNestedInput
-  stock_audit_log?: Prisma.stock_audit_logUncheckedUpdateManyWithoutUsersNestedInput
-  support_tickets_support_tickets_raised_byTousers?: Prisma.support_ticketsUncheckedUpdateManyWithoutUsers_support_tickets_raised_byTousersNestedInput
-  support_tickets_support_tickets_resolved_byTousers?: Prisma.support_ticketsUncheckedUpdateManyWithoutUsers_support_tickets_resolved_byTousersNestedInput
-  user_credentials?: Prisma.user_credentialsUncheckedUpdateOneWithoutUsersNestedInput
-  other_users?: Prisma.usersUncheckedUpdateManyWithoutUsersNestedInput
-}
-
-export type usersCreateWithoutPassword_reset_tokensInput = {
-  id: string
-  email: string
-  display_name?: string | null
-  phone?: string | null
-  username?: string | null
-  role: $Enums.user_role
-  branch_name?: string | null
-  status?: $Enums.user_status
-  last_login_at?: Date | string | null
-  must_change_password?: boolean
-  last_password_reset?: Date | string | null
-  password_reset_by_name?: string | null
-  created_at?: Date | string
-  updated_at?: Date | string
-  user_code?: string
-  attachments?: Prisma.attachmentsCreateNestedManyWithoutUsersInput
-  audit_logs_audit_logs_admin_idTousers?: Prisma.audit_logsCreateNestedManyWithoutUsers_audit_logs_admin_idTousersInput
-  audit_logs_audit_logs_target_user_idTousers?: Prisma.audit_logsCreateNestedManyWithoutUsers_audit_logs_target_user_idTousersInput
-  auth_sessions?: Prisma.auth_sessionsCreateNestedManyWithoutUsersInput
-  backup_jobs?: Prisma.backup_jobsCreateNestedManyWithoutUsersInput
-  branch_discounts_branch_discounts_created_byTousers?: Prisma.branch_discountsCreateNestedManyWithoutUsers_branch_discounts_created_byTousersInput
-  branch_discounts_branch_discounts_reviewed_byTousers?: Prisma.branch_discountsCreateNestedManyWithoutUsers_branch_discounts_reviewed_byTousersInput
-  branch_locations?: Prisma.branch_locationsCreateNestedManyWithoutUsersInput
-  branch_share_payments_branch_share_payments_approved_byTousers?: Prisma.branch_share_paymentsCreateNestedManyWithoutUsers_branch_share_payments_approved_byTousersInput
-  branch_share_payments_branch_share_payments_deleted_byTousers?: Prisma.branch_share_paymentsCreateNestedManyWithoutUsers_branch_share_payments_deleted_byTousersInput
-  branch_share_payments_branch_share_payments_requested_byTousers?: Prisma.branch_share_paymentsCreateNestedManyWithoutUsers_branch_share_payments_requested_byTousersInput
-  branches_branches_manager_idTousers?: Prisma.branchesCreateNestedManyWithoutUsers_branches_manager_idTousersInput
-  cash_transfers_cash_transfers_approved_byTousers?: Prisma.cash_transfersCreateNestedManyWithoutUsers_cash_transfers_approved_byTousersInput
-  cash_transfers_cash_transfers_created_byTousers?: Prisma.cash_transfersCreateNestedManyWithoutUsers_cash_transfers_created_byTousersInput
-  cash_transfers_cash_transfers_deleted_byTousers?: Prisma.cash_transfersCreateNestedManyWithoutUsers_cash_transfers_deleted_byTousersInput
-  cash_transfers_cash_transfers_updated_byTousers?: Prisma.cash_transfersCreateNestedManyWithoutUsers_cash_transfers_updated_byTousersInput
-  daily_sale_record_audits?: Prisma.daily_sale_record_auditsCreateNestedManyWithoutUsersInput
-  daily_sale_records_daily_sale_records_created_byTousers?: Prisma.daily_sale_recordsCreateNestedManyWithoutUsers_daily_sale_records_created_byTousersInput
-  daily_sale_records_daily_sale_records_fed_byTousers?: Prisma.daily_sale_recordsCreateNestedManyWithoutUsers_daily_sale_records_fed_byTousersInput
-  daily_sale_records_daily_sale_records_locked_byTousers?: Prisma.daily_sale_recordsCreateNestedManyWithoutUsers_daily_sale_records_locked_byTousersInput
-  daily_sale_records_daily_sale_records_verified_byTousers?: Prisma.daily_sale_recordsCreateNestedManyWithoutUsers_daily_sale_records_verified_byTousersInput
-  employee_advances_employee_advances_approved_byTousers?: Prisma.employee_advancesCreateNestedManyWithoutUsers_employee_advances_approved_byTousersInput
-  employee_advances_employee_advances_created_byTousers?: Prisma.employee_advancesCreateNestedManyWithoutUsers_employee_advances_created_byTousersInput
-  employee_advances_employee_advances_deleted_byTousers?: Prisma.employee_advancesCreateNestedManyWithoutUsers_employee_advances_deleted_byTousersInput
-  event_branch_demands_event_branch_demands_reviewed_byTousers?: Prisma.event_branch_demandsCreateNestedManyWithoutUsers_event_branch_demands_reviewed_byTousersInput
-  event_branch_demands_event_branch_demands_submitted_byTousers?: Prisma.event_branch_demandsCreateNestedManyWithoutUsers_event_branch_demands_submitted_byTousersInput
-  event_production_status?: Prisma.event_production_statusCreateNestedManyWithoutUsersInput
-  expenses?: Prisma.expensesCreateNestedManyWithoutUsersInput
-  finance_amendments?: Prisma.finance_amendmentsCreateNestedManyWithoutUsersInput
-  finance_audit_logs?: Prisma.finance_audit_logsCreateNestedManyWithoutUsersInput
-  finance_day_closings?: Prisma.finance_day_closingsCreateNestedManyWithoutUsersInput
-  finance_income_approvals_finance_income_approvals_approved_byTousers?: Prisma.finance_income_approvalsCreateNestedManyWithoutUsers_finance_income_approvals_approved_byTousersInput
-  finance_income_approvals_finance_income_approvals_deleted_byTousers?: Prisma.finance_income_approvalsCreateNestedManyWithoutUsers_finance_income_approvals_deleted_byTousersInput
-  finance_income_approvals_finance_income_approvals_verified_byTousers?: Prisma.finance_income_approvalsCreateNestedManyWithoutUsers_finance_income_approvals_verified_byTousersInput
-  finance_queries_finance_queries_created_byTousers?: Prisma.finance_queriesCreateNestedManyWithoutUsers_finance_queries_created_byTousersInput
-  finance_queries_finance_queries_updated_byTousers?: Prisma.finance_queriesCreateNestedManyWithoutUsers_finance_queries_updated_byTousersInput
-  finance_ticket_messages?: Prisma.finance_ticket_messagesCreateNestedManyWithoutUsersInput
-  finance_ticket_versions?: Prisma.finance_ticket_versionsCreateNestedManyWithoutUsersInput
-  finance_tickets_finance_tickets_amended_byTousers?: Prisma.finance_ticketsCreateNestedManyWithoutUsers_finance_tickets_amended_byTousersInput
-  finance_tickets_finance_tickets_assigned_toTousers?: Prisma.finance_ticketsCreateNestedManyWithoutUsers_finance_tickets_assigned_toTousersInput
-  finance_tickets_finance_tickets_deleted_byTousers?: Prisma.finance_ticketsCreateNestedManyWithoutUsers_finance_tickets_deleted_byTousersInput
-  finance_tickets_finance_tickets_raised_byTousers?: Prisma.finance_ticketsCreateNestedManyWithoutUsers_finance_tickets_raised_byTousersInput
-  finance_tickets_finance_tickets_reopened_byTousers?: Prisma.finance_ticketsCreateNestedManyWithoutUsers_finance_tickets_reopened_byTousersInput
-  finance_tickets_finance_tickets_resolved_byTousers?: Prisma.finance_ticketsCreateNestedManyWithoutUsers_finance_tickets_resolved_byTousersInput
-  finance_tickets_finance_tickets_responded_byTousers?: Prisma.finance_ticketsCreateNestedManyWithoutUsers_finance_tickets_responded_byTousersInput
-  finance_tickets_finance_tickets_restored_byTousers?: Prisma.finance_ticketsCreateNestedManyWithoutUsers_finance_tickets_restored_byTousersInput
-  finance_transactions_finance_transactions_approved_byTousers?: Prisma.finance_transactionsCreateNestedManyWithoutUsers_finance_transactions_approved_byTousersInput
-  finance_transactions_finance_transactions_created_byTousers?: Prisma.finance_transactionsCreateNestedManyWithoutUsers_finance_transactions_created_byTousersInput
-  finance_transactions_finance_transactions_deleted_byTousers?: Prisma.finance_transactionsCreateNestedManyWithoutUsers_finance_transactions_deleted_byTousersInput
-  geofence_logs?: Prisma.geofence_logsCreateNestedManyWithoutUsersInput
-  ledger_entries_ledger_entries_approved_byTousers?: Prisma.ledger_entriesCreateNestedManyWithoutUsers_ledger_entries_approved_byTousersInput
-  ledger_entries_ledger_entries_created_byTousers?: Prisma.ledger_entriesCreateNestedManyWithoutUsers_ledger_entries_created_byTousersInput
-  ledger_entries_ledger_entries_deleted_byTousers?: Prisma.ledger_entriesCreateNestedManyWithoutUsers_ledger_entries_deleted_byTousersInput
-  ledger_entries_ledger_entries_updated_byTousers?: Prisma.ledger_entriesCreateNestedManyWithoutUsers_ledger_entries_updated_byTousersInput
-  ledger_heads?: Prisma.ledger_headsCreateNestedManyWithoutUsersInput
-  login_sessions_login_sessions_revoked_byTousers?: Prisma.login_sessionsCreateNestedManyWithoutUsers_login_sessions_revoked_byTousersInput
-  login_sessions_login_sessions_user_idTousers?: Prisma.login_sessionsCreateNestedManyWithoutUsers_login_sessions_user_idTousersInput
-  notification_reads?: Prisma.notification_readsCreateNestedManyWithoutUsersInput
-  notifications?: Prisma.notificationsCreateNestedManyWithoutUsersInput
-  orders?: Prisma.ordersCreateNestedManyWithoutUsersInput
-  packing_materials?: Prisma.packing_materialsCreateNestedManyWithoutUsersInput
-  partner_expenses_partner_expenses_approved_byTousers?: Prisma.partner_expensesCreateNestedManyWithoutUsers_partner_expenses_approved_byTousersInput
-  partner_expenses_partner_expenses_deleted_byTousers?: Prisma.partner_expensesCreateNestedManyWithoutUsers_partner_expenses_deleted_byTousersInput
-  partner_expenses_partner_expenses_requested_byTousers?: Prisma.partner_expensesCreateNestedManyWithoutUsers_partner_expenses_requested_byTousersInput
-  payment_method_settings?: Prisma.payment_method_settingsCreateNestedManyWithoutUsersInput
-  product_price_history?: Prisma.product_price_historyCreateNestedManyWithoutUsersInput
-  production_orders_production_orders_approved_byTousers?: Prisma.production_ordersCreateNestedManyWithoutUsers_production_orders_approved_byTousersInput
-  production_orders_production_orders_cancelled_byTousers?: Prisma.production_ordersCreateNestedManyWithoutUsers_production_orders_cancelled_byTousersInput
-  production_orders_production_orders_created_byTousers?: Prisma.production_ordersCreateNestedManyWithoutUsers_production_orders_created_byTousersInput
-  production_orders_production_orders_verified_byTousers?: Prisma.production_ordersCreateNestedManyWithoutUsers_production_orders_verified_byTousersInput
-  production_returns_production_returns_created_byTousers?: Prisma.production_returnsCreateNestedManyWithoutUsers_production_returns_created_byTousersInput
-  production_returns_production_returns_reviewed_byTousers?: Prisma.production_returnsCreateNestedManyWithoutUsers_production_returns_reviewed_byTousersInput
-  production_stock_history?: Prisma.production_stock_historyCreateNestedManyWithoutUsersInput
-  push_subscriptions?: Prisma.push_subscriptionsCreateNestedManyWithoutUsersInput
-  restriction_events?: Prisma.restriction_eventsCreateNestedManyWithoutUsersInput
-  restriction_requests_restriction_requests_decided_byTousers?: Prisma.restriction_requestsCreateNestedManyWithoutUsers_restriction_requests_decided_byTousersInput
-  restriction_requests_restriction_requests_requested_byTousers?: Prisma.restriction_requestsCreateNestedManyWithoutUsers_restriction_requests_requested_byTousersInput
-  restriction_rules?: Prisma.restriction_rulesCreateNestedManyWithoutUsersInput
-  return_stock_history?: Prisma.return_stock_historyCreateNestedManyWithoutUsersInput
-  salary_payments_salary_payments_approved_byTousers?: Prisma.salary_paymentsCreateNestedManyWithoutUsers_salary_payments_approved_byTousersInput
-  salary_payments_salary_payments_created_byTousers?: Prisma.salary_paymentsCreateNestedManyWithoutUsers_salary_payments_created_byTousersInput
-  salary_payments_salary_payments_deleted_byTousers?: Prisma.salary_paymentsCreateNestedManyWithoutUsers_salary_payments_deleted_byTousersInput
-  salary_revisions?: Prisma.salary_revisionsCreateNestedManyWithoutUsersInput
-  settings?: Prisma.settingsCreateNestedManyWithoutUsersInput
-  special_events?: Prisma.special_eventsCreateNestedManyWithoutUsersInput
-  special_orders_special_orders_approved_byTousers?: Prisma.special_ordersCreateNestedManyWithoutUsers_special_orders_approved_byTousersInput
-  special_orders_special_orders_created_byTousers?: Prisma.special_ordersCreateNestedManyWithoutUsers_special_orders_created_byTousersInput
-  special_orders_special_orders_prepared_byTousers?: Prisma.special_ordersCreateNestedManyWithoutUsers_special_orders_prepared_byTousersInput
-  special_orders_special_orders_verified_byTousers?: Prisma.special_ordersCreateNestedManyWithoutUsers_special_orders_verified_byTousersInput
-  stock_audit_log?: Prisma.stock_audit_logCreateNestedManyWithoutUsersInput
-  support_tickets_support_tickets_raised_byTousers?: Prisma.support_ticketsCreateNestedManyWithoutUsers_support_tickets_raised_byTousersInput
-  support_tickets_support_tickets_resolved_byTousers?: Prisma.support_ticketsCreateNestedManyWithoutUsers_support_tickets_resolved_byTousersInput
-  user_credentials?: Prisma.user_credentialsCreateNestedOneWithoutUsersInput
-  branches_users_branch_idTobranches?: Prisma.branchesCreateNestedOneWithoutUsers_users_branch_idTobranchesInput
-  users?: Prisma.usersCreateNestedOneWithoutOther_usersInput
-  other_users?: Prisma.usersCreateNestedManyWithoutUsersInput
-}
-
-export type usersUncheckedCreateWithoutPassword_reset_tokensInput = {
-  id: string
-  email: string
-  display_name?: string | null
-  phone?: string | null
-  username?: string | null
-  role: $Enums.user_role
-  branch_id?: string | null
-  branch_name?: string | null
-  status?: $Enums.user_status
-  last_login_at?: Date | string | null
-  must_change_password?: boolean
-  last_password_reset?: Date | string | null
-  password_reset_by?: string | null
-  password_reset_by_name?: string | null
-  created_at?: Date | string
-  updated_at?: Date | string
-  user_code?: string
-  attachments?: Prisma.attachmentsUncheckedCreateNestedManyWithoutUsersInput
-  audit_logs_audit_logs_admin_idTousers?: Prisma.audit_logsUncheckedCreateNestedManyWithoutUsers_audit_logs_admin_idTousersInput
-  audit_logs_audit_logs_target_user_idTousers?: Prisma.audit_logsUncheckedCreateNestedManyWithoutUsers_audit_logs_target_user_idTousersInput
-  auth_sessions?: Prisma.auth_sessionsUncheckedCreateNestedManyWithoutUsersInput
-  backup_jobs?: Prisma.backup_jobsUncheckedCreateNestedManyWithoutUsersInput
-  branch_discounts_branch_discounts_created_byTousers?: Prisma.branch_discountsUncheckedCreateNestedManyWithoutUsers_branch_discounts_created_byTousersInput
-  branch_discounts_branch_discounts_reviewed_byTousers?: Prisma.branch_discountsUncheckedCreateNestedManyWithoutUsers_branch_discounts_reviewed_byTousersInput
-  branch_locations?: Prisma.branch_locationsUncheckedCreateNestedManyWithoutUsersInput
-  branch_share_payments_branch_share_payments_approved_byTousers?: Prisma.branch_share_paymentsUncheckedCreateNestedManyWithoutUsers_branch_share_payments_approved_byTousersInput
-  branch_share_payments_branch_share_payments_deleted_byTousers?: Prisma.branch_share_paymentsUncheckedCreateNestedManyWithoutUsers_branch_share_payments_deleted_byTousersInput
-  branch_share_payments_branch_share_payments_requested_byTousers?: Prisma.branch_share_paymentsUncheckedCreateNestedManyWithoutUsers_branch_share_payments_requested_byTousersInput
-  branches_branches_manager_idTousers?: Prisma.branchesUncheckedCreateNestedManyWithoutUsers_branches_manager_idTousersInput
-  cash_transfers_cash_transfers_approved_byTousers?: Prisma.cash_transfersUncheckedCreateNestedManyWithoutUsers_cash_transfers_approved_byTousersInput
-  cash_transfers_cash_transfers_created_byTousers?: Prisma.cash_transfersUncheckedCreateNestedManyWithoutUsers_cash_transfers_created_byTousersInput
-  cash_transfers_cash_transfers_deleted_byTousers?: Prisma.cash_transfersUncheckedCreateNestedManyWithoutUsers_cash_transfers_deleted_byTousersInput
-  cash_transfers_cash_transfers_updated_byTousers?: Prisma.cash_transfersUncheckedCreateNestedManyWithoutUsers_cash_transfers_updated_byTousersInput
-  daily_sale_record_audits?: Prisma.daily_sale_record_auditsUncheckedCreateNestedManyWithoutUsersInput
-  daily_sale_records_daily_sale_records_created_byTousers?: Prisma.daily_sale_recordsUncheckedCreateNestedManyWithoutUsers_daily_sale_records_created_byTousersInput
-  daily_sale_records_daily_sale_records_fed_byTousers?: Prisma.daily_sale_recordsUncheckedCreateNestedManyWithoutUsers_daily_sale_records_fed_byTousersInput
-  daily_sale_records_daily_sale_records_locked_byTousers?: Prisma.daily_sale_recordsUncheckedCreateNestedManyWithoutUsers_daily_sale_records_locked_byTousersInput
-  daily_sale_records_daily_sale_records_verified_byTousers?: Prisma.daily_sale_recordsUncheckedCreateNestedManyWithoutUsers_daily_sale_records_verified_byTousersInput
-  employee_advances_employee_advances_approved_byTousers?: Prisma.employee_advancesUncheckedCreateNestedManyWithoutUsers_employee_advances_approved_byTousersInput
-  employee_advances_employee_advances_created_byTousers?: Prisma.employee_advancesUncheckedCreateNestedManyWithoutUsers_employee_advances_created_byTousersInput
-  employee_advances_employee_advances_deleted_byTousers?: Prisma.employee_advancesUncheckedCreateNestedManyWithoutUsers_employee_advances_deleted_byTousersInput
-  event_branch_demands_event_branch_demands_reviewed_byTousers?: Prisma.event_branch_demandsUncheckedCreateNestedManyWithoutUsers_event_branch_demands_reviewed_byTousersInput
-  event_branch_demands_event_branch_demands_submitted_byTousers?: Prisma.event_branch_demandsUncheckedCreateNestedManyWithoutUsers_event_branch_demands_submitted_byTousersInput
-  event_production_status?: Prisma.event_production_statusUncheckedCreateNestedManyWithoutUsersInput
-  expenses?: Prisma.expensesUncheckedCreateNestedManyWithoutUsersInput
-  finance_amendments?: Prisma.finance_amendmentsUncheckedCreateNestedManyWithoutUsersInput
-  finance_audit_logs?: Prisma.finance_audit_logsUncheckedCreateNestedManyWithoutUsersInput
-  finance_day_closings?: Prisma.finance_day_closingsUncheckedCreateNestedManyWithoutUsersInput
-  finance_income_approvals_finance_income_approvals_approved_byTousers?: Prisma.finance_income_approvalsUncheckedCreateNestedManyWithoutUsers_finance_income_approvals_approved_byTousersInput
-  finance_income_approvals_finance_income_approvals_deleted_byTousers?: Prisma.finance_income_approvalsUncheckedCreateNestedManyWithoutUsers_finance_income_approvals_deleted_byTousersInput
-  finance_income_approvals_finance_income_approvals_verified_byTousers?: Prisma.finance_income_approvalsUncheckedCreateNestedManyWithoutUsers_finance_income_approvals_verified_byTousersInput
-  finance_queries_finance_queries_created_byTousers?: Prisma.finance_queriesUncheckedCreateNestedManyWithoutUsers_finance_queries_created_byTousersInput
-  finance_queries_finance_queries_updated_byTousers?: Prisma.finance_queriesUncheckedCreateNestedManyWithoutUsers_finance_queries_updated_byTousersInput
-  finance_ticket_messages?: Prisma.finance_ticket_messagesUncheckedCreateNestedManyWithoutUsersInput
-  finance_ticket_versions?: Prisma.finance_ticket_versionsUncheckedCreateNestedManyWithoutUsersInput
-  finance_tickets_finance_tickets_amended_byTousers?: Prisma.finance_ticketsUncheckedCreateNestedManyWithoutUsers_finance_tickets_amended_byTousersInput
-  finance_tickets_finance_tickets_assigned_toTousers?: Prisma.finance_ticketsUncheckedCreateNestedManyWithoutUsers_finance_tickets_assigned_toTousersInput
-  finance_tickets_finance_tickets_deleted_byTousers?: Prisma.finance_ticketsUncheckedCreateNestedManyWithoutUsers_finance_tickets_deleted_byTousersInput
-  finance_tickets_finance_tickets_raised_byTousers?: Prisma.finance_ticketsUncheckedCreateNestedManyWithoutUsers_finance_tickets_raised_byTousersInput
-  finance_tickets_finance_tickets_reopened_byTousers?: Prisma.finance_ticketsUncheckedCreateNestedManyWithoutUsers_finance_tickets_reopened_byTousersInput
-  finance_tickets_finance_tickets_resolved_byTousers?: Prisma.finance_ticketsUncheckedCreateNestedManyWithoutUsers_finance_tickets_resolved_byTousersInput
-  finance_tickets_finance_tickets_responded_byTousers?: Prisma.finance_ticketsUncheckedCreateNestedManyWithoutUsers_finance_tickets_responded_byTousersInput
-  finance_tickets_finance_tickets_restored_byTousers?: Prisma.finance_ticketsUncheckedCreateNestedManyWithoutUsers_finance_tickets_restored_byTousersInput
-  finance_transactions_finance_transactions_approved_byTousers?: Prisma.finance_transactionsUncheckedCreateNestedManyWithoutUsers_finance_transactions_approved_byTousersInput
-  finance_transactions_finance_transactions_created_byTousers?: Prisma.finance_transactionsUncheckedCreateNestedManyWithoutUsers_finance_transactions_created_byTousersInput
-  finance_transactions_finance_transactions_deleted_byTousers?: Prisma.finance_transactionsUncheckedCreateNestedManyWithoutUsers_finance_transactions_deleted_byTousersInput
-  geofence_logs?: Prisma.geofence_logsUncheckedCreateNestedManyWithoutUsersInput
-  ledger_entries_ledger_entries_approved_byTousers?: Prisma.ledger_entriesUncheckedCreateNestedManyWithoutUsers_ledger_entries_approved_byTousersInput
-  ledger_entries_ledger_entries_created_byTousers?: Prisma.ledger_entriesUncheckedCreateNestedManyWithoutUsers_ledger_entries_created_byTousersInput
-  ledger_entries_ledger_entries_deleted_byTousers?: Prisma.ledger_entriesUncheckedCreateNestedManyWithoutUsers_ledger_entries_deleted_byTousersInput
-  ledger_entries_ledger_entries_updated_byTousers?: Prisma.ledger_entriesUncheckedCreateNestedManyWithoutUsers_ledger_entries_updated_byTousersInput
-  ledger_heads?: Prisma.ledger_headsUncheckedCreateNestedManyWithoutUsersInput
-  login_sessions_login_sessions_revoked_byTousers?: Prisma.login_sessionsUncheckedCreateNestedManyWithoutUsers_login_sessions_revoked_byTousersInput
-  login_sessions_login_sessions_user_idTousers?: Prisma.login_sessionsUncheckedCreateNestedManyWithoutUsers_login_sessions_user_idTousersInput
-  notification_reads?: Prisma.notification_readsUncheckedCreateNestedManyWithoutUsersInput
-  notifications?: Prisma.notificationsUncheckedCreateNestedManyWithoutUsersInput
-  orders?: Prisma.ordersUncheckedCreateNestedManyWithoutUsersInput
-  packing_materials?: Prisma.packing_materialsUncheckedCreateNestedManyWithoutUsersInput
-  partner_expenses_partner_expenses_approved_byTousers?: Prisma.partner_expensesUncheckedCreateNestedManyWithoutUsers_partner_expenses_approved_byTousersInput
-  partner_expenses_partner_expenses_deleted_byTousers?: Prisma.partner_expensesUncheckedCreateNestedManyWithoutUsers_partner_expenses_deleted_byTousersInput
-  partner_expenses_partner_expenses_requested_byTousers?: Prisma.partner_expensesUncheckedCreateNestedManyWithoutUsers_partner_expenses_requested_byTousersInput
-  payment_method_settings?: Prisma.payment_method_settingsUncheckedCreateNestedManyWithoutUsersInput
-  product_price_history?: Prisma.product_price_historyUncheckedCreateNestedManyWithoutUsersInput
-  production_orders_production_orders_approved_byTousers?: Prisma.production_ordersUncheckedCreateNestedManyWithoutUsers_production_orders_approved_byTousersInput
-  production_orders_production_orders_cancelled_byTousers?: Prisma.production_ordersUncheckedCreateNestedManyWithoutUsers_production_orders_cancelled_byTousersInput
-  production_orders_production_orders_created_byTousers?: Prisma.production_ordersUncheckedCreateNestedManyWithoutUsers_production_orders_created_byTousersInput
-  production_orders_production_orders_verified_byTousers?: Prisma.production_ordersUncheckedCreateNestedManyWithoutUsers_production_orders_verified_byTousersInput
-  production_returns_production_returns_created_byTousers?: Prisma.production_returnsUncheckedCreateNestedManyWithoutUsers_production_returns_created_byTousersInput
-  production_returns_production_returns_reviewed_byTousers?: Prisma.production_returnsUncheckedCreateNestedManyWithoutUsers_production_returns_reviewed_byTousersInput
-  production_stock_history?: Prisma.production_stock_historyUncheckedCreateNestedManyWithoutUsersInput
-  push_subscriptions?: Prisma.push_subscriptionsUncheckedCreateNestedManyWithoutUsersInput
-  restriction_events?: Prisma.restriction_eventsUncheckedCreateNestedManyWithoutUsersInput
-  restriction_requests_restriction_requests_decided_byTousers?: Prisma.restriction_requestsUncheckedCreateNestedManyWithoutUsers_restriction_requests_decided_byTousersInput
-  restriction_requests_restriction_requests_requested_byTousers?: Prisma.restriction_requestsUncheckedCreateNestedManyWithoutUsers_restriction_requests_requested_byTousersInput
-  restriction_rules?: Prisma.restriction_rulesUncheckedCreateNestedManyWithoutUsersInput
-  return_stock_history?: Prisma.return_stock_historyUncheckedCreateNestedManyWithoutUsersInput
-  salary_payments_salary_payments_approved_byTousers?: Prisma.salary_paymentsUncheckedCreateNestedManyWithoutUsers_salary_payments_approved_byTousersInput
-  salary_payments_salary_payments_created_byTousers?: Prisma.salary_paymentsUncheckedCreateNestedManyWithoutUsers_salary_payments_created_byTousersInput
-  salary_payments_salary_payments_deleted_byTousers?: Prisma.salary_paymentsUncheckedCreateNestedManyWithoutUsers_salary_payments_deleted_byTousersInput
-  salary_revisions?: Prisma.salary_revisionsUncheckedCreateNestedManyWithoutUsersInput
-  settings?: Prisma.settingsUncheckedCreateNestedManyWithoutUsersInput
-  special_events?: Prisma.special_eventsUncheckedCreateNestedManyWithoutUsersInput
-  special_orders_special_orders_approved_byTousers?: Prisma.special_ordersUncheckedCreateNestedManyWithoutUsers_special_orders_approved_byTousersInput
-  special_orders_special_orders_created_byTousers?: Prisma.special_ordersUncheckedCreateNestedManyWithoutUsers_special_orders_created_byTousersInput
-  special_orders_special_orders_prepared_byTousers?: Prisma.special_ordersUncheckedCreateNestedManyWithoutUsers_special_orders_prepared_byTousersInput
-  special_orders_special_orders_verified_byTousers?: Prisma.special_ordersUncheckedCreateNestedManyWithoutUsers_special_orders_verified_byTousersInput
-  stock_audit_log?: Prisma.stock_audit_logUncheckedCreateNestedManyWithoutUsersInput
-  support_tickets_support_tickets_raised_byTousers?: Prisma.support_ticketsUncheckedCreateNestedManyWithoutUsers_support_tickets_raised_byTousersInput
-  support_tickets_support_tickets_resolved_byTousers?: Prisma.support_ticketsUncheckedCreateNestedManyWithoutUsers_support_tickets_resolved_byTousersInput
-  user_credentials?: Prisma.user_credentialsUncheckedCreateNestedOneWithoutUsersInput
-  other_users?: Prisma.usersUncheckedCreateNestedManyWithoutUsersInput
-}
-
-export type usersCreateOrConnectWithoutPassword_reset_tokensInput = {
-  where: Prisma.usersWhereUniqueInput
-  create: Prisma.XOR<Prisma.usersCreateWithoutPassword_reset_tokensInput, Prisma.usersUncheckedCreateWithoutPassword_reset_tokensInput>
-}
-
-export type usersUpsertWithoutPassword_reset_tokensInput = {
-  update: Prisma.XOR<Prisma.usersUpdateWithoutPassword_reset_tokensInput, Prisma.usersUncheckedUpdateWithoutPassword_reset_tokensInput>
-  create: Prisma.XOR<Prisma.usersCreateWithoutPassword_reset_tokensInput, Prisma.usersUncheckedCreateWithoutPassword_reset_tokensInput>
-  where?: Prisma.usersWhereInput
-}
-
-export type usersUpdateToOneWithWhereWithoutPassword_reset_tokensInput = {
-  where?: Prisma.usersWhereInput
-  data: Prisma.XOR<Prisma.usersUpdateWithoutPassword_reset_tokensInput, Prisma.usersUncheckedUpdateWithoutPassword_reset_tokensInput>
-}
-
-export type usersUpdateWithoutPassword_reset_tokensInput = {
-  id?: Prisma.StringFieldUpdateOperationsInput | string
-  email?: Prisma.StringFieldUpdateOperationsInput | string
-  display_name?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
-  phone?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
-  username?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
-  role?: Prisma.Enumuser_roleFieldUpdateOperationsInput | $Enums.user_role
-  branch_name?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
-  status?: Prisma.Enumuser_statusFieldUpdateOperationsInput | $Enums.user_status
-  last_login_at?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
-  must_change_password?: Prisma.BoolFieldUpdateOperationsInput | boolean
-  last_password_reset?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
-  password_reset_by_name?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
-  created_at?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
-  updated_at?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
-  user_code?: Prisma.StringFieldUpdateOperationsInput | string
-  attachments?: Prisma.attachmentsUpdateManyWithoutUsersNestedInput
-  audit_logs_audit_logs_admin_idTousers?: Prisma.audit_logsUpdateManyWithoutUsers_audit_logs_admin_idTousersNestedInput
-  audit_logs_audit_logs_target_user_idTousers?: Prisma.audit_logsUpdateManyWithoutUsers_audit_logs_target_user_idTousersNestedInput
-  auth_sessions?: Prisma.auth_sessionsUpdateManyWithoutUsersNestedInput
-  backup_jobs?: Prisma.backup_jobsUpdateManyWithoutUsersNestedInput
-  branch_discounts_branch_discounts_created_byTousers?: Prisma.branch_discountsUpdateManyWithoutUsers_branch_discounts_created_byTousersNestedInput
-  branch_discounts_branch_discounts_reviewed_byTousers?: Prisma.branch_discountsUpdateManyWithoutUsers_branch_discounts_reviewed_byTousersNestedInput
-  branch_locations?: Prisma.branch_locationsUpdateManyWithoutUsersNestedInput
-  branch_share_payments_branch_share_payments_approved_byTousers?: Prisma.branch_share_paymentsUpdateManyWithoutUsers_branch_share_payments_approved_byTousersNestedInput
-  branch_share_payments_branch_share_payments_deleted_byTousers?: Prisma.branch_share_paymentsUpdateManyWithoutUsers_branch_share_payments_deleted_byTousersNestedInput
-  branch_share_payments_branch_share_payments_requested_byTousers?: Prisma.branch_share_paymentsUpdateManyWithoutUsers_branch_share_payments_requested_byTousersNestedInput
-  branches_branches_manager_idTousers?: Prisma.branchesUpdateManyWithoutUsers_branches_manager_idTousersNestedInput
-  cash_transfers_cash_transfers_approved_byTousers?: Prisma.cash_transfersUpdateManyWithoutUsers_cash_transfers_approved_byTousersNestedInput
-  cash_transfers_cash_transfers_created_byTousers?: Prisma.cash_transfersUpdateManyWithoutUsers_cash_transfers_created_byTousersNestedInput
-  cash_transfers_cash_transfers_deleted_byTousers?: Prisma.cash_transfersUpdateManyWithoutUsers_cash_transfers_deleted_byTousersNestedInput
-  cash_transfers_cash_transfers_updated_byTousers?: Prisma.cash_transfersUpdateManyWithoutUsers_cash_transfers_updated_byTousersNestedInput
-  daily_sale_record_audits?: Prisma.daily_sale_record_auditsUpdateManyWithoutUsersNestedInput
-  daily_sale_records_daily_sale_records_created_byTousers?: Prisma.daily_sale_recordsUpdateManyWithoutUsers_daily_sale_records_created_byTousersNestedInput
-  daily_sale_records_daily_sale_records_fed_byTousers?: Prisma.daily_sale_recordsUpdateManyWithoutUsers_daily_sale_records_fed_byTousersNestedInput
-  daily_sale_records_daily_sale_records_locked_byTousers?: Prisma.daily_sale_recordsUpdateManyWithoutUsers_daily_sale_records_locked_byTousersNestedInput
-  daily_sale_records_daily_sale_records_verified_byTousers?: Prisma.daily_sale_recordsUpdateManyWithoutUsers_daily_sale_records_verified_byTousersNestedInput
-  employee_advances_employee_advances_approved_byTousers?: Prisma.employee_advancesUpdateManyWithoutUsers_employee_advances_approved_byTousersNestedInput
-  employee_advances_employee_advances_created_byTousers?: Prisma.employee_advancesUpdateManyWithoutUsers_employee_advances_created_byTousersNestedInput
-  employee_advances_employee_advances_deleted_byTousers?: Prisma.employee_advancesUpdateManyWithoutUsers_employee_advances_deleted_byTousersNestedInput
-  event_branch_demands_event_branch_demands_reviewed_byTousers?: Prisma.event_branch_demandsUpdateManyWithoutUsers_event_branch_demands_reviewed_byTousersNestedInput
-  event_branch_demands_event_branch_demands_submitted_byTousers?: Prisma.event_branch_demandsUpdateManyWithoutUsers_event_branch_demands_submitted_byTousersNestedInput
-  event_production_status?: Prisma.event_production_statusUpdateManyWithoutUsersNestedInput
-  expenses?: Prisma.expensesUpdateManyWithoutUsersNestedInput
-  finance_amendments?: Prisma.finance_amendmentsUpdateManyWithoutUsersNestedInput
-  finance_audit_logs?: Prisma.finance_audit_logsUpdateManyWithoutUsersNestedInput
-  finance_day_closings?: Prisma.finance_day_closingsUpdateManyWithoutUsersNestedInput
-  finance_income_approvals_finance_income_approvals_approved_byTousers?: Prisma.finance_income_approvalsUpdateManyWithoutUsers_finance_income_approvals_approved_byTousersNestedInput
-  finance_income_approvals_finance_income_approvals_deleted_byTousers?: Prisma.finance_income_approvalsUpdateManyWithoutUsers_finance_income_approvals_deleted_byTousersNestedInput
-  finance_income_approvals_finance_income_approvals_verified_byTousers?: Prisma.finance_income_approvalsUpdateManyWithoutUsers_finance_income_approvals_verified_byTousersNestedInput
-  finance_queries_finance_queries_created_byTousers?: Prisma.finance_queriesUpdateManyWithoutUsers_finance_queries_created_byTousersNestedInput
-  finance_queries_finance_queries_updated_byTousers?: Prisma.finance_queriesUpdateManyWithoutUsers_finance_queries_updated_byTousersNestedInput
-  finance_ticket_messages?: Prisma.finance_ticket_messagesUpdateManyWithoutUsersNestedInput
-  finance_ticket_versions?: Prisma.finance_ticket_versionsUpdateManyWithoutUsersNestedInput
-  finance_tickets_finance_tickets_amended_byTousers?: Prisma.finance_ticketsUpdateManyWithoutUsers_finance_tickets_amended_byTousersNestedInput
-  finance_tickets_finance_tickets_assigned_toTousers?: Prisma.finance_ticketsUpdateManyWithoutUsers_finance_tickets_assigned_toTousersNestedInput
-  finance_tickets_finance_tickets_deleted_byTousers?: Prisma.finance_ticketsUpdateManyWithoutUsers_finance_tickets_deleted_byTousersNestedInput
-  finance_tickets_finance_tickets_raised_byTousers?: Prisma.finance_ticketsUpdateManyWithoutUsers_finance_tickets_raised_byTousersNestedInput
-  finance_tickets_finance_tickets_reopened_byTousers?: Prisma.finance_ticketsUpdateManyWithoutUsers_finance_tickets_reopened_byTousersNestedInput
-  finance_tickets_finance_tickets_resolved_byTousers?: Prisma.finance_ticketsUpdateManyWithoutUsers_finance_tickets_resolved_byTousersNestedInput
-  finance_tickets_finance_tickets_responded_byTousers?: Prisma.finance_ticketsUpdateManyWithoutUsers_finance_tickets_responded_byTousersNestedInput
-  finance_tickets_finance_tickets_restored_byTousers?: Prisma.finance_ticketsUpdateManyWithoutUsers_finance_tickets_restored_byTousersNestedInput
-  finance_transactions_finance_transactions_approved_byTousers?: Prisma.finance_transactionsUpdateManyWithoutUsers_finance_transactions_approved_byTousersNestedInput
-  finance_transactions_finance_transactions_created_byTousers?: Prisma.finance_transactionsUpdateManyWithoutUsers_finance_transactions_created_byTousersNestedInput
-  finance_transactions_finance_transactions_deleted_byTousers?: Prisma.finance_transactionsUpdateManyWithoutUsers_finance_transactions_deleted_byTousersNestedInput
-  geofence_logs?: Prisma.geofence_logsUpdateManyWithoutUsersNestedInput
-  ledger_entries_ledger_entries_approved_byTousers?: Prisma.ledger_entriesUpdateManyWithoutUsers_ledger_entries_approved_byTousersNestedInput
-  ledger_entries_ledger_entries_created_byTousers?: Prisma.ledger_entriesUpdateManyWithoutUsers_ledger_entries_created_byTousersNestedInput
-  ledger_entries_ledger_entries_deleted_byTousers?: Prisma.ledger_entriesUpdateManyWithoutUsers_ledger_entries_deleted_byTousersNestedInput
-  ledger_entries_ledger_entries_updated_byTousers?: Prisma.ledger_entriesUpdateManyWithoutUsers_ledger_entries_updated_byTousersNestedInput
-  ledger_heads?: Prisma.ledger_headsUpdateManyWithoutUsersNestedInput
-  login_sessions_login_sessions_revoked_byTousers?: Prisma.login_sessionsUpdateManyWithoutUsers_login_sessions_revoked_byTousersNestedInput
-  login_sessions_login_sessions_user_idTousers?: Prisma.login_sessionsUpdateManyWithoutUsers_login_sessions_user_idTousersNestedInput
-  notification_reads?: Prisma.notification_readsUpdateManyWithoutUsersNestedInput
-  notifications?: Prisma.notificationsUpdateManyWithoutUsersNestedInput
-  orders?: Prisma.ordersUpdateManyWithoutUsersNestedInput
-  packing_materials?: Prisma.packing_materialsUpdateManyWithoutUsersNestedInput
-  partner_expenses_partner_expenses_approved_byTousers?: Prisma.partner_expensesUpdateManyWithoutUsers_partner_expenses_approved_byTousersNestedInput
-  partner_expenses_partner_expenses_deleted_byTousers?: Prisma.partner_expensesUpdateManyWithoutUsers_partner_expenses_deleted_byTousersNestedInput
-  partner_expenses_partner_expenses_requested_byTousers?: Prisma.partner_expensesUpdateManyWithoutUsers_partner_expenses_requested_byTousersNestedInput
-  payment_method_settings?: Prisma.payment_method_settingsUpdateManyWithoutUsersNestedInput
-  product_price_history?: Prisma.product_price_historyUpdateManyWithoutUsersNestedInput
-  production_orders_production_orders_approved_byTousers?: Prisma.production_ordersUpdateManyWithoutUsers_production_orders_approved_byTousersNestedInput
-  production_orders_production_orders_cancelled_byTousers?: Prisma.production_ordersUpdateManyWithoutUsers_production_orders_cancelled_byTousersNestedInput
-  production_orders_production_orders_created_byTousers?: Prisma.production_ordersUpdateManyWithoutUsers_production_orders_created_byTousersNestedInput
-  production_orders_production_orders_verified_byTousers?: Prisma.production_ordersUpdateManyWithoutUsers_production_orders_verified_byTousersNestedInput
-  production_returns_production_returns_created_byTousers?: Prisma.production_returnsUpdateManyWithoutUsers_production_returns_created_byTousersNestedInput
-  production_returns_production_returns_reviewed_byTousers?: Prisma.production_returnsUpdateManyWithoutUsers_production_returns_reviewed_byTousersNestedInput
-  production_stock_history?: Prisma.production_stock_historyUpdateManyWithoutUsersNestedInput
-  push_subscriptions?: Prisma.push_subscriptionsUpdateManyWithoutUsersNestedInput
-  restriction_events?: Prisma.restriction_eventsUpdateManyWithoutUsersNestedInput
-  restriction_requests_restriction_requests_decided_byTousers?: Prisma.restriction_requestsUpdateManyWithoutUsers_restriction_requests_decided_byTousersNestedInput
-  restriction_requests_restriction_requests_requested_byTousers?: Prisma.restriction_requestsUpdateManyWithoutUsers_restriction_requests_requested_byTousersNestedInput
-  restriction_rules?: Prisma.restriction_rulesUpdateManyWithoutUsersNestedInput
-  return_stock_history?: Prisma.return_stock_historyUpdateManyWithoutUsersNestedInput
-  salary_payments_salary_payments_approved_byTousers?: Prisma.salary_paymentsUpdateManyWithoutUsers_salary_payments_approved_byTousersNestedInput
-  salary_payments_salary_payments_created_byTousers?: Prisma.salary_paymentsUpdateManyWithoutUsers_salary_payments_created_byTousersNestedInput
-  salary_payments_salary_payments_deleted_byTousers?: Prisma.salary_paymentsUpdateManyWithoutUsers_salary_payments_deleted_byTousersNestedInput
-  salary_revisions?: Prisma.salary_revisionsUpdateManyWithoutUsersNestedInput
-  settings?: Prisma.settingsUpdateManyWithoutUsersNestedInput
-  special_events?: Prisma.special_eventsUpdateManyWithoutUsersNestedInput
-  special_orders_special_orders_approved_byTousers?: Prisma.special_ordersUpdateManyWithoutUsers_special_orders_approved_byTousersNestedInput
-  special_orders_special_orders_created_byTousers?: Prisma.special_ordersUpdateManyWithoutUsers_special_orders_created_byTousersNestedInput
-  special_orders_special_orders_prepared_byTousers?: Prisma.special_ordersUpdateManyWithoutUsers_special_orders_prepared_byTousersNestedInput
-  special_orders_special_orders_verified_byTousers?: Prisma.special_ordersUpdateManyWithoutUsers_special_orders_verified_byTousersNestedInput
-  stock_audit_log?: Prisma.stock_audit_logUpdateManyWithoutUsersNestedInput
-  support_tickets_support_tickets_raised_byTousers?: Prisma.support_ticketsUpdateManyWithoutUsers_support_tickets_raised_byTousersNestedInput
-  support_tickets_support_tickets_resolved_byTousers?: Prisma.support_ticketsUpdateManyWithoutUsers_support_tickets_resolved_byTousersNestedInput
-  user_credentials?: Prisma.user_credentialsUpdateOneWithoutUsersNestedInput
-  branches_users_branch_idTobranches?: Prisma.branchesUpdateOneWithoutUsers_users_branch_idTobranchesNestedInput
-  users?: Prisma.usersUpdateOneWithoutOther_usersNestedInput
-  other_users?: Prisma.usersUpdateManyWithoutUsersNestedInput
-}
-
-export type usersUncheckedUpdateWithoutPassword_reset_tokensInput = {
-  id?: Prisma.StringFieldUpdateOperationsInput | string
-  email?: Prisma.StringFieldUpdateOperationsInput | string
-  display_name?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
-  phone?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
-  username?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
-  role?: Prisma.Enumuser_roleFieldUpdateOperationsInput | $Enums.user_role
-  branch_id?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
-  branch_name?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
-  status?: Prisma.Enumuser_statusFieldUpdateOperationsInput | $Enums.user_status
-  last_login_at?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
-  must_change_password?: Prisma.BoolFieldUpdateOperationsInput | boolean
-  last_password_reset?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
-  password_reset_by?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
-  password_reset_by_name?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
-  created_at?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
-  updated_at?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
-  user_code?: Prisma.StringFieldUpdateOperationsInput | string
-  attachments?: Prisma.attachmentsUncheckedUpdateManyWithoutUsersNestedInput
-  audit_logs_audit_logs_admin_idTousers?: Prisma.audit_logsUncheckedUpdateManyWithoutUsers_audit_logs_admin_idTousersNestedInput
-  audit_logs_audit_logs_target_user_idTousers?: Prisma.audit_logsUncheckedUpdateManyWithoutUsers_audit_logs_target_user_idTousersNestedInput
-  auth_sessions?: Prisma.auth_sessionsUncheckedUpdateManyWithoutUsersNestedInput
-  backup_jobs?: Prisma.backup_jobsUncheckedUpdateManyWithoutUsersNestedInput
-  branch_discounts_branch_discounts_created_byTousers?: Prisma.branch_discountsUncheckedUpdateManyWithoutUsers_branch_discounts_created_byTousersNestedInput
-  branch_discounts_branch_discounts_reviewed_byTousers?: Prisma.branch_discountsUncheckedUpdateManyWithoutUsers_branch_discounts_reviewed_byTousersNestedInput
-  branch_locations?: Prisma.branch_locationsUncheckedUpdateManyWithoutUsersNestedInput
-  branch_share_payments_branch_share_payments_approved_byTousers?: Prisma.branch_share_paymentsUncheckedUpdateManyWithoutUsers_branch_share_payments_approved_byTousersNestedInput
-  branch_share_payments_branch_share_payments_deleted_byTousers?: Prisma.branch_share_paymentsUncheckedUpdateManyWithoutUsers_branch_share_payments_deleted_byTousersNestedInput
-  branch_share_payments_branch_share_payments_requested_byTousers?: Prisma.branch_share_paymentsUncheckedUpdateManyWithoutUsers_branch_share_payments_requested_byTousersNestedInput
-  branches_branches_manager_idTousers?: Prisma.branchesUncheckedUpdateManyWithoutUsers_branches_manager_idTousersNestedInput
-  cash_transfers_cash_transfers_approved_byTousers?: Prisma.cash_transfersUncheckedUpdateManyWithoutUsers_cash_transfers_approved_byTousersNestedInput
-  cash_transfers_cash_transfers_created_byTousers?: Prisma.cash_transfersUncheckedUpdateManyWithoutUsers_cash_transfers_created_byTousersNestedInput
-  cash_transfers_cash_transfers_deleted_byTousers?: Prisma.cash_transfersUncheckedUpdateManyWithoutUsers_cash_transfers_deleted_byTousersNestedInput
-  cash_transfers_cash_transfers_updated_byTousers?: Prisma.cash_transfersUncheckedUpdateManyWithoutUsers_cash_transfers_updated_byTousersNestedInput
-  daily_sale_record_audits?: Prisma.daily_sale_record_auditsUncheckedUpdateManyWithoutUsersNestedInput
-  daily_sale_records_daily_sale_records_created_byTousers?: Prisma.daily_sale_recordsUncheckedUpdateManyWithoutUsers_daily_sale_records_created_byTousersNestedInput
-  daily_sale_records_daily_sale_records_fed_byTousers?: Prisma.daily_sale_recordsUncheckedUpdateManyWithoutUsers_daily_sale_records_fed_byTousersNestedInput
-  daily_sale_records_daily_sale_records_locked_byTousers?: Prisma.daily_sale_recordsUncheckedUpdateManyWithoutUsers_daily_sale_records_locked_byTousersNestedInput
-  daily_sale_records_daily_sale_records_verified_byTousers?: Prisma.daily_sale_recordsUncheckedUpdateManyWithoutUsers_daily_sale_records_verified_byTousersNestedInput
-  employee_advances_employee_advances_approved_byTousers?: Prisma.employee_advancesUncheckedUpdateManyWithoutUsers_employee_advances_approved_byTousersNestedInput
-  employee_advances_employee_advances_created_byTousers?: Prisma.employee_advancesUncheckedUpdateManyWithoutUsers_employee_advances_created_byTousersNestedInput
-  employee_advances_employee_advances_deleted_byTousers?: Prisma.employee_advancesUncheckedUpdateManyWithoutUsers_employee_advances_deleted_byTousersNestedInput
-  event_branch_demands_event_branch_demands_reviewed_byTousers?: Prisma.event_branch_demandsUncheckedUpdateManyWithoutUsers_event_branch_demands_reviewed_byTousersNestedInput
-  event_branch_demands_event_branch_demands_submitted_byTousers?: Prisma.event_branch_demandsUncheckedUpdateManyWithoutUsers_event_branch_demands_submitted_byTousersNestedInput
-  event_production_status?: Prisma.event_production_statusUncheckedUpdateManyWithoutUsersNestedInput
-  expenses?: Prisma.expensesUncheckedUpdateManyWithoutUsersNestedInput
-  finance_amendments?: Prisma.finance_amendmentsUncheckedUpdateManyWithoutUsersNestedInput
-  finance_audit_logs?: Prisma.finance_audit_logsUncheckedUpdateManyWithoutUsersNestedInput
-  finance_day_closings?: Prisma.finance_day_closingsUncheckedUpdateManyWithoutUsersNestedInput
-  finance_income_approvals_finance_income_approvals_approved_byTousers?: Prisma.finance_income_approvalsUncheckedUpdateManyWithoutUsers_finance_income_approvals_approved_byTousersNestedInput
-  finance_income_approvals_finance_income_approvals_deleted_byTousers?: Prisma.finance_income_approvalsUncheckedUpdateManyWithoutUsers_finance_income_approvals_deleted_byTousersNestedInput
-  finance_income_approvals_finance_income_approvals_verified_byTousers?: Prisma.finance_income_approvalsUncheckedUpdateManyWithoutUsers_finance_income_approvals_verified_byTousersNestedInput
-  finance_queries_finance_queries_created_byTousers?: Prisma.finance_queriesUncheckedUpdateManyWithoutUsers_finance_queries_created_byTousersNestedInput
-  finance_queries_finance_queries_updated_byTousers?: Prisma.finance_queriesUncheckedUpdateManyWithoutUsers_finance_queries_updated_byTousersNestedInput
-  finance_ticket_messages?: Prisma.finance_ticket_messagesUncheckedUpdateManyWithoutUsersNestedInput
-  finance_ticket_versions?: Prisma.finance_ticket_versionsUncheckedUpdateManyWithoutUsersNestedInput
-  finance_tickets_finance_tickets_amended_byTousers?: Prisma.finance_ticketsUncheckedUpdateManyWithoutUsers_finance_tickets_amended_byTousersNestedInput
-  finance_tickets_finance_tickets_assigned_toTousers?: Prisma.finance_ticketsUncheckedUpdateManyWithoutUsers_finance_tickets_assigned_toTousersNestedInput
-  finance_tickets_finance_tickets_deleted_byTousers?: Prisma.finance_ticketsUncheckedUpdateManyWithoutUsers_finance_tickets_deleted_byTousersNestedInput
-  finance_tickets_finance_tickets_raised_byTousers?: Prisma.finance_ticketsUncheckedUpdateManyWithoutUsers_finance_tickets_raised_byTousersNestedInput
-  finance_tickets_finance_tickets_reopened_byTousers?: Prisma.finance_ticketsUncheckedUpdateManyWithoutUsers_finance_tickets_reopened_byTousersNestedInput
-  finance_tickets_finance_tickets_resolved_byTousers?: Prisma.finance_ticketsUncheckedUpdateManyWithoutUsers_finance_tickets_resolved_byTousersNestedInput
-  finance_tickets_finance_tickets_responded_byTousers?: Prisma.finance_ticketsUncheckedUpdateManyWithoutUsers_finance_tickets_responded_byTousersNestedInput
-  finance_tickets_finance_tickets_restored_byTousers?: Prisma.finance_ticketsUncheckedUpdateManyWithoutUsers_finance_tickets_restored_byTousersNestedInput
-  finance_transactions_finance_transactions_approved_byTousers?: Prisma.finance_transactionsUncheckedUpdateManyWithoutUsers_finance_transactions_approved_byTousersNestedInput
-  finance_transactions_finance_transactions_created_byTousers?: Prisma.finance_transactionsUncheckedUpdateManyWithoutUsers_finance_transactions_created_byTousersNestedInput
-  finance_transactions_finance_transactions_deleted_byTousers?: Prisma.finance_transactionsUncheckedUpdateManyWithoutUsers_finance_transactions_deleted_byTousersNestedInput
-  geofence_logs?: Prisma.geofence_logsUncheckedUpdateManyWithoutUsersNestedInput
-  ledger_entries_ledger_entries_approved_byTousers?: Prisma.ledger_entriesUncheckedUpdateManyWithoutUsers_ledger_entries_approved_byTousersNestedInput
-  ledger_entries_ledger_entries_created_byTousers?: Prisma.ledger_entriesUncheckedUpdateManyWithoutUsers_ledger_entries_created_byTousersNestedInput
-  ledger_entries_ledger_entries_deleted_byTousers?: Prisma.ledger_entriesUncheckedUpdateManyWithoutUsers_ledger_entries_deleted_byTousersNestedInput
-  ledger_entries_ledger_entries_updated_byTousers?: Prisma.ledger_entriesUncheckedUpdateManyWithoutUsers_ledger_entries_updated_byTousersNestedInput
-  ledger_heads?: Prisma.ledger_headsUncheckedUpdateManyWithoutUsersNestedInput
-  login_sessions_login_sessions_revoked_byTousers?: Prisma.login_sessionsUncheckedUpdateManyWithoutUsers_login_sessions_revoked_byTousersNestedInput
-  login_sessions_login_sessions_user_idTousers?: Prisma.login_sessionsUncheckedUpdateManyWithoutUsers_login_sessions_user_idTousersNestedInput
-  notification_reads?: Prisma.notification_readsUncheckedUpdateManyWithoutUsersNestedInput
-  notifications?: Prisma.notificationsUncheckedUpdateManyWithoutUsersNestedInput
-  orders?: Prisma.ordersUncheckedUpdateManyWithoutUsersNestedInput
-  packing_materials?: Prisma.packing_materialsUncheckedUpdateManyWithoutUsersNestedInput
-  partner_expenses_partner_expenses_approved_byTousers?: Prisma.partner_expensesUncheckedUpdateManyWithoutUsers_partner_expenses_approved_byTousersNestedInput
-  partner_expenses_partner_expenses_deleted_byTousers?: Prisma.partner_expensesUncheckedUpdateManyWithoutUsers_partner_expenses_deleted_byTousersNestedInput
-  partner_expenses_partner_expenses_requested_byTousers?: Prisma.partner_expensesUncheckedUpdateManyWithoutUsers_partner_expenses_requested_byTousersNestedInput
-  payment_method_settings?: Prisma.payment_method_settingsUncheckedUpdateManyWithoutUsersNestedInput
-  product_price_history?: Prisma.product_price_historyUncheckedUpdateManyWithoutUsersNestedInput
-  production_orders_production_orders_approved_byTousers?: Prisma.production_ordersUncheckedUpdateManyWithoutUsers_production_orders_approved_byTousersNestedInput
-  production_orders_production_orders_cancelled_byTousers?: Prisma.production_ordersUncheckedUpdateManyWithoutUsers_production_orders_cancelled_byTousersNestedInput
-  production_orders_production_orders_created_byTousers?: Prisma.production_ordersUncheckedUpdateManyWithoutUsers_production_orders_created_byTousersNestedInput
-  production_orders_production_orders_verified_byTousers?: Prisma.production_ordersUncheckedUpdateManyWithoutUsers_production_orders_verified_byTousersNestedInput
-  production_returns_production_returns_created_byTousers?: Prisma.production_returnsUncheckedUpdateManyWithoutUsers_production_returns_created_byTousersNestedInput
-  production_returns_production_returns_reviewed_byTousers?: Prisma.production_returnsUncheckedUpdateManyWithoutUsers_production_returns_reviewed_byTousersNestedInput
-  production_stock_history?: Prisma.production_stock_historyUncheckedUpdateManyWithoutUsersNestedInput
-  push_subscriptions?: Prisma.push_subscriptionsUncheckedUpdateManyWithoutUsersNestedInput
-  restriction_events?: Prisma.restriction_eventsUncheckedUpdateManyWithoutUsersNestedInput
-  restriction_requests_restriction_requests_decided_byTousers?: Prisma.restriction_requestsUncheckedUpdateManyWithoutUsers_restriction_requests_decided_byTousersNestedInput
-  restriction_requests_restriction_requests_requested_byTousers?: Prisma.restriction_requestsUncheckedUpdateManyWithoutUsers_restriction_requests_requested_byTousersNestedInput
-  restriction_rules?: Prisma.restriction_rulesUncheckedUpdateManyWithoutUsersNestedInput
-  return_stock_history?: Prisma.return_stock_historyUncheckedUpdateManyWithoutUsersNestedInput
-  salary_payments_salary_payments_approved_byTousers?: Prisma.salary_paymentsUncheckedUpdateManyWithoutUsers_salary_payments_approved_byTousersNestedInput
-  salary_payments_salary_payments_created_byTousers?: Prisma.salary_paymentsUncheckedUpdateManyWithoutUsers_salary_payments_created_byTousersNestedInput
-  salary_payments_salary_payments_deleted_byTousers?: Prisma.salary_paymentsUncheckedUpdateManyWithoutUsers_salary_payments_deleted_byTousersNestedInput
-  salary_revisions?: Prisma.salary_revisionsUncheckedUpdateManyWithoutUsersNestedInput
-  settings?: Prisma.settingsUncheckedUpdateManyWithoutUsersNestedInput
-  special_events?: Prisma.special_eventsUncheckedUpdateManyWithoutUsersNestedInput
-  special_orders_special_orders_approved_byTousers?: Prisma.special_ordersUncheckedUpdateManyWithoutUsers_special_orders_approved_byTousersNestedInput
-  special_orders_special_orders_created_byTousers?: Prisma.special_ordersUncheckedUpdateManyWithoutUsers_special_orders_created_byTousersNestedInput
-  special_orders_special_orders_prepared_byTousers?: Prisma.special_ordersUncheckedUpdateManyWithoutUsers_special_orders_prepared_byTousersNestedInput
-  special_orders_special_orders_verified_byTousers?: Prisma.special_ordersUncheckedUpdateManyWithoutUsers_special_orders_verified_byTousersNestedInput
-  stock_audit_log?: Prisma.stock_audit_logUncheckedUpdateManyWithoutUsersNestedInput
-  support_tickets_support_tickets_raised_byTousers?: Prisma.support_ticketsUncheckedUpdateManyWithoutUsers_support_tickets_raised_byTousersNestedInput
-  support_tickets_support_tickets_resolved_byTousers?: Prisma.support_ticketsUncheckedUpdateManyWithoutUsers_support_tickets_resolved_byTousersNestedInput
-  user_credentials?: Prisma.user_credentialsUncheckedUpdateOneWithoutUsersNestedInput
-  other_users?: Prisma.usersUncheckedUpdateManyWithoutUsersNestedInput
-}
-
-export type usersCreateWithoutUser_credentialsInput = {
-  id: string
-  email: string
-  display_name?: string | null
-  phone?: string | null
-  username?: string | null
-  role: $Enums.user_role
-  branch_name?: string | null
-  status?: $Enums.user_status
-  last_login_at?: Date | string | null
-  must_change_password?: boolean
-  last_password_reset?: Date | string | null
-  password_reset_by_name?: string | null
-  created_at?: Date | string
-  updated_at?: Date | string
-  user_code?: string
-  attachments?: Prisma.attachmentsCreateNestedManyWithoutUsersInput
-  audit_logs_audit_logs_admin_idTousers?: Prisma.audit_logsCreateNestedManyWithoutUsers_audit_logs_admin_idTousersInput
-  audit_logs_audit_logs_target_user_idTousers?: Prisma.audit_logsCreateNestedManyWithoutUsers_audit_logs_target_user_idTousersInput
-  auth_sessions?: Prisma.auth_sessionsCreateNestedManyWithoutUsersInput
-  backup_jobs?: Prisma.backup_jobsCreateNestedManyWithoutUsersInput
-  branch_discounts_branch_discounts_created_byTousers?: Prisma.branch_discountsCreateNestedManyWithoutUsers_branch_discounts_created_byTousersInput
-  branch_discounts_branch_discounts_reviewed_byTousers?: Prisma.branch_discountsCreateNestedManyWithoutUsers_branch_discounts_reviewed_byTousersInput
-  branch_locations?: Prisma.branch_locationsCreateNestedManyWithoutUsersInput
-  branch_share_payments_branch_share_payments_approved_byTousers?: Prisma.branch_share_paymentsCreateNestedManyWithoutUsers_branch_share_payments_approved_byTousersInput
-  branch_share_payments_branch_share_payments_deleted_byTousers?: Prisma.branch_share_paymentsCreateNestedManyWithoutUsers_branch_share_payments_deleted_byTousersInput
-  branch_share_payments_branch_share_payments_requested_byTousers?: Prisma.branch_share_paymentsCreateNestedManyWithoutUsers_branch_share_payments_requested_byTousersInput
-  branches_branches_manager_idTousers?: Prisma.branchesCreateNestedManyWithoutUsers_branches_manager_idTousersInput
-  cash_transfers_cash_transfers_approved_byTousers?: Prisma.cash_transfersCreateNestedManyWithoutUsers_cash_transfers_approved_byTousersInput
-  cash_transfers_cash_transfers_created_byTousers?: Prisma.cash_transfersCreateNestedManyWithoutUsers_cash_transfers_created_byTousersInput
-  cash_transfers_cash_transfers_deleted_byTousers?: Prisma.cash_transfersCreateNestedManyWithoutUsers_cash_transfers_deleted_byTousersInput
-  cash_transfers_cash_transfers_updated_byTousers?: Prisma.cash_transfersCreateNestedManyWithoutUsers_cash_transfers_updated_byTousersInput
-  daily_sale_record_audits?: Prisma.daily_sale_record_auditsCreateNestedManyWithoutUsersInput
-  daily_sale_records_daily_sale_records_created_byTousers?: Prisma.daily_sale_recordsCreateNestedManyWithoutUsers_daily_sale_records_created_byTousersInput
-  daily_sale_records_daily_sale_records_fed_byTousers?: Prisma.daily_sale_recordsCreateNestedManyWithoutUsers_daily_sale_records_fed_byTousersInput
-  daily_sale_records_daily_sale_records_locked_byTousers?: Prisma.daily_sale_recordsCreateNestedManyWithoutUsers_daily_sale_records_locked_byTousersInput
-  daily_sale_records_daily_sale_records_verified_byTousers?: Prisma.daily_sale_recordsCreateNestedManyWithoutUsers_daily_sale_records_verified_byTousersInput
-  employee_advances_employee_advances_approved_byTousers?: Prisma.employee_advancesCreateNestedManyWithoutUsers_employee_advances_approved_byTousersInput
-  employee_advances_employee_advances_created_byTousers?: Prisma.employee_advancesCreateNestedManyWithoutUsers_employee_advances_created_byTousersInput
-  employee_advances_employee_advances_deleted_byTousers?: Prisma.employee_advancesCreateNestedManyWithoutUsers_employee_advances_deleted_byTousersInput
-  event_branch_demands_event_branch_demands_reviewed_byTousers?: Prisma.event_branch_demandsCreateNestedManyWithoutUsers_event_branch_demands_reviewed_byTousersInput
-  event_branch_demands_event_branch_demands_submitted_byTousers?: Prisma.event_branch_demandsCreateNestedManyWithoutUsers_event_branch_demands_submitted_byTousersInput
-  event_production_status?: Prisma.event_production_statusCreateNestedManyWithoutUsersInput
-  expenses?: Prisma.expensesCreateNestedManyWithoutUsersInput
-  finance_amendments?: Prisma.finance_amendmentsCreateNestedManyWithoutUsersInput
-  finance_audit_logs?: Prisma.finance_audit_logsCreateNestedManyWithoutUsersInput
-  finance_day_closings?: Prisma.finance_day_closingsCreateNestedManyWithoutUsersInput
-  finance_income_approvals_finance_income_approvals_approved_byTousers?: Prisma.finance_income_approvalsCreateNestedManyWithoutUsers_finance_income_approvals_approved_byTousersInput
-  finance_income_approvals_finance_income_approvals_deleted_byTousers?: Prisma.finance_income_approvalsCreateNestedManyWithoutUsers_finance_income_approvals_deleted_byTousersInput
-  finance_income_approvals_finance_income_approvals_verified_byTousers?: Prisma.finance_income_approvalsCreateNestedManyWithoutUsers_finance_income_approvals_verified_byTousersInput
-  finance_queries_finance_queries_created_byTousers?: Prisma.finance_queriesCreateNestedManyWithoutUsers_finance_queries_created_byTousersInput
-  finance_queries_finance_queries_updated_byTousers?: Prisma.finance_queriesCreateNestedManyWithoutUsers_finance_queries_updated_byTousersInput
-  finance_ticket_messages?: Prisma.finance_ticket_messagesCreateNestedManyWithoutUsersInput
-  finance_ticket_versions?: Prisma.finance_ticket_versionsCreateNestedManyWithoutUsersInput
-  finance_tickets_finance_tickets_amended_byTousers?: Prisma.finance_ticketsCreateNestedManyWithoutUsers_finance_tickets_amended_byTousersInput
-  finance_tickets_finance_tickets_assigned_toTousers?: Prisma.finance_ticketsCreateNestedManyWithoutUsers_finance_tickets_assigned_toTousersInput
-  finance_tickets_finance_tickets_deleted_byTousers?: Prisma.finance_ticketsCreateNestedManyWithoutUsers_finance_tickets_deleted_byTousersInput
-  finance_tickets_finance_tickets_raised_byTousers?: Prisma.finance_ticketsCreateNestedManyWithoutUsers_finance_tickets_raised_byTousersInput
-  finance_tickets_finance_tickets_reopened_byTousers?: Prisma.finance_ticketsCreateNestedManyWithoutUsers_finance_tickets_reopened_byTousersInput
-  finance_tickets_finance_tickets_resolved_byTousers?: Prisma.finance_ticketsCreateNestedManyWithoutUsers_finance_tickets_resolved_byTousersInput
-  finance_tickets_finance_tickets_responded_byTousers?: Prisma.finance_ticketsCreateNestedManyWithoutUsers_finance_tickets_responded_byTousersInput
-  finance_tickets_finance_tickets_restored_byTousers?: Prisma.finance_ticketsCreateNestedManyWithoutUsers_finance_tickets_restored_byTousersInput
-  finance_transactions_finance_transactions_approved_byTousers?: Prisma.finance_transactionsCreateNestedManyWithoutUsers_finance_transactions_approved_byTousersInput
-  finance_transactions_finance_transactions_created_byTousers?: Prisma.finance_transactionsCreateNestedManyWithoutUsers_finance_transactions_created_byTousersInput
-  finance_transactions_finance_transactions_deleted_byTousers?: Prisma.finance_transactionsCreateNestedManyWithoutUsers_finance_transactions_deleted_byTousersInput
-  geofence_logs?: Prisma.geofence_logsCreateNestedManyWithoutUsersInput
-  ledger_entries_ledger_entries_approved_byTousers?: Prisma.ledger_entriesCreateNestedManyWithoutUsers_ledger_entries_approved_byTousersInput
-  ledger_entries_ledger_entries_created_byTousers?: Prisma.ledger_entriesCreateNestedManyWithoutUsers_ledger_entries_created_byTousersInput
-  ledger_entries_ledger_entries_deleted_byTousers?: Prisma.ledger_entriesCreateNestedManyWithoutUsers_ledger_entries_deleted_byTousersInput
-  ledger_entries_ledger_entries_updated_byTousers?: Prisma.ledger_entriesCreateNestedManyWithoutUsers_ledger_entries_updated_byTousersInput
-  ledger_heads?: Prisma.ledger_headsCreateNestedManyWithoutUsersInput
-  login_sessions_login_sessions_revoked_byTousers?: Prisma.login_sessionsCreateNestedManyWithoutUsers_login_sessions_revoked_byTousersInput
-  login_sessions_login_sessions_user_idTousers?: Prisma.login_sessionsCreateNestedManyWithoutUsers_login_sessions_user_idTousersInput
-  notification_reads?: Prisma.notification_readsCreateNestedManyWithoutUsersInput
-  notifications?: Prisma.notificationsCreateNestedManyWithoutUsersInput
-  orders?: Prisma.ordersCreateNestedManyWithoutUsersInput
-  packing_materials?: Prisma.packing_materialsCreateNestedManyWithoutUsersInput
-  partner_expenses_partner_expenses_approved_byTousers?: Prisma.partner_expensesCreateNestedManyWithoutUsers_partner_expenses_approved_byTousersInput
-  partner_expenses_partner_expenses_deleted_byTousers?: Prisma.partner_expensesCreateNestedManyWithoutUsers_partner_expenses_deleted_byTousersInput
-  partner_expenses_partner_expenses_requested_byTousers?: Prisma.partner_expensesCreateNestedManyWithoutUsers_partner_expenses_requested_byTousersInput
-  password_reset_tokens?: Prisma.password_reset_tokensCreateNestedManyWithoutUsersInput
-  payment_method_settings?: Prisma.payment_method_settingsCreateNestedManyWithoutUsersInput
-  product_price_history?: Prisma.product_price_historyCreateNestedManyWithoutUsersInput
-  production_orders_production_orders_approved_byTousers?: Prisma.production_ordersCreateNestedManyWithoutUsers_production_orders_approved_byTousersInput
-  production_orders_production_orders_cancelled_byTousers?: Prisma.production_ordersCreateNestedManyWithoutUsers_production_orders_cancelled_byTousersInput
-  production_orders_production_orders_created_byTousers?: Prisma.production_ordersCreateNestedManyWithoutUsers_production_orders_created_byTousersInput
-  production_orders_production_orders_verified_byTousers?: Prisma.production_ordersCreateNestedManyWithoutUsers_production_orders_verified_byTousersInput
-  production_returns_production_returns_created_byTousers?: Prisma.production_returnsCreateNestedManyWithoutUsers_production_returns_created_byTousersInput
-  production_returns_production_returns_reviewed_byTousers?: Prisma.production_returnsCreateNestedManyWithoutUsers_production_returns_reviewed_byTousersInput
-  production_stock_history?: Prisma.production_stock_historyCreateNestedManyWithoutUsersInput
-  push_subscriptions?: Prisma.push_subscriptionsCreateNestedManyWithoutUsersInput
-  restriction_events?: Prisma.restriction_eventsCreateNestedManyWithoutUsersInput
-  restriction_requests_restriction_requests_decided_byTousers?: Prisma.restriction_requestsCreateNestedManyWithoutUsers_restriction_requests_decided_byTousersInput
-  restriction_requests_restriction_requests_requested_byTousers?: Prisma.restriction_requestsCreateNestedManyWithoutUsers_restriction_requests_requested_byTousersInput
-  restriction_rules?: Prisma.restriction_rulesCreateNestedManyWithoutUsersInput
-  return_stock_history?: Prisma.return_stock_historyCreateNestedManyWithoutUsersInput
-  salary_payments_salary_payments_approved_byTousers?: Prisma.salary_paymentsCreateNestedManyWithoutUsers_salary_payments_approved_byTousersInput
-  salary_payments_salary_payments_created_byTousers?: Prisma.salary_paymentsCreateNestedManyWithoutUsers_salary_payments_created_byTousersInput
-  salary_payments_salary_payments_deleted_byTousers?: Prisma.salary_paymentsCreateNestedManyWithoutUsers_salary_payments_deleted_byTousersInput
-  salary_revisions?: Prisma.salary_revisionsCreateNestedManyWithoutUsersInput
-  settings?: Prisma.settingsCreateNestedManyWithoutUsersInput
-  special_events?: Prisma.special_eventsCreateNestedManyWithoutUsersInput
-  special_orders_special_orders_approved_byTousers?: Prisma.special_ordersCreateNestedManyWithoutUsers_special_orders_approved_byTousersInput
-  special_orders_special_orders_created_byTousers?: Prisma.special_ordersCreateNestedManyWithoutUsers_special_orders_created_byTousersInput
-  special_orders_special_orders_prepared_byTousers?: Prisma.special_ordersCreateNestedManyWithoutUsers_special_orders_prepared_byTousersInput
-  special_orders_special_orders_verified_byTousers?: Prisma.special_ordersCreateNestedManyWithoutUsers_special_orders_verified_byTousersInput
-  stock_audit_log?: Prisma.stock_audit_logCreateNestedManyWithoutUsersInput
-  support_tickets_support_tickets_raised_byTousers?: Prisma.support_ticketsCreateNestedManyWithoutUsers_support_tickets_raised_byTousersInput
-  support_tickets_support_tickets_resolved_byTousers?: Prisma.support_ticketsCreateNestedManyWithoutUsers_support_tickets_resolved_byTousersInput
-  branches_users_branch_idTobranches?: Prisma.branchesCreateNestedOneWithoutUsers_users_branch_idTobranchesInput
-  users?: Prisma.usersCreateNestedOneWithoutOther_usersInput
-  other_users?: Prisma.usersCreateNestedManyWithoutUsersInput
-}
-
-export type usersUncheckedCreateWithoutUser_credentialsInput = {
-  id: string
-  email: string
-  display_name?: string | null
-  phone?: string | null
-  username?: string | null
-  role: $Enums.user_role
-  branch_id?: string | null
-  branch_name?: string | null
-  status?: $Enums.user_status
-  last_login_at?: Date | string | null
-  must_change_password?: boolean
-  last_password_reset?: Date | string | null
-  password_reset_by?: string | null
-  password_reset_by_name?: string | null
-  created_at?: Date | string
-  updated_at?: Date | string
-  user_code?: string
-  attachments?: Prisma.attachmentsUncheckedCreateNestedManyWithoutUsersInput
-  audit_logs_audit_logs_admin_idTousers?: Prisma.audit_logsUncheckedCreateNestedManyWithoutUsers_audit_logs_admin_idTousersInput
-  audit_logs_audit_logs_target_user_idTousers?: Prisma.audit_logsUncheckedCreateNestedManyWithoutUsers_audit_logs_target_user_idTousersInput
-  auth_sessions?: Prisma.auth_sessionsUncheckedCreateNestedManyWithoutUsersInput
-  backup_jobs?: Prisma.backup_jobsUncheckedCreateNestedManyWithoutUsersInput
-  branch_discounts_branch_discounts_created_byTousers?: Prisma.branch_discountsUncheckedCreateNestedManyWithoutUsers_branch_discounts_created_byTousersInput
-  branch_discounts_branch_discounts_reviewed_byTousers?: Prisma.branch_discountsUncheckedCreateNestedManyWithoutUsers_branch_discounts_reviewed_byTousersInput
-  branch_locations?: Prisma.branch_locationsUncheckedCreateNestedManyWithoutUsersInput
-  branch_share_payments_branch_share_payments_approved_byTousers?: Prisma.branch_share_paymentsUncheckedCreateNestedManyWithoutUsers_branch_share_payments_approved_byTousersInput
-  branch_share_payments_branch_share_payments_deleted_byTousers?: Prisma.branch_share_paymentsUncheckedCreateNestedManyWithoutUsers_branch_share_payments_deleted_byTousersInput
-  branch_share_payments_branch_share_payments_requested_byTousers?: Prisma.branch_share_paymentsUncheckedCreateNestedManyWithoutUsers_branch_share_payments_requested_byTousersInput
-  branches_branches_manager_idTousers?: Prisma.branchesUncheckedCreateNestedManyWithoutUsers_branches_manager_idTousersInput
-  cash_transfers_cash_transfers_approved_byTousers?: Prisma.cash_transfersUncheckedCreateNestedManyWithoutUsers_cash_transfers_approved_byTousersInput
-  cash_transfers_cash_transfers_created_byTousers?: Prisma.cash_transfersUncheckedCreateNestedManyWithoutUsers_cash_transfers_created_byTousersInput
-  cash_transfers_cash_transfers_deleted_byTousers?: Prisma.cash_transfersUncheckedCreateNestedManyWithoutUsers_cash_transfers_deleted_byTousersInput
-  cash_transfers_cash_transfers_updated_byTousers?: Prisma.cash_transfersUncheckedCreateNestedManyWithoutUsers_cash_transfers_updated_byTousersInput
-  daily_sale_record_audits?: Prisma.daily_sale_record_auditsUncheckedCreateNestedManyWithoutUsersInput
-  daily_sale_records_daily_sale_records_created_byTousers?: Prisma.daily_sale_recordsUncheckedCreateNestedManyWithoutUsers_daily_sale_records_created_byTousersInput
-  daily_sale_records_daily_sale_records_fed_byTousers?: Prisma.daily_sale_recordsUncheckedCreateNestedManyWithoutUsers_daily_sale_records_fed_byTousersInput
-  daily_sale_records_daily_sale_records_locked_byTousers?: Prisma.daily_sale_recordsUncheckedCreateNestedManyWithoutUsers_daily_sale_records_locked_byTousersInput
-  daily_sale_records_daily_sale_records_verified_byTousers?: Prisma.daily_sale_recordsUncheckedCreateNestedManyWithoutUsers_daily_sale_records_verified_byTousersInput
-  employee_advances_employee_advances_approved_byTousers?: Prisma.employee_advancesUncheckedCreateNestedManyWithoutUsers_employee_advances_approved_byTousersInput
-  employee_advances_employee_advances_created_byTousers?: Prisma.employee_advancesUncheckedCreateNestedManyWithoutUsers_employee_advances_created_byTousersInput
-  employee_advances_employee_advances_deleted_byTousers?: Prisma.employee_advancesUncheckedCreateNestedManyWithoutUsers_employee_advances_deleted_byTousersInput
-  event_branch_demands_event_branch_demands_reviewed_byTousers?: Prisma.event_branch_demandsUncheckedCreateNestedManyWithoutUsers_event_branch_demands_reviewed_byTousersInput
-  event_branch_demands_event_branch_demands_submitted_byTousers?: Prisma.event_branch_demandsUncheckedCreateNestedManyWithoutUsers_event_branch_demands_submitted_byTousersInput
-  event_production_status?: Prisma.event_production_statusUncheckedCreateNestedManyWithoutUsersInput
-  expenses?: Prisma.expensesUncheckedCreateNestedManyWithoutUsersInput
-  finance_amendments?: Prisma.finance_amendmentsUncheckedCreateNestedManyWithoutUsersInput
-  finance_audit_logs?: Prisma.finance_audit_logsUncheckedCreateNestedManyWithoutUsersInput
-  finance_day_closings?: Prisma.finance_day_closingsUncheckedCreateNestedManyWithoutUsersInput
-  finance_income_approvals_finance_income_approvals_approved_byTousers?: Prisma.finance_income_approvalsUncheckedCreateNestedManyWithoutUsers_finance_income_approvals_approved_byTousersInput
-  finance_income_approvals_finance_income_approvals_deleted_byTousers?: Prisma.finance_income_approvalsUncheckedCreateNestedManyWithoutUsers_finance_income_approvals_deleted_byTousersInput
-  finance_income_approvals_finance_income_approvals_verified_byTousers?: Prisma.finance_income_approvalsUncheckedCreateNestedManyWithoutUsers_finance_income_approvals_verified_byTousersInput
-  finance_queries_finance_queries_created_byTousers?: Prisma.finance_queriesUncheckedCreateNestedManyWithoutUsers_finance_queries_created_byTousersInput
-  finance_queries_finance_queries_updated_byTousers?: Prisma.finance_queriesUncheckedCreateNestedManyWithoutUsers_finance_queries_updated_byTousersInput
-  finance_ticket_messages?: Prisma.finance_ticket_messagesUncheckedCreateNestedManyWithoutUsersInput
-  finance_ticket_versions?: Prisma.finance_ticket_versionsUncheckedCreateNestedManyWithoutUsersInput
-  finance_tickets_finance_tickets_amended_byTousers?: Prisma.finance_ticketsUncheckedCreateNestedManyWithoutUsers_finance_tickets_amended_byTousersInput
-  finance_tickets_finance_tickets_assigned_toTousers?: Prisma.finance_ticketsUncheckedCreateNestedManyWithoutUsers_finance_tickets_assigned_toTousersInput
-  finance_tickets_finance_tickets_deleted_byTousers?: Prisma.finance_ticketsUncheckedCreateNestedManyWithoutUsers_finance_tickets_deleted_byTousersInput
-  finance_tickets_finance_tickets_raised_byTousers?: Prisma.finance_ticketsUncheckedCreateNestedManyWithoutUsers_finance_tickets_raised_byTousersInput
-  finance_tickets_finance_tickets_reopened_byTousers?: Prisma.finance_ticketsUncheckedCreateNestedManyWithoutUsers_finance_tickets_reopened_byTousersInput
-  finance_tickets_finance_tickets_resolved_byTousers?: Prisma.finance_ticketsUncheckedCreateNestedManyWithoutUsers_finance_tickets_resolved_byTousersInput
-  finance_tickets_finance_tickets_responded_byTousers?: Prisma.finance_ticketsUncheckedCreateNestedManyWithoutUsers_finance_tickets_responded_byTousersInput
-  finance_tickets_finance_tickets_restored_byTousers?: Prisma.finance_ticketsUncheckedCreateNestedManyWithoutUsers_finance_tickets_restored_byTousersInput
-  finance_transactions_finance_transactions_approved_byTousers?: Prisma.finance_transactionsUncheckedCreateNestedManyWithoutUsers_finance_transactions_approved_byTousersInput
-  finance_transactions_finance_transactions_created_byTousers?: Prisma.finance_transactionsUncheckedCreateNestedManyWithoutUsers_finance_transactions_created_byTousersInput
-  finance_transactions_finance_transactions_deleted_byTousers?: Prisma.finance_transactionsUncheckedCreateNestedManyWithoutUsers_finance_transactions_deleted_byTousersInput
-  geofence_logs?: Prisma.geofence_logsUncheckedCreateNestedManyWithoutUsersInput
-  ledger_entries_ledger_entries_approved_byTousers?: Prisma.ledger_entriesUncheckedCreateNestedManyWithoutUsers_ledger_entries_approved_byTousersInput
-  ledger_entries_ledger_entries_created_byTousers?: Prisma.ledger_entriesUncheckedCreateNestedManyWithoutUsers_ledger_entries_created_byTousersInput
-  ledger_entries_ledger_entries_deleted_byTousers?: Prisma.ledger_entriesUncheckedCreateNestedManyWithoutUsers_ledger_entries_deleted_byTousersInput
-  ledger_entries_ledger_entries_updated_byTousers?: Prisma.ledger_entriesUncheckedCreateNestedManyWithoutUsers_ledger_entries_updated_byTousersInput
-  ledger_heads?: Prisma.ledger_headsUncheckedCreateNestedManyWithoutUsersInput
-  login_sessions_login_sessions_revoked_byTousers?: Prisma.login_sessionsUncheckedCreateNestedManyWithoutUsers_login_sessions_revoked_byTousersInput
-  login_sessions_login_sessions_user_idTousers?: Prisma.login_sessionsUncheckedCreateNestedManyWithoutUsers_login_sessions_user_idTousersInput
-  notification_reads?: Prisma.notification_readsUncheckedCreateNestedManyWithoutUsersInput
-  notifications?: Prisma.notificationsUncheckedCreateNestedManyWithoutUsersInput
-  orders?: Prisma.ordersUncheckedCreateNestedManyWithoutUsersInput
-  packing_materials?: Prisma.packing_materialsUncheckedCreateNestedManyWithoutUsersInput
-  partner_expenses_partner_expenses_approved_byTousers?: Prisma.partner_expensesUncheckedCreateNestedManyWithoutUsers_partner_expenses_approved_byTousersInput
-  partner_expenses_partner_expenses_deleted_byTousers?: Prisma.partner_expensesUncheckedCreateNestedManyWithoutUsers_partner_expenses_deleted_byTousersInput
-  partner_expenses_partner_expenses_requested_byTousers?: Prisma.partner_expensesUncheckedCreateNestedManyWithoutUsers_partner_expenses_requested_byTousersInput
-  password_reset_tokens?: Prisma.password_reset_tokensUncheckedCreateNestedManyWithoutUsersInput
-  payment_method_settings?: Prisma.payment_method_settingsUncheckedCreateNestedManyWithoutUsersInput
-  product_price_history?: Prisma.product_price_historyUncheckedCreateNestedManyWithoutUsersInput
-  production_orders_production_orders_approved_byTousers?: Prisma.production_ordersUncheckedCreateNestedManyWithoutUsers_production_orders_approved_byTousersInput
-  production_orders_production_orders_cancelled_byTousers?: Prisma.production_ordersUncheckedCreateNestedManyWithoutUsers_production_orders_cancelled_byTousersInput
-  production_orders_production_orders_created_byTousers?: Prisma.production_ordersUncheckedCreateNestedManyWithoutUsers_production_orders_created_byTousersInput
-  production_orders_production_orders_verified_byTousers?: Prisma.production_ordersUncheckedCreateNestedManyWithoutUsers_production_orders_verified_byTousersInput
-  production_returns_production_returns_created_byTousers?: Prisma.production_returnsUncheckedCreateNestedManyWithoutUsers_production_returns_created_byTousersInput
-  production_returns_production_returns_reviewed_byTousers?: Prisma.production_returnsUncheckedCreateNestedManyWithoutUsers_production_returns_reviewed_byTousersInput
-  production_stock_history?: Prisma.production_stock_historyUncheckedCreateNestedManyWithoutUsersInput
-  push_subscriptions?: Prisma.push_subscriptionsUncheckedCreateNestedManyWithoutUsersInput
-  restriction_events?: Prisma.restriction_eventsUncheckedCreateNestedManyWithoutUsersInput
-  restriction_requests_restriction_requests_decided_byTousers?: Prisma.restriction_requestsUncheckedCreateNestedManyWithoutUsers_restriction_requests_decided_byTousersInput
-  restriction_requests_restriction_requests_requested_byTousers?: Prisma.restriction_requestsUncheckedCreateNestedManyWithoutUsers_restriction_requests_requested_byTousersInput
-  restriction_rules?: Prisma.restriction_rulesUncheckedCreateNestedManyWithoutUsersInput
-  return_stock_history?: Prisma.return_stock_historyUncheckedCreateNestedManyWithoutUsersInput
-  salary_payments_salary_payments_approved_byTousers?: Prisma.salary_paymentsUncheckedCreateNestedManyWithoutUsers_salary_payments_approved_byTousersInput
-  salary_payments_salary_payments_created_byTousers?: Prisma.salary_paymentsUncheckedCreateNestedManyWithoutUsers_salary_payments_created_byTousersInput
-  salary_payments_salary_payments_deleted_byTousers?: Prisma.salary_paymentsUncheckedCreateNestedManyWithoutUsers_salary_payments_deleted_byTousersInput
-  salary_revisions?: Prisma.salary_revisionsUncheckedCreateNestedManyWithoutUsersInput
-  settings?: Prisma.settingsUncheckedCreateNestedManyWithoutUsersInput
-  special_events?: Prisma.special_eventsUncheckedCreateNestedManyWithoutUsersInput
-  special_orders_special_orders_approved_byTousers?: Prisma.special_ordersUncheckedCreateNestedManyWithoutUsers_special_orders_approved_byTousersInput
-  special_orders_special_orders_created_byTousers?: Prisma.special_ordersUncheckedCreateNestedManyWithoutUsers_special_orders_created_byTousersInput
-  special_orders_special_orders_prepared_byTousers?: Prisma.special_ordersUncheckedCreateNestedManyWithoutUsers_special_orders_prepared_byTousersInput
-  special_orders_special_orders_verified_byTousers?: Prisma.special_ordersUncheckedCreateNestedManyWithoutUsers_special_orders_verified_byTousersInput
-  stock_audit_log?: Prisma.stock_audit_logUncheckedCreateNestedManyWithoutUsersInput
-  support_tickets_support_tickets_raised_byTousers?: Prisma.support_ticketsUncheckedCreateNestedManyWithoutUsers_support_tickets_raised_byTousersInput
-  support_tickets_support_tickets_resolved_byTousers?: Prisma.support_ticketsUncheckedCreateNestedManyWithoutUsers_support_tickets_resolved_byTousersInput
-  other_users?: Prisma.usersUncheckedCreateNestedManyWithoutUsersInput
-}
-
-export type usersCreateOrConnectWithoutUser_credentialsInput = {
-  where: Prisma.usersWhereUniqueInput
-  create: Prisma.XOR<Prisma.usersCreateWithoutUser_credentialsInput, Prisma.usersUncheckedCreateWithoutUser_credentialsInput>
-}
-
-export type usersUpsertWithoutUser_credentialsInput = {
-  update: Prisma.XOR<Prisma.usersUpdateWithoutUser_credentialsInput, Prisma.usersUncheckedUpdateWithoutUser_credentialsInput>
-  create: Prisma.XOR<Prisma.usersCreateWithoutUser_credentialsInput, Prisma.usersUncheckedCreateWithoutUser_credentialsInput>
-  where?: Prisma.usersWhereInput
-}
-
-export type usersUpdateToOneWithWhereWithoutUser_credentialsInput = {
-  where?: Prisma.usersWhereInput
-  data: Prisma.XOR<Prisma.usersUpdateWithoutUser_credentialsInput, Prisma.usersUncheckedUpdateWithoutUser_credentialsInput>
-}
-
-export type usersUpdateWithoutUser_credentialsInput = {
-  id?: Prisma.StringFieldUpdateOperationsInput | string
-  email?: Prisma.StringFieldUpdateOperationsInput | string
-  display_name?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
-  phone?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
-  username?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
-  role?: Prisma.Enumuser_roleFieldUpdateOperationsInput | $Enums.user_role
-  branch_name?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
-  status?: Prisma.Enumuser_statusFieldUpdateOperationsInput | $Enums.user_status
-  last_login_at?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
-  must_change_password?: Prisma.BoolFieldUpdateOperationsInput | boolean
-  last_password_reset?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
-  password_reset_by_name?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
-  created_at?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
-  updated_at?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
-  user_code?: Prisma.StringFieldUpdateOperationsInput | string
-  attachments?: Prisma.attachmentsUpdateManyWithoutUsersNestedInput
-  audit_logs_audit_logs_admin_idTousers?: Prisma.audit_logsUpdateManyWithoutUsers_audit_logs_admin_idTousersNestedInput
-  audit_logs_audit_logs_target_user_idTousers?: Prisma.audit_logsUpdateManyWithoutUsers_audit_logs_target_user_idTousersNestedInput
-  auth_sessions?: Prisma.auth_sessionsUpdateManyWithoutUsersNestedInput
-  backup_jobs?: Prisma.backup_jobsUpdateManyWithoutUsersNestedInput
-  branch_discounts_branch_discounts_created_byTousers?: Prisma.branch_discountsUpdateManyWithoutUsers_branch_discounts_created_byTousersNestedInput
-  branch_discounts_branch_discounts_reviewed_byTousers?: Prisma.branch_discountsUpdateManyWithoutUsers_branch_discounts_reviewed_byTousersNestedInput
-  branch_locations?: Prisma.branch_locationsUpdateManyWithoutUsersNestedInput
-  branch_share_payments_branch_share_payments_approved_byTousers?: Prisma.branch_share_paymentsUpdateManyWithoutUsers_branch_share_payments_approved_byTousersNestedInput
-  branch_share_payments_branch_share_payments_deleted_byTousers?: Prisma.branch_share_paymentsUpdateManyWithoutUsers_branch_share_payments_deleted_byTousersNestedInput
-  branch_share_payments_branch_share_payments_requested_byTousers?: Prisma.branch_share_paymentsUpdateManyWithoutUsers_branch_share_payments_requested_byTousersNestedInput
-  branches_branches_manager_idTousers?: Prisma.branchesUpdateManyWithoutUsers_branches_manager_idTousersNestedInput
-  cash_transfers_cash_transfers_approved_byTousers?: Prisma.cash_transfersUpdateManyWithoutUsers_cash_transfers_approved_byTousersNestedInput
-  cash_transfers_cash_transfers_created_byTousers?: Prisma.cash_transfersUpdateManyWithoutUsers_cash_transfers_created_byTousersNestedInput
-  cash_transfers_cash_transfers_deleted_byTousers?: Prisma.cash_transfersUpdateManyWithoutUsers_cash_transfers_deleted_byTousersNestedInput
-  cash_transfers_cash_transfers_updated_byTousers?: Prisma.cash_transfersUpdateManyWithoutUsers_cash_transfers_updated_byTousersNestedInput
-  daily_sale_record_audits?: Prisma.daily_sale_record_auditsUpdateManyWithoutUsersNestedInput
-  daily_sale_records_daily_sale_records_created_byTousers?: Prisma.daily_sale_recordsUpdateManyWithoutUsers_daily_sale_records_created_byTousersNestedInput
-  daily_sale_records_daily_sale_records_fed_byTousers?: Prisma.daily_sale_recordsUpdateManyWithoutUsers_daily_sale_records_fed_byTousersNestedInput
-  daily_sale_records_daily_sale_records_locked_byTousers?: Prisma.daily_sale_recordsUpdateManyWithoutUsers_daily_sale_records_locked_byTousersNestedInput
-  daily_sale_records_daily_sale_records_verified_byTousers?: Prisma.daily_sale_recordsUpdateManyWithoutUsers_daily_sale_records_verified_byTousersNestedInput
-  employee_advances_employee_advances_approved_byTousers?: Prisma.employee_advancesUpdateManyWithoutUsers_employee_advances_approved_byTousersNestedInput
-  employee_advances_employee_advances_created_byTousers?: Prisma.employee_advancesUpdateManyWithoutUsers_employee_advances_created_byTousersNestedInput
-  employee_advances_employee_advances_deleted_byTousers?: Prisma.employee_advancesUpdateManyWithoutUsers_employee_advances_deleted_byTousersNestedInput
-  event_branch_demands_event_branch_demands_reviewed_byTousers?: Prisma.event_branch_demandsUpdateManyWithoutUsers_event_branch_demands_reviewed_byTousersNestedInput
-  event_branch_demands_event_branch_demands_submitted_byTousers?: Prisma.event_branch_demandsUpdateManyWithoutUsers_event_branch_demands_submitted_byTousersNestedInput
-  event_production_status?: Prisma.event_production_statusUpdateManyWithoutUsersNestedInput
-  expenses?: Prisma.expensesUpdateManyWithoutUsersNestedInput
-  finance_amendments?: Prisma.finance_amendmentsUpdateManyWithoutUsersNestedInput
-  finance_audit_logs?: Prisma.finance_audit_logsUpdateManyWithoutUsersNestedInput
-  finance_day_closings?: Prisma.finance_day_closingsUpdateManyWithoutUsersNestedInput
-  finance_income_approvals_finance_income_approvals_approved_byTousers?: Prisma.finance_income_approvalsUpdateManyWithoutUsers_finance_income_approvals_approved_byTousersNestedInput
-  finance_income_approvals_finance_income_approvals_deleted_byTousers?: Prisma.finance_income_approvalsUpdateManyWithoutUsers_finance_income_approvals_deleted_byTousersNestedInput
-  finance_income_approvals_finance_income_approvals_verified_byTousers?: Prisma.finance_income_approvalsUpdateManyWithoutUsers_finance_income_approvals_verified_byTousersNestedInput
-  finance_queries_finance_queries_created_byTousers?: Prisma.finance_queriesUpdateManyWithoutUsers_finance_queries_created_byTousersNestedInput
-  finance_queries_finance_queries_updated_byTousers?: Prisma.finance_queriesUpdateManyWithoutUsers_finance_queries_updated_byTousersNestedInput
-  finance_ticket_messages?: Prisma.finance_ticket_messagesUpdateManyWithoutUsersNestedInput
-  finance_ticket_versions?: Prisma.finance_ticket_versionsUpdateManyWithoutUsersNestedInput
-  finance_tickets_finance_tickets_amended_byTousers?: Prisma.finance_ticketsUpdateManyWithoutUsers_finance_tickets_amended_byTousersNestedInput
-  finance_tickets_finance_tickets_assigned_toTousers?: Prisma.finance_ticketsUpdateManyWithoutUsers_finance_tickets_assigned_toTousersNestedInput
-  finance_tickets_finance_tickets_deleted_byTousers?: Prisma.finance_ticketsUpdateManyWithoutUsers_finance_tickets_deleted_byTousersNestedInput
-  finance_tickets_finance_tickets_raised_byTousers?: Prisma.finance_ticketsUpdateManyWithoutUsers_finance_tickets_raised_byTousersNestedInput
-  finance_tickets_finance_tickets_reopened_byTousers?: Prisma.finance_ticketsUpdateManyWithoutUsers_finance_tickets_reopened_byTousersNestedInput
-  finance_tickets_finance_tickets_resolved_byTousers?: Prisma.finance_ticketsUpdateManyWithoutUsers_finance_tickets_resolved_byTousersNestedInput
-  finance_tickets_finance_tickets_responded_byTousers?: Prisma.finance_ticketsUpdateManyWithoutUsers_finance_tickets_responded_byTousersNestedInput
-  finance_tickets_finance_tickets_restored_byTousers?: Prisma.finance_ticketsUpdateManyWithoutUsers_finance_tickets_restored_byTousersNestedInput
-  finance_transactions_finance_transactions_approved_byTousers?: Prisma.finance_transactionsUpdateManyWithoutUsers_finance_transactions_approved_byTousersNestedInput
-  finance_transactions_finance_transactions_created_byTousers?: Prisma.finance_transactionsUpdateManyWithoutUsers_finance_transactions_created_byTousersNestedInput
-  finance_transactions_finance_transactions_deleted_byTousers?: Prisma.finance_transactionsUpdateManyWithoutUsers_finance_transactions_deleted_byTousersNestedInput
-  geofence_logs?: Prisma.geofence_logsUpdateManyWithoutUsersNestedInput
-  ledger_entries_ledger_entries_approved_byTousers?: Prisma.ledger_entriesUpdateManyWithoutUsers_ledger_entries_approved_byTousersNestedInput
-  ledger_entries_ledger_entries_created_byTousers?: Prisma.ledger_entriesUpdateManyWithoutUsers_ledger_entries_created_byTousersNestedInput
-  ledger_entries_ledger_entries_deleted_byTousers?: Prisma.ledger_entriesUpdateManyWithoutUsers_ledger_entries_deleted_byTousersNestedInput
-  ledger_entries_ledger_entries_updated_byTousers?: Prisma.ledger_entriesUpdateManyWithoutUsers_ledger_entries_updated_byTousersNestedInput
-  ledger_heads?: Prisma.ledger_headsUpdateManyWithoutUsersNestedInput
-  login_sessions_login_sessions_revoked_byTousers?: Prisma.login_sessionsUpdateManyWithoutUsers_login_sessions_revoked_byTousersNestedInput
-  login_sessions_login_sessions_user_idTousers?: Prisma.login_sessionsUpdateManyWithoutUsers_login_sessions_user_idTousersNestedInput
-  notification_reads?: Prisma.notification_readsUpdateManyWithoutUsersNestedInput
-  notifications?: Prisma.notificationsUpdateManyWithoutUsersNestedInput
-  orders?: Prisma.ordersUpdateManyWithoutUsersNestedInput
-  packing_materials?: Prisma.packing_materialsUpdateManyWithoutUsersNestedInput
-  partner_expenses_partner_expenses_approved_byTousers?: Prisma.partner_expensesUpdateManyWithoutUsers_partner_expenses_approved_byTousersNestedInput
-  partner_expenses_partner_expenses_deleted_byTousers?: Prisma.partner_expensesUpdateManyWithoutUsers_partner_expenses_deleted_byTousersNestedInput
-  partner_expenses_partner_expenses_requested_byTousers?: Prisma.partner_expensesUpdateManyWithoutUsers_partner_expenses_requested_byTousersNestedInput
-  password_reset_tokens?: Prisma.password_reset_tokensUpdateManyWithoutUsersNestedInput
-  payment_method_settings?: Prisma.payment_method_settingsUpdateManyWithoutUsersNestedInput
-  product_price_history?: Prisma.product_price_historyUpdateManyWithoutUsersNestedInput
-  production_orders_production_orders_approved_byTousers?: Prisma.production_ordersUpdateManyWithoutUsers_production_orders_approved_byTousersNestedInput
-  production_orders_production_orders_cancelled_byTousers?: Prisma.production_ordersUpdateManyWithoutUsers_production_orders_cancelled_byTousersNestedInput
-  production_orders_production_orders_created_byTousers?: Prisma.production_ordersUpdateManyWithoutUsers_production_orders_created_byTousersNestedInput
-  production_orders_production_orders_verified_byTousers?: Prisma.production_ordersUpdateManyWithoutUsers_production_orders_verified_byTousersNestedInput
-  production_returns_production_returns_created_byTousers?: Prisma.production_returnsUpdateManyWithoutUsers_production_returns_created_byTousersNestedInput
-  production_returns_production_returns_reviewed_byTousers?: Prisma.production_returnsUpdateManyWithoutUsers_production_returns_reviewed_byTousersNestedInput
-  production_stock_history?: Prisma.production_stock_historyUpdateManyWithoutUsersNestedInput
-  push_subscriptions?: Prisma.push_subscriptionsUpdateManyWithoutUsersNestedInput
-  restriction_events?: Prisma.restriction_eventsUpdateManyWithoutUsersNestedInput
-  restriction_requests_restriction_requests_decided_byTousers?: Prisma.restriction_requestsUpdateManyWithoutUsers_restriction_requests_decided_byTousersNestedInput
-  restriction_requests_restriction_requests_requested_byTousers?: Prisma.restriction_requestsUpdateManyWithoutUsers_restriction_requests_requested_byTousersNestedInput
-  restriction_rules?: Prisma.restriction_rulesUpdateManyWithoutUsersNestedInput
-  return_stock_history?: Prisma.return_stock_historyUpdateManyWithoutUsersNestedInput
-  salary_payments_salary_payments_approved_byTousers?: Prisma.salary_paymentsUpdateManyWithoutUsers_salary_payments_approved_byTousersNestedInput
-  salary_payments_salary_payments_created_byTousers?: Prisma.salary_paymentsUpdateManyWithoutUsers_salary_payments_created_byTousersNestedInput
-  salary_payments_salary_payments_deleted_byTousers?: Prisma.salary_paymentsUpdateManyWithoutUsers_salary_payments_deleted_byTousersNestedInput
-  salary_revisions?: Prisma.salary_revisionsUpdateManyWithoutUsersNestedInput
-  settings?: Prisma.settingsUpdateManyWithoutUsersNestedInput
-  special_events?: Prisma.special_eventsUpdateManyWithoutUsersNestedInput
-  special_orders_special_orders_approved_byTousers?: Prisma.special_ordersUpdateManyWithoutUsers_special_orders_approved_byTousersNestedInput
-  special_orders_special_orders_created_byTousers?: Prisma.special_ordersUpdateManyWithoutUsers_special_orders_created_byTousersNestedInput
-  special_orders_special_orders_prepared_byTousers?: Prisma.special_ordersUpdateManyWithoutUsers_special_orders_prepared_byTousersNestedInput
-  special_orders_special_orders_verified_byTousers?: Prisma.special_ordersUpdateManyWithoutUsers_special_orders_verified_byTousersNestedInput
-  stock_audit_log?: Prisma.stock_audit_logUpdateManyWithoutUsersNestedInput
-  support_tickets_support_tickets_raised_byTousers?: Prisma.support_ticketsUpdateManyWithoutUsers_support_tickets_raised_byTousersNestedInput
-  support_tickets_support_tickets_resolved_byTousers?: Prisma.support_ticketsUpdateManyWithoutUsers_support_tickets_resolved_byTousersNestedInput
-  branches_users_branch_idTobranches?: Prisma.branchesUpdateOneWithoutUsers_users_branch_idTobranchesNestedInput
-  users?: Prisma.usersUpdateOneWithoutOther_usersNestedInput
-  other_users?: Prisma.usersUpdateManyWithoutUsersNestedInput
-}
-
-export type usersUncheckedUpdateWithoutUser_credentialsInput = {
-  id?: Prisma.StringFieldUpdateOperationsInput | string
-  email?: Prisma.StringFieldUpdateOperationsInput | string
-  display_name?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
-  phone?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
-  username?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
-  role?: Prisma.Enumuser_roleFieldUpdateOperationsInput | $Enums.user_role
-  branch_id?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
-  branch_name?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
-  status?: Prisma.Enumuser_statusFieldUpdateOperationsInput | $Enums.user_status
-  last_login_at?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
-  must_change_password?: Prisma.BoolFieldUpdateOperationsInput | boolean
-  last_password_reset?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
-  password_reset_by?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
-  password_reset_by_name?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
-  created_at?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
-  updated_at?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
-  user_code?: Prisma.StringFieldUpdateOperationsInput | string
-  attachments?: Prisma.attachmentsUncheckedUpdateManyWithoutUsersNestedInput
-  audit_logs_audit_logs_admin_idTousers?: Prisma.audit_logsUncheckedUpdateManyWithoutUsers_audit_logs_admin_idTousersNestedInput
-  audit_logs_audit_logs_target_user_idTousers?: Prisma.audit_logsUncheckedUpdateManyWithoutUsers_audit_logs_target_user_idTousersNestedInput
-  auth_sessions?: Prisma.auth_sessionsUncheckedUpdateManyWithoutUsersNestedInput
-  backup_jobs?: Prisma.backup_jobsUncheckedUpdateManyWithoutUsersNestedInput
-  branch_discounts_branch_discounts_created_byTousers?: Prisma.branch_discountsUncheckedUpdateManyWithoutUsers_branch_discounts_created_byTousersNestedInput
-  branch_discounts_branch_discounts_reviewed_byTousers?: Prisma.branch_discountsUncheckedUpdateManyWithoutUsers_branch_discounts_reviewed_byTousersNestedInput
-  branch_locations?: Prisma.branch_locationsUncheckedUpdateManyWithoutUsersNestedInput
-  branch_share_payments_branch_share_payments_approved_byTousers?: Prisma.branch_share_paymentsUncheckedUpdateManyWithoutUsers_branch_share_payments_approved_byTousersNestedInput
-  branch_share_payments_branch_share_payments_deleted_byTousers?: Prisma.branch_share_paymentsUncheckedUpdateManyWithoutUsers_branch_share_payments_deleted_byTousersNestedInput
-  branch_share_payments_branch_share_payments_requested_byTousers?: Prisma.branch_share_paymentsUncheckedUpdateManyWithoutUsers_branch_share_payments_requested_byTousersNestedInput
-  branches_branches_manager_idTousers?: Prisma.branchesUncheckedUpdateManyWithoutUsers_branches_manager_idTousersNestedInput
-  cash_transfers_cash_transfers_approved_byTousers?: Prisma.cash_transfersUncheckedUpdateManyWithoutUsers_cash_transfers_approved_byTousersNestedInput
-  cash_transfers_cash_transfers_created_byTousers?: Prisma.cash_transfersUncheckedUpdateManyWithoutUsers_cash_transfers_created_byTousersNestedInput
-  cash_transfers_cash_transfers_deleted_byTousers?: Prisma.cash_transfersUncheckedUpdateManyWithoutUsers_cash_transfers_deleted_byTousersNestedInput
-  cash_transfers_cash_transfers_updated_byTousers?: Prisma.cash_transfersUncheckedUpdateManyWithoutUsers_cash_transfers_updated_byTousersNestedInput
-  daily_sale_record_audits?: Prisma.daily_sale_record_auditsUncheckedUpdateManyWithoutUsersNestedInput
-  daily_sale_records_daily_sale_records_created_byTousers?: Prisma.daily_sale_recordsUncheckedUpdateManyWithoutUsers_daily_sale_records_created_byTousersNestedInput
-  daily_sale_records_daily_sale_records_fed_byTousers?: Prisma.daily_sale_recordsUncheckedUpdateManyWithoutUsers_daily_sale_records_fed_byTousersNestedInput
-  daily_sale_records_daily_sale_records_locked_byTousers?: Prisma.daily_sale_recordsUncheckedUpdateManyWithoutUsers_daily_sale_records_locked_byTousersNestedInput
-  daily_sale_records_daily_sale_records_verified_byTousers?: Prisma.daily_sale_recordsUncheckedUpdateManyWithoutUsers_daily_sale_records_verified_byTousersNestedInput
-  employee_advances_employee_advances_approved_byTousers?: Prisma.employee_advancesUncheckedUpdateManyWithoutUsers_employee_advances_approved_byTousersNestedInput
-  employee_advances_employee_advances_created_byTousers?: Prisma.employee_advancesUncheckedUpdateManyWithoutUsers_employee_advances_created_byTousersNestedInput
-  employee_advances_employee_advances_deleted_byTousers?: Prisma.employee_advancesUncheckedUpdateManyWithoutUsers_employee_advances_deleted_byTousersNestedInput
-  event_branch_demands_event_branch_demands_reviewed_byTousers?: Prisma.event_branch_demandsUncheckedUpdateManyWithoutUsers_event_branch_demands_reviewed_byTousersNestedInput
-  event_branch_demands_event_branch_demands_submitted_byTousers?: Prisma.event_branch_demandsUncheckedUpdateManyWithoutUsers_event_branch_demands_submitted_byTousersNestedInput
-  event_production_status?: Prisma.event_production_statusUncheckedUpdateManyWithoutUsersNestedInput
-  expenses?: Prisma.expensesUncheckedUpdateManyWithoutUsersNestedInput
-  finance_amendments?: Prisma.finance_amendmentsUncheckedUpdateManyWithoutUsersNestedInput
-  finance_audit_logs?: Prisma.finance_audit_logsUncheckedUpdateManyWithoutUsersNestedInput
-  finance_day_closings?: Prisma.finance_day_closingsUncheckedUpdateManyWithoutUsersNestedInput
-  finance_income_approvals_finance_income_approvals_approved_byTousers?: Prisma.finance_income_approvalsUncheckedUpdateManyWithoutUsers_finance_income_approvals_approved_byTousersNestedInput
-  finance_income_approvals_finance_income_approvals_deleted_byTousers?: Prisma.finance_income_approvalsUncheckedUpdateManyWithoutUsers_finance_income_approvals_deleted_byTousersNestedInput
-  finance_income_approvals_finance_income_approvals_verified_byTousers?: Prisma.finance_income_approvalsUncheckedUpdateManyWithoutUsers_finance_income_approvals_verified_byTousersNestedInput
-  finance_queries_finance_queries_created_byTousers?: Prisma.finance_queriesUncheckedUpdateManyWithoutUsers_finance_queries_created_byTousersNestedInput
-  finance_queries_finance_queries_updated_byTousers?: Prisma.finance_queriesUncheckedUpdateManyWithoutUsers_finance_queries_updated_byTousersNestedInput
-  finance_ticket_messages?: Prisma.finance_ticket_messagesUncheckedUpdateManyWithoutUsersNestedInput
-  finance_ticket_versions?: Prisma.finance_ticket_versionsUncheckedUpdateManyWithoutUsersNestedInput
-  finance_tickets_finance_tickets_amended_byTousers?: Prisma.finance_ticketsUncheckedUpdateManyWithoutUsers_finance_tickets_amended_byTousersNestedInput
-  finance_tickets_finance_tickets_assigned_toTousers?: Prisma.finance_ticketsUncheckedUpdateManyWithoutUsers_finance_tickets_assigned_toTousersNestedInput
-  finance_tickets_finance_tickets_deleted_byTousers?: Prisma.finance_ticketsUncheckedUpdateManyWithoutUsers_finance_tickets_deleted_byTousersNestedInput
-  finance_tickets_finance_tickets_raised_byTousers?: Prisma.finance_ticketsUncheckedUpdateManyWithoutUsers_finance_tickets_raised_byTousersNestedInput
-  finance_tickets_finance_tickets_reopened_byTousers?: Prisma.finance_ticketsUncheckedUpdateManyWithoutUsers_finance_tickets_reopened_byTousersNestedInput
-  finance_tickets_finance_tickets_resolved_byTousers?: Prisma.finance_ticketsUncheckedUpdateManyWithoutUsers_finance_tickets_resolved_byTousersNestedInput
-  finance_tickets_finance_tickets_responded_byTousers?: Prisma.finance_ticketsUncheckedUpdateManyWithoutUsers_finance_tickets_responded_byTousersNestedInput
-  finance_tickets_finance_tickets_restored_byTousers?: Prisma.finance_ticketsUncheckedUpdateManyWithoutUsers_finance_tickets_restored_byTousersNestedInput
-  finance_transactions_finance_transactions_approved_byTousers?: Prisma.finance_transactionsUncheckedUpdateManyWithoutUsers_finance_transactions_approved_byTousersNestedInput
-  finance_transactions_finance_transactions_created_byTousers?: Prisma.finance_transactionsUncheckedUpdateManyWithoutUsers_finance_transactions_created_byTousersNestedInput
-  finance_transactions_finance_transactions_deleted_byTousers?: Prisma.finance_transactionsUncheckedUpdateManyWithoutUsers_finance_transactions_deleted_byTousersNestedInput
-  geofence_logs?: Prisma.geofence_logsUncheckedUpdateManyWithoutUsersNestedInput
-  ledger_entries_ledger_entries_approved_byTousers?: Prisma.ledger_entriesUncheckedUpdateManyWithoutUsers_ledger_entries_approved_byTousersNestedInput
-  ledger_entries_ledger_entries_created_byTousers?: Prisma.ledger_entriesUncheckedUpdateManyWithoutUsers_ledger_entries_created_byTousersNestedInput
-  ledger_entries_ledger_entries_deleted_byTousers?: Prisma.ledger_entriesUncheckedUpdateManyWithoutUsers_ledger_entries_deleted_byTousersNestedInput
-  ledger_entries_ledger_entries_updated_byTousers?: Prisma.ledger_entriesUncheckedUpdateManyWithoutUsers_ledger_entries_updated_byTousersNestedInput
-  ledger_heads?: Prisma.ledger_headsUncheckedUpdateManyWithoutUsersNestedInput
-  login_sessions_login_sessions_revoked_byTousers?: Prisma.login_sessionsUncheckedUpdateManyWithoutUsers_login_sessions_revoked_byTousersNestedInput
-  login_sessions_login_sessions_user_idTousers?: Prisma.login_sessionsUncheckedUpdateManyWithoutUsers_login_sessions_user_idTousersNestedInput
-  notification_reads?: Prisma.notification_readsUncheckedUpdateManyWithoutUsersNestedInput
-  notifications?: Prisma.notificationsUncheckedUpdateManyWithoutUsersNestedInput
-  orders?: Prisma.ordersUncheckedUpdateManyWithoutUsersNestedInput
-  packing_materials?: Prisma.packing_materialsUncheckedUpdateManyWithoutUsersNestedInput
-  partner_expenses_partner_expenses_approved_byTousers?: Prisma.partner_expensesUncheckedUpdateManyWithoutUsers_partner_expenses_approved_byTousersNestedInput
-  partner_expenses_partner_expenses_deleted_byTousers?: Prisma.partner_expensesUncheckedUpdateManyWithoutUsers_partner_expenses_deleted_byTousersNestedInput
-  partner_expenses_partner_expenses_requested_byTousers?: Prisma.partner_expensesUncheckedUpdateManyWithoutUsers_partner_expenses_requested_byTousersNestedInput
-  password_reset_tokens?: Prisma.password_reset_tokensUncheckedUpdateManyWithoutUsersNestedInput
-  payment_method_settings?: Prisma.payment_method_settingsUncheckedUpdateManyWithoutUsersNestedInput
-  product_price_history?: Prisma.product_price_historyUncheckedUpdateManyWithoutUsersNestedInput
-  production_orders_production_orders_approved_byTousers?: Prisma.production_ordersUncheckedUpdateManyWithoutUsers_production_orders_approved_byTousersNestedInput
-  production_orders_production_orders_cancelled_byTousers?: Prisma.production_ordersUncheckedUpdateManyWithoutUsers_production_orders_cancelled_byTousersNestedInput
-  production_orders_production_orders_created_byTousers?: Prisma.production_ordersUncheckedUpdateManyWithoutUsers_production_orders_created_byTousersNestedInput
-  production_orders_production_orders_verified_byTousers?: Prisma.production_ordersUncheckedUpdateManyWithoutUsers_production_orders_verified_byTousersNestedInput
-  production_returns_production_returns_created_byTousers?: Prisma.production_returnsUncheckedUpdateManyWithoutUsers_production_returns_created_byTousersNestedInput
-  production_returns_production_returns_reviewed_byTousers?: Prisma.production_returnsUncheckedUpdateManyWithoutUsers_production_returns_reviewed_byTousersNestedInput
-  production_stock_history?: Prisma.production_stock_historyUncheckedUpdateManyWithoutUsersNestedInput
-  push_subscriptions?: Prisma.push_subscriptionsUncheckedUpdateManyWithoutUsersNestedInput
-  restriction_events?: Prisma.restriction_eventsUncheckedUpdateManyWithoutUsersNestedInput
-  restriction_requests_restriction_requests_decided_byTousers?: Prisma.restriction_requestsUncheckedUpdateManyWithoutUsers_restriction_requests_decided_byTousersNestedInput
-  restriction_requests_restriction_requests_requested_byTousers?: Prisma.restriction_requestsUncheckedUpdateManyWithoutUsers_restriction_requests_requested_byTousersNestedInput
-  restriction_rules?: Prisma.restriction_rulesUncheckedUpdateManyWithoutUsersNestedInput
-  return_stock_history?: Prisma.return_stock_historyUncheckedUpdateManyWithoutUsersNestedInput
-  salary_payments_salary_payments_approved_byTousers?: Prisma.salary_paymentsUncheckedUpdateManyWithoutUsers_salary_payments_approved_byTousersNestedInput
-  salary_payments_salary_payments_created_byTousers?: Prisma.salary_paymentsUncheckedUpdateManyWithoutUsers_salary_payments_created_byTousersNestedInput
-  salary_payments_salary_payments_deleted_byTousers?: Prisma.salary_paymentsUncheckedUpdateManyWithoutUsers_salary_payments_deleted_byTousersNestedInput
-  salary_revisions?: Prisma.salary_revisionsUncheckedUpdateManyWithoutUsersNestedInput
-  settings?: Prisma.settingsUncheckedUpdateManyWithoutUsersNestedInput
-  special_events?: Prisma.special_eventsUncheckedUpdateManyWithoutUsersNestedInput
-  special_orders_special_orders_approved_byTousers?: Prisma.special_ordersUncheckedUpdateManyWithoutUsers_special_orders_approved_byTousersNestedInput
-  special_orders_special_orders_created_byTousers?: Prisma.special_ordersUncheckedUpdateManyWithoutUsers_special_orders_created_byTousersNestedInput
-  special_orders_special_orders_prepared_byTousers?: Prisma.special_ordersUncheckedUpdateManyWithoutUsers_special_orders_prepared_byTousersNestedInput
-  special_orders_special_orders_verified_byTousers?: Prisma.special_ordersUncheckedUpdateManyWithoutUsers_special_orders_verified_byTousersNestedInput
-  stock_audit_log?: Prisma.stock_audit_logUncheckedUpdateManyWithoutUsersNestedInput
-  support_tickets_support_tickets_raised_byTousers?: Prisma.support_ticketsUncheckedUpdateManyWithoutUsers_support_tickets_raised_byTousersNestedInput
-  support_tickets_support_tickets_resolved_byTousers?: Prisma.support_ticketsUncheckedUpdateManyWithoutUsers_support_tickets_resolved_byTousersNestedInput
-  other_users?: Prisma.usersUncheckedUpdateManyWithoutUsersNestedInput
-}
-
 export type usersCreateManyBranches_users_branch_idTobranchesInput = {
-  id: string
+  id?: string
   email: string
   display_name?: string | null
   phone?: string | null
@@ -48496,7 +48495,7 @@ export type usersUncheckedUpdateManyWithoutBranches_users_branch_idTobranchesInp
 }
 
 export type usersCreateManyUsersInput = {
-  id: string
+  id?: string
   email: string
   display_name?: string | null
   phone?: string | null

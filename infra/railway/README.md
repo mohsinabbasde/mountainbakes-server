@@ -1,196 +1,245 @@
-# Moving Mountain Bakes from Supabase to Railway
+# Moving Mountain Bakes off Supabase
 
-Everything needed to run the application with no Supabase project behind it:
-the database, the user accounts, and the two services the code talks to.
+The code in this repository no longer uses Supabase for anything: the API signs
+people in itself, talks to Postgres directly and keeps files in S3. What is left
+is to put that code, and the data, into service. Both happen in one maintenance
+window, described here.
 
-## What replaces what
+## What runs where, afterwards
 
-| On Supabase | On Railway | Notes |
+| Was on Supabase | Afterwards | Notes |
 |---|---|---|
-| Postgres 17 | Railway Postgres 18, database `mountainbakes` | Full copy, verified table by table |
-| Auth (GoTrue) | `auth` service, `supabase/gotrue:v2.193.1` | Same software, same version. Accounts and password hashes are copied, so passwords do not change |
-| REST API (PostgREST) | `postgrest` service, `postgrest/postgrest:v14.5` | Same software, same version. The API's ~640 queries are unchanged |
-| API gateway | `gateway` service (`gateway/`) | Strips `/auth/v1` and `/rest/v1`. The only public service |
-| Storage | S3 (`FILE_STORAGE_DRIVER=s3`) | `pnpm files:copy` |
+| Postgres 17 | Railway Postgres 18 | The application's two schemas (`public`, `app`), copied and verified table by table |
+| Auth (GoTrue) | the API (`/api/auth/*`) | Accounts are rows in `users`; password hashes are in `user_credentials` (carried over by migration 149) |
+| REST API (PostgREST) | the API's own query layer (`src/db`) on Prisma's connection | |
+| Row-level security | none | The API is the only client and authorises every request itself |
+| Storage | S3 | `pnpm files:copy` |
 | Realtime | none | The web app polls `GET /api/notifications` |
 
-The Express API stays on Heroku and keeps using `supabase-js`; only the URL and
-key it is given change. Nothing in `src/` knows it is no longer Supabase.
-
 ```
-web / mobile ── sign-in ───────────────┐
-     │                                 ▼
-     └──► API (Heroku) ───────► gateway (public HTTPS)
-                │                ├─ /auth/v1/* → auth      ┐
-                │                └─ /rest/v1/* → postgrest ├─ private network
-                └─ S3 (files, backups)            Postgres ┘
+web / mobile ──► API (Heroku) ──► Postgres (Railway), as role mb_api
+                      └─ S3 (files, backups)
 ```
 
-## What was tested, and what was not
+## Why it is one window and not several
 
-Tested, against a local Postgres 18 holding a full copy of production:
+The backend, the web app and the Android app change together:
 
-- `railway:migrate` copies the database in about 90 seconds. `railway:verify`
-  then finds every table, column, constraint, index, sequence, function,
-  trigger, policy and enum identical, every numeric column summing to the same
-  total, and every table's contents hashing the same (bar a table the live app
-  wrote to in between).
-- The pinned Auth server and PostgREST both start on Postgres 18 against the
-  restored data.
-- 291 API requests (every parameterless GET route, as a super admin, a branch
-  manager and a finance admin) returned the same status code from the new stack
-  as from Supabase, and 281 the same body. The other 10 were two login-history
-  responses that changed in between, and eight lists whose rows tie on their
-  sort key and came back in a different order with the same contents.
-- Sign-in with a restored account, a wrong password refused, role and branch
-  claims intact, a banned user refused, a revoked session unable to refresh,
-  user create and delete, TOTP enrolment, the idempotency functions.
-- A signed-in user's token, and the anon key, get nothing from PostgREST
-  directly (HTTP 403 / 401).
+- The new API accepts only its own sign-in tokens. The web and Android builds
+  in use today hold Supabase tokens, so from the moment the new API is live
+  they stop working until they are replaced.
+- The new web and Android builds sign in through `/api/auth/login`, which the
+  API in service today does not have.
 
-NOT tested:
+So the API, the web app and the data go over in the same hour, and phones need
+the new build before they work again. There is no period in which old and new
+run side by side.
 
-- Anything on Railway itself. The three services have not been deployed there.
-- A POS sale, return, production review or ledger posting on the new stack.
-  Their SQL functions are byte-identical and are called the same way as the
-  functions that were exercised, but none was run end to end.
-- Password-reset email (needs an SMTP provider) and Google sign-in (needs the
-  redirect URI added in Google Cloud).
-- The web and mobile apps pointed at the new stack.
-- Speed. Every query now travels Heroku → Railway.
+## What was rehearsed, and what was not
 
-## Two things that will look different afterwards
+Rehearsed, against a local Postgres 18 and against a copy on Railway:
 
-- **Everyone signs in again**, once. The Auth address changes, and the apps
-  keep their session under a key derived from it. Passwords are unchanged.
-- **Some lists may be ordered differently** where rows tie on their sort key —
-  product categories that all share `sort_order = 0`, events on the same date,
-  returns on the same day. The rows are the same; Postgres never promised an
-  order among ties and a copied table stores them in a different physical
-  order. If one of these matters, give that query a second sort column.
+- `railway:migrate` copies the database (about 70 seconds from Supabase, three
+  and a half minutes into Railway from a backup archive). `railway:verify` then
+  finds every table, column, constraint, index, sequence, function, trigger and
+  enum identical, every table's contents hashing the same, every numeric column
+  summing to the same total, and all 18 access checks passing.
+- The API, started with no Supabase setting in its environment and connected as
+  `mb_api` to a copy of the Railway data: sign-in as an administrator, a branch
+  manager, a production user and a finance user; 24 screens' worth of reads;
+  token refresh; sign-out; photo URLs signed for S3.
+- A POS sale through the API as `mb_api` (done before the Supabase fallbacks
+  were taken out of the code; the query layer it ran on has not changed since):
+  the order is written, branch stock drops, the stock ledger gains its row; the
+  same request re-sent with the same Idempotency-Key makes no second sale; a
+  sale of more than is in stock is refused and writes nothing.
+- The backup's own `pg_dump` commands, run against Railway.
+- A database built from nothing by `bootstrap.sql`, the Prisma baseline and
+  `post-restore.sql` has the same structure as the copy.
 
-## Before you start
+NOT rehearsed:
 
-1. **A database that sorts like Supabase's.** Supabase uses the ICU collation
-   `en-US`; Railway's default `railway` database does not, and a database's
-   collation cannot be changed later. Set `RAILWAY_DB_URL` in `backend/.env` to
-   the Railway **public** connection string with the database name changed to
-   `mountainbakes`:
+- The new API on Heroku, the new web build on Firebase, or the new Android
+  build on a phone, against Railway. Step 3 of "Before the night" is that.
+- A return, a production review, a ledger posting or payroll on the copy.
+- `pnpm files:copy` copying real files (it has only been read through).
+- A reset email actually arriving.
+- Speed. Every query travels Heroku → Railway.
 
-       RAILWAY_DB_URL=postgresql://postgres:<password>@<host>.proxy.rlwy.net:<port>/mountainbakes
+## One thing that will look different afterwards
 
-   `railway:migrate --create-database` creates it correctly. A copy into a
-   database that sorts differently is refused.
-2. **An SMTP provider** for password-reset email.
-3. **Google Cloud Console**: add `https://<gateway-domain>/auth/v1/callback` to
-   the OAuth client's redirect URIs.
-4. **Old phones.** A mobile build made before the cutover signs in against
-   Supabase and the API will reject its token. There is no forced-update check
-   in the app; everyone needs the new APK on the day.
-5. **Heroku**: when the commit that changes `Aptfile` to `postgresql-client-18`
-   is deployed, change the `PG_BIN_DIR` config var to
-   `/app/.apt/usr/lib/postgresql/18/bin` in the same release. Left at `17` the
-   nightly backup cannot find `pg_dump`. (An 18 client dumps Supabase's
-   Postgres 17 too, so this is safe to do before the cutover.)
+**Some lists may be ordered differently** where rows tie on their sort key —
+events on the same date, returns on the same day. The rows are the same;
+Postgres never promised an order among ties and a copied table stores them in a
+different physical order. If one of these matters, give that query a second
+sort column.
 
-## Rehearsal — repeat as often as you like, production is not touched
+Separately, a database's **collation** decides how names sort. Supabase uses
+ICU `en-US`. Railway's default database, `railway`, does not, and a database's
+collation cannot be changed later. To sort exactly as today, put a different
+database name at the end of `RAILWAY_DB_URL` (e.g. `…/mountainbakes`) and run
+the first copy with `--create-database`, which creates it with Supabase's
+collation. A copy into a database that sorts differently is refused unless
+`--accept-collation` says the difference is understood.
+
+## Settings
+
+`backend/.env` on the machine the commands run from (all described in
+`.env.example`):
+
+| Variable | Value |
+|---|---|
+| `RAILWAY_DB_URL` | Railway's **public** connection string, user `postgres`. Deliberately not `DATABASE_URL`: the copy WIPES its target |
+| `SUPABASE_DB_URL` | Supabase's session pooler (port 5432) — what the copy reads |
+| `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` | what `files:copy` downloads with |
+| `DATABASE_URL` | the Railway database (it is where `files:copy` reads rows and rewrites the logo URL) |
+| `FILES_S3_BUCKET`, `FILES_S3_PREFIX`, `PUBLIC_API_URL`, `AWS_*` | where files go |
+
+Heroku config vars for the new API. **With any of the first four missing the
+server refuses to start and says which** (see `server.ts`):
+
+| Variable | Value |
+|---|---|
+| `DATABASE_URL` | the `mb_api` URL from `infra/railway/.secrets.env` |
+| `JWT_SECRET` | 32+ random characters, e.g. `openssl rand -base64 48` |
+| `FILES_S3_BUCKET` (+ `FILES_S3_PREFIX`) | the bucket files were copied to |
+| `PUBLIC_API_URL` | the API's own public origin, no trailing slash |
+| `BACKUP_DB_URL` | `RAILWAY_DB_URL` — the administrator URL, which is what backups dump |
+| `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM` | for password-reset email. Without them a reset link cannot be sent; temporary passwords still work |
+| `PG_BIN_DIR` | `/app/.apt/usr/lib/postgresql/18/bin` (the `Aptfile` installs client 18) |
+
+No longer read by the API, and removable from Heroku once the move has held:
+`SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_DB_URL`, and any
+`SUPABASE_*`, `AUTH_ACCEPT_SUPABASE`, `AUTH_GOTRUE_MIRROR`, `DB_BACKEND`,
+`DB_SHADOW_MODULES`, `DB_SQL_MODULES`, `FILE_STORAGE_DRIVER`.
+
+## Before the night — none of this touches the live system
 
 All commands run from `backend/`.
 
-    pnpm railway:migrate --create-database    # first time
-    pnpm railway:migrate --reset-target       # every time after
-    pnpm railway:secrets                      # once; writes infra/railway/.secrets.env
-    pnpm railway:verify
+1. **Copy the files**, days ahead if you like. Read the two warnings next to
+   `FILES_S3_BUCKET` in `.env.example` (lifecycle rules, IAM policy) first.
 
-`railway:migrate` only ever reads Supabase. `railway:verify` exits non-zero if
-anything differs; during a rehearsal the tables the live app wrote to since the
-copy will differ in contents, and it says so.
+       pnpm files:copy             # what would be copied
+       pnpm files:copy --confirm   # copy
 
-Then, in the Railway project that holds the Postgres:
+   It reads Supabase Storage and writes S3; nothing is deleted on either side,
+   and it can be run again — it copies only what is new.
+2. **Copy the data** and check it. Repeat as often as you like.
 
-1. **postgrest** — new service from image `postgrest/postgrest:v14.5`,
-   variables from `postgrest.env.example`. No public domain.
-2. **auth** — new service from image `supabase/gotrue:v2.193.1`, variables from
-   `gotrue.env.example`. No public domain.
-3. **gateway** — new service from this repo, root directory
-   `infra/railway/gateway`. Variables:
-   `AUTH_UPSTREAM=auth.railway.internal:9999`,
-   `REST_UPSTREAM=postgrest.railway.internal:3000`. Generate a public domain.
-   `https://<gateway-domain>/health` should answer `ok`, and
-   `https://<gateway-domain>/auth/v1/health` should name GoTrue v2.193.1.
+       pnpm railway:migrate --create-database    # first time, into a new database
+       pnpm railway:migrate --reset-target       # every time after
+       pnpm railway:verify
+       pnpm railway:role                         # writes infra/railway/.secrets.env
 
-Point a local API at it and try the app:
+   `railway:migrate` only ever reads Supabase. `railway:verify` exits non-zero
+   if anything differs; between a rehearsal copy and the live database, the
+   tables written to since will differ, and it says so. To load a backup
+   archive instead of reading Supabase (the main `.dump` from S3):
+   `pnpm railway:migrate --reset-target --from-dump <file>`.
+3. **Use the new system against the copy.** Run the API locally as its own role:
 
-    SUPABASE_URL=https://<gateway-domain> SUPABASE_SERVICE_ROLE_KEY=<SERVICE_ROLE_KEY> pnpm dev
+       DATABASE_URL=<the mb_api URL from .secrets.env> pnpm dev
 
-and a local web build with `NEXT_PUBLIC_SUPABASE_URL` / `NEXT_PUBLIC_SUPABASE_ANON_KEY`
-set the same way. Sign in with a real account. Ring up a sale, a return, a
-production review, an expense. This is the step that covers what the list
-above says was not tested.
+   and the web app locally against it (`frontend/`, with its API URL pointed at
+   `http://localhost:3001`). Sign in with a real account. Ring up a sale, a
+   return, a production review, an expense; open a photo; send a reset email.
+   This is the step that covers what the list above says was not rehearsed.
+4. **Have the builds ready**: the Android APK built from `mobile/`, and the
+   people who need it told they will have to install it.
 
-## Files
+## The night
 
-    pnpm files:copy             # what would be copied
-    pnpm files:copy --confirm   # copy
+Pick a time the shops are closed. Budget two hours.
 
-Read the header of `src/scripts/copy-storage-to-s3.ts` and the two warnings
-next to `FILES_S3_BUCKET` in `.env.example` (lifecycle rules, IAM policy) first.
-This is independent of the database move and can be done days earlier.
+1. **Stop writes.** `heroku maintenance:on`. From here Supabase does not change,
+   which is what makes the next steps exact.
+2. `pnpm railway:migrate --reset-target`
 
-## Cutover
-
-Pick a time the shops are closed. Budget an hour; the copy itself is minutes.
-
-1. Build the web app and the APK against the gateway (values are listed at the
-   bottom of `.secrets.env`). Do not release them yet.
-2. **Stop writes.** Heroku → `heroku maintenance:on`. From here Supabase does
-   not change, which is what makes the next two steps exact.
-3. `pnpm railway:migrate --reset-target`
-4. `pnpm railway:verify` — must end `RESULT: PASS — the target is an exact copy`.
-   If it does not, stop: `heroku maintenance:off` and nothing has changed.
-5. `pnpm files:copy --confirm --rewrite-logo-url` if files are moving now.
-6. Heroku config vars: `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, and
-   `SUPABASE_DB_URL` (now the Railway public connection string, database
-   `mountainbakes` — this is what the backups dump). `FILE_STORAGE_DRIVER=s3`
-   and its settings if step 5 ran.
-7. `heroku maintenance:off`. `GET /health` should report `database: connected`.
-8. Release the web build; hand out the APK.
-9. Sign in as an admin, a branch manager and a finance user. Make one real sale
-   and find it in the Railway database.
+   It refuses to start if any account's password in `user_credentials` differs
+   from Supabase Auth's — a password was changed since migration 149 carried
+   them over. Run the "Carry the existing passwords over" block at the end of
+   `db/history/migrations/20261009000149_custom_auth.sql` in the Supabase SQL
+   editor and try again.
+3. `pnpm railway:verify` — must end `RESULT: PASS — the target holds exactly the
+   same data`. (If the copy was made with `--accept-collation`, pass it here
+   too; the difference is then noted instead of failed.) If it does not pass,
+   stop: `heroku maintenance:off` and nothing has changed.
+4. `pnpm railway:role`, then copy `DATABASE_URL` from `infra/railway/.secrets.env`.
+5. `pnpm files:copy --confirm --rewrite-logo-url` — picks up files added since
+   the first copy and points the logo at this API. `DATABASE_URL` in
+   `backend/.env` must be the Railway database for this step.
+6. **Heroku config vars**, from the table above.
+7. **Deploy the API.** Watch the log: `[server] cannot start:` names anything
+   missing from step 6.
+8. **Deploy the web app** (`pnpm run deploy` in `frontend/`) and hand out the
+   Android build.
+9. `heroku maintenance:off`. Then check, in this order:
+   - `GET /health` reports `database: connected`;
+   - sign in on the web as an administrator, a branch manager and a finance
+     user;
+   - the logo shows on the login page and a production order's photo opens;
+   - make one real sale and find it in the Railway database.
 10. `pnpm railway:migrate --mark-live` — from now on the migrate script refuses
     to wipe this database.
-11. `pnpm backup:manual` (or wait for the nightly) and confirm it verifies.
+11. Migration history, once:
+
+        pnpm db:baseline
+        DIRECT_DATABASE_URL="$RAILWAY_DB_URL" pnpm exec prisma migrate resolve --applied 0_baseline
+        DIRECT_DATABASE_URL="$RAILWAY_DB_URL" pnpm exec prisma migrate deploy
+
+    The last line applies `20261010000001_api_sessions_only`, which takes the
+    last traces of Supabase Auth out of three database functions. Commit
+    `prisma/migrations/`.
+12. `pnpm backup:manual` (or wait for the nightly) and confirm it verifies.
 
 ### Going back
 
-Before step 9 has produced real work: set the three Heroku config vars back
-and re-release the previous web build. Supabase is exactly as it was at step 2.
+Supabase is exactly as it was at step 1, and the old API, web build and Android
+build all still work against it. Until real work has been done on Railway:
 
-After real work has been done on Railway, going back loses that work. Decide at
-step 9, not the next morning.
+- `heroku rollback` to the release before step 6 — a Heroku release carries its
+  config vars, so the old code and the old settings come back together;
+- roll the web app back in Firebase Hosting;
+- phones that installed the new build need the old one back; phones that did
+  not are already fine.
+
+After real work has been done on Railway, going back loses that work, and any
+password changed since is not known to Supabase. Decide at step 9, not the next
+morning.
 
 ## Afterwards
 
 - Leave the Supabase project alone for at least two weeks, then pause it before
   deleting it. It is the only rollback there is.
-- New migrations: `supabase db push --db-url "$RAILWAY_DB_URL"`. The history
-  table came across, so the CLI knows which have run. A migration that grants
-  to `anon` or `authenticated` still applies but no longer opens anything —
-  see `post-restore.sql`.
-- After any `--reset-target`, the role passwords survive. `pnpm railway:secrets`
-  re-applies the ones on file if in doubt.
-- `SUPABASE_*` variable names now hold Railway values. Renaming them is a
-  change to 80 files for no behaviour; it has not been done.
+- In `backend/.env`, `DIRECT_DATABASE_URL` becomes the Railway administrator URL
+  (it is what the Prisma CLI and `pnpm db:catalog` connect with). Run
+  `pnpm prisma:pull` and `pnpm db:catalog` once so the generated files describe
+  the database actually in service.
+- **New migrations** are hand-written SQL in
+  `prisma/migrations/<yyyymmddhhmmss>_<name>/migration.sql`, applied with
+  `pnpm exec prisma migrate deploy`, followed by `pnpm prisma:pull` and
+  `pnpm db:catalog`. Never `prisma migrate dev` or `prisma db push` — they would
+  remove the functions and triggers (see `prisma.config.ts`). A migration that
+  grants to `service_role` reaches the API, which is a member of it; one that
+  grants to `anon` or `authenticated` applies and opens nothing.
+- After any `--reset-target` the `mb_api` role and its password survive.
+  `pnpm railway:role` re-applies the one on file if in doubt.
+- When the Supabase project is closed, this folder's copy tools
+  (`migrate-data.ts`, `verify-migration.ts`, `copy-files.ts`) and the
+  "Moving off Supabase" block of `.env.example` have nothing left to read and
+  can be deleted. `bootstrap.sql`, `post-restore.sql` and `api-role.ts` stay:
+  they are how a database is built from nothing and how a backup is restored.
 
 ## The files here
 
 | File | What it is |
 |---|---|
-| `migrate-data.ts` | `pnpm railway:migrate` — dump Supabase, restore into Railway |
+| `migrate-data.ts` | `pnpm railway:migrate` — dump Supabase (or take a backup archive), restore into Railway |
 | `bootstrap.sql` | Roles, schemas, extensions, time zone. Run before the restore |
-| `post-restore.sql` | Ownership and grants. The whole access model |
+| `post-restore.sql` | Grants, and the removal of what only Supabase needed. The whole access model |
 | `verify-migration.ts` | `pnpm railway:verify` — source against target |
-| `service-secrets.ts` | `pnpm railway:secrets` — JWT secret, keys, role passwords |
-| `postgrest.env.example`, `gotrue.env.example` | Variables for the two services |
-| `gateway/` | The public gateway (Caddy) |
+| `api-role.ts` | `pnpm railway:role` — the API's database login |
+| `copy-files.ts` | `pnpm files:copy` — Supabase Storage to S3 |
+| `db-baseline.ts` | `pnpm db:baseline` — the copied schema as the first Prisma migration |
 | `.secrets.env` | Generated. Git-ignored. Never commit |

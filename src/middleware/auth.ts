@@ -1,13 +1,13 @@
 import { Request, Response, NextFunction } from 'express';
 import { dbFor } from '../db';
 import { resolveIdentity } from '../services/auth/auth.service';
-import { looksLikeOwnToken, ownAuthConfigured, verifyAccessToken } from '../services/auth/tokens';
+import { verifyAccessToken } from '../services/auth/tokens';
 import { USER_ROLES, type UserRole } from '../shared';
 
 const db = dbFor('auth');
 
 /**
- * Revoked GoTrue sessions this process has already seen.
+ * Sessions Login History has marked revoked, as this process has seen them.
  *
  * WHY THIS CACHE EXISTS AT ALL. The check below runs on EVERY authenticated
  * request in the app, and an uncached version would add a database round-trip to
@@ -15,13 +15,11 @@ const db = dbFor('auth');
  * by construction. So the answer is remembered, asymmetrically:
  *
  *   * A revocation is remembered FOREVER (until the process restarts). It cannot
- *     be undone — `revoke_auth_session` deletes the GoTrue row and there is no
- *     un-revoke — so a cached `true` can never go stale in the dangerous
- *     direction.
+ *     be undone — there is no un-revoke — so a cached `true` can never go stale
+ *     in the dangerous direction.
  *   * "Not revoked" is remembered for one minute only, and that TTL is the
- *     enforcement lag: a session revoked by an admin keeps working for at most a
- *     minute after its next cached negative, against the up-to-an-hour window
- *     that existed when the access token's own lifetime was the only bound.
+ *     longest a session Login History has marked can keep working on this
+ *     check alone.
  *
  * BOUNDED. The negative map is capped and cleared wholesale rather than evicted
  * entry by entry; the cost of a cold cache is one extra query per live session,
@@ -31,8 +29,8 @@ const db = dbFor('auth');
  *
  * PER-PROCESS, like `utils/cache.ts` and for the same reason: the deploy is a
  * single dyno. On a horizontally scaled API each instance would learn about a
- * revocation independently, within its own TTL — still bounded, still far better
- * than a token lifetime, and worth swapping for Redis if that day comes.
+ * revocation independently, within its own TTL — still bounded, and worth
+ * swapping for Redis if that day comes.
  */
 const revokedSessions = new Set<string>();
 const notRevokedUntil = new Map<string, number>();
@@ -40,15 +38,17 @@ const NEGATIVE_TTL_MS = 60_000;
 const NEGATIVE_CACHE_MAX = 2_000;
 
 /**
- * Has an admin signed this GoTrue session out?
+ * Has Login History marked this session revoked?
+ *
+ * The second of two checks, and the weaker one on purpose. `resolveIdentity`
+ * has already refused a session whose own row says it has ended; this catches
+ * the case where Login History marked its row and ending the session itself
+ * then failed.
  *
  * FAILS OPEN, deliberately and in exactly one direction: a database error
  * answers "not revoked". This runs in front of every request in the app, so a
  * transient failure here that failed CLOSED would sign the entire company out of
- * a working system to enforce a revocation that has probably not happened. The
- * revocation still stands at GoTrue — the session row is deleted, so the browser
- * dies at its next token refresh regardless of this check — and this is the
- * faster of two mechanisms, not the only one.
+ * a working system to enforce a revocation that has probably not happened.
  */
 async function isRevoked(authSessionId: string | null): Promise<boolean> {
   if (!authSessionId) return false;
@@ -97,122 +97,18 @@ export interface AuthRequest extends Request {
     branchId: string | null;
     branchName: string | null;
     /**
-     * The GoTrue session this token belongs to (`session_id` claim).
+     * The session this token belongs to — the id of its `auth_sessions` row.
      *
-     * Login History records it so an admin can later revoke THIS browser rather
-     * than every browser the account owns, and the ping uses it to notice that
+     * Login History records it so an admin can later revoke THIS device rather
+     * than every device the account owns, and the ping uses it to notice that
      * the session it is pinging for has been revoked underneath it.
-     *
-     * Null when the claim is absent — a token minted by an older GoTrue, or one
-     * issued for a flow that has no session behind it. Callers must treat that
-     * as "this session cannot be revoked", never as "revoke everything".
      */
     authSessionId: string | null;
-    /**
-     * How THIS session was authenticated, from the token's `amr` claim —
-     * 'password', 'oauth', 'otp', 'magiclink', ... Empty when the claim is absent.
-     *
-     * Login History reads it to decide whether the Google identity below was the
-     * one used to sign in, or merely one linked to the account.
-     */
+    /** How this session was authenticated. Always `['password']`: it is the only way in. */
     authMethods: string[];
-    /**
-     * The verified email of the Google identity linked to this account, or null.
-     *
-     * Read off `getUser().identities`, which Supabase populates from the provider
-     * at sign-in / link time — never from a request body, never from anything
-     * the browser reports about itself. A website cannot see which Google
-     * account the Chrome profile is signed into; this is the account the person
-     * authenticated to US with, which is the only thing worth recording.
-     */
+    /** Always null: there is no Google sign-in. Kept because Login History's rows have the column. */
     googleEmail: string | null;
   };
-}
-
-/**
- * Read the `session_id` and `amr` claims out of an access token.
- *
- * DECODING, NOT VERIFYING — and that is only safe because of where it is called:
- * strictly after `supabaseAdmin.auth.getUser(token)` has already verified the
- * signature and expiry against Supabase. At that point the payload is known
- * authentic and pulling two more claims out of it is free, where a second
- * round-trip to learn them would not be. Calling this anywhere else, on a token
- * that has not been through `getUser`, would be trusting a string the caller
- * wrote.
- *
- * `getUser` returns neither claim, which is the whole reason this exists.
- * `session_id` is the GoTrue session Login History revokes by. `amr` is GoTrue's
- * list of how the session was authenticated, newest first — `[{ method:
- * 'oauth', timestamp }]` for a Google sign-in, `'password'` for the form — and
- * is what lets a session record the Google account it was opened WITH rather
- * than one that merely happens to be linked to the account.
- *
- * Every failure is a null or an empty list. A malformed segment, a payload that
- * is not JSON, a claim of the wrong shape: none of them may throw — a token that
- * verified must not then be rejected because an optional claim was unreadable.
- */
-function claimsFromToken(token: string): { sessionId: string | null; authMethods: string[] } {
-  try {
-    const payload = token.split('.')[1];
-    if (!payload) return { sessionId: null, authMethods: [] };
-    const json = Buffer.from(payload, 'base64url').toString('utf8');
-    const claims = JSON.parse(json) as { session_id?: unknown; amr?: unknown };
-    const sessionId =
-      typeof claims.session_id === 'string' && claims.session_id ? claims.session_id : null;
-    const authMethods = Array.isArray(claims.amr)
-      ? claims.amr
-          .map((a) => (a && typeof a === 'object' ? (a as { method?: unknown }).method : null))
-          .filter((m): m is string => typeof m === 'string' && m.length > 0)
-      : [];
-    return { sessionId, authMethods };
-  } catch {
-    return { sessionId: null, authMethods: [] };
-  }
-}
-
-/**
- * The verified email of the account's Google identity, if it has one.
- *
- * Supabase writes `identity_data` from the provider's own claims when the
- * identity is created or refreshed; `email_verified` is Google's assertion, and
- * an identity that lacks it or says false is not trusted here. Null when there
- * is no Google identity at all — the ordinary case for a password-only account.
- */
-function googleEmailOf(user: { identities?: Array<{ provider?: string; identity_data?: Record<string, unknown> }> | null }): string | null {
-  for (const identity of user.identities ?? []) {
-    if (identity.provider !== 'google') continue;
-    const data = identity.identity_data ?? {};
-    const email = typeof data['email'] === 'string' ? data['email'].trim().toLowerCase() : '';
-    if (!email || data['email_verified'] === false) continue;
-    return email;
-  }
-  return null;
-}
-
-/**
- * Whether tokens issued by Supabase Auth are still accepted.
- *
- * True until it is switched off. While the web and mobile apps are being moved
- * to the API's own sign-in, an app that has not been updated yet still holds a
- * Supabase token, and it has to keep working. Set AUTH_ACCEPT_SUPABASE=false
- * once no request arrives with one any more; from then on this file never
- * touches Supabase.
- */
-function acceptsSupabaseTokens(): boolean {
-  return (process.env.AUTH_ACCEPT_SUPABASE ?? 'true').trim().toLowerCase() !== 'false';
-}
-
-/** Requests that arrived with one of the API's own tokens rather than Supabase's. */
-const ownTokenRequests = new WeakSet<Request>();
-
-/**
- * Whether this request was authenticated with the API's own token — that is,
- * whether `req.user.authSessionId` names a row in `auth_sessions` rather than a
- * Supabase session. Kept off `req.user` so the shape handlers and `/me` see is
- * the one it has always been.
- */
-export function signedInHere(req: Request): boolean {
-  return ownTokenRequests.has(req);
 }
 
 /**
@@ -226,17 +122,10 @@ const PASSWORD_CHANGE_ALLOWED = ['/api/auth/', '/api/login-history/', '/api/noti
  * Identify the caller from `Authorization: Bearer <token>` and attach them to
  * `req.user`.
  *
- * Two kinds of token arrive while both sign-in paths are live, and each goes to
- * its own verifier:
- *
- *   the API's own   signed here, checked here, and the person's role, branch
- *                   and status read from `users` on every request
- *   Supabase's      checked by asking Supabase, with role and branch taken
- *                   from the token's `app_metadata` — as it always was
- *
- * Which is which is read off the token's `iss` claim before anything is
- * verified. That peek decides only where the token is SENT; a token that lies
- * about its issuer is simply rejected by the verifier it chose.
+ * The token is one this API signed (services/auth/tokens.ts). It says who and
+ * which signed-in device, and nothing else: the person's role, branch and
+ * status are read from `users` here, on every request, so a change to any of
+ * them takes effect on their next click.
  */
 export async function authenticate(req: AuthRequest, res: Response, next: NextFunction) {
   const authHeader = req.headers.authorization;
@@ -247,19 +136,7 @@ export async function authenticate(req: AuthRequest, res: Response, next: NextFu
     return;
   }
 
-  if (looksLikeOwnToken(token)) {
-    await authenticateOwnToken(token, req, res, next);
-    return;
-  }
-  if (!acceptsSupabaseTokens()) {
-    res.status(401).json({ error: 'Unauthorized: Invalid or expired token' });
-    return;
-  }
-  await authenticateSupabaseToken(token, req, res, next);
-}
-
-async function authenticateOwnToken(token: string, req: AuthRequest, res: Response, next: NextFunction) {
-  const verified = ownAuthConfigured() ? verifyAccessToken(token) : null;
+  const verified = verifyAccessToken(token);
   if (!verified) {
     res.status(401).json({ error: 'Unauthorized: Invalid or expired token' });
     return;
@@ -269,7 +146,7 @@ async function authenticateOwnToken(token: string, req: AuthRequest, res: Respon
   try {
     identity = await resolveIdentity(verified.userId, verified.sessionId);
   } catch (err) {
-    // Unlike the revocation cache below, this cannot fail open: without the
+    // Unlike the revocation cache above, this cannot fail open: without the
     // row there is no role to act under. The request fails; the session does not.
     console.error('[auth] could not load the session', err instanceof Error ? err.message : err);
     res.status(503).json({ error: 'Sign-in could not be checked just now. Please try again.' });
@@ -322,7 +199,6 @@ async function authenticateOwnToken(token: string, req: AuthRequest, res: Respon
     return;
   }
 
-  ownTokenRequests.add(req);
   req.user = {
     uid: user.id,
     email: user.email,
@@ -332,93 +208,6 @@ async function authenticateOwnToken(token: string, req: AuthRequest, res: Respon
     authSessionId: verified.sessionId,
     authMethods: ['password'],
     googleEmail: null,
-  };
-  next();
-}
-
-/**
- * The path every request took before the API had its own sign-in, unchanged:
- * verify the caller's Supabase access token and take role / branch from the
- * user's `app_metadata` (server-controlled claims that Supabase embeds in the
- * JWT).
- */
-async function authenticateSupabaseToken(token: string, req: AuthRequest, res: Response, next: NextFunction) {
-  // Loaded here rather than imported: config/supabase.ts refuses to load
-  // without its env vars, and once this path is switched off they are gone.
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const { supabaseAdmin } = require('../config/supabase') as typeof import('../config/supabase');
-
-  const { data, error } = await supabaseAdmin.auth.getUser(token);
-  if (error || !data.user) {
-    res.status(401).json({ error: 'Unauthorized: Invalid or expired token' });
-    return;
-  }
-
-  const meta = (data.user.app_metadata ?? {}) as {
-    role?: UserRole;
-    branchId?: string | null;
-    branchName?: string | null;
-  };
-
-  // Fail CLOSED. A Supabase account with no (or an unrecognized) `role` claim gets
-  // no access at all — never a default role. Accounts are provisioned by
-  // POST /api/users, which always sets the claim; anything reaching here without
-  // one is either a self-signup or a misprovisioned user, and must be rejected.
-  if (!meta.role || !VALID_ROLES.has(meta.role)) {
-    res.status(403).json({ error: 'Forbidden: Account has no role assigned' });
-    return;
-  }
-
-  // Safe here and nowhere earlier: `getUser` above has already verified this
-  // exact token. See claimsFromToken.
-  const { sessionId: authSessionId, authMethods } = claimsFromToken(token);
-
-  /*
-   * A session an admin has ended does not get to keep working.
-   *
-   * WHY THIS IS NEEDED WHEN THE GoTrue SESSION IS ALREADY DELETED. A Supabase
-   * ACCESS token is stateless: it carries its own signature and expiry, and
-   * `getUser` above accepts it on those alone. Deleting the session behind it
-   * kills the REFRESH — the browser cannot mint another token — but the one it
-   * is holding stays valid until it lapses, up to an hour later. Without this
-   * check, "sign this device out" means "sign it out within the hour", which is
-   * not what the button says and not what an admin acting on a suspected
-   * compromise needs.
-   *
-   * THE THIRD OF THREE MECHANISMS, and the only one that covers every request:
-   *
-   *   1. `revoke_auth_session` deletes the GoTrue session — permanent, but
-   *      invisible until a refresh falls due.
-   *   2. The Login History ping answers 403 and the client signs itself out —
-   *      fast, but only for a client that keeps pinging and chooses to obey.
-   *   3. This — every protected endpoint, regardless of what the client does.
-   *
-   * A tampered client that stops pinging defeats (2) and is stopped here.
-   *
-   * ANSWERED WITH THE SAME `session_revoked` CODE the ping uses, so the frontend
-   * has one revocation path rather than two: `apiCall` lifts `body.details` onto
-   * its error, the client recognises the code and tears the session down. 401
-   * rather than 403 because the credential itself is no longer good — which is
-   * also what makes the frontend's existing refresh-and-retry do the right thing
-   * and give up.
-   */
-  if (await isRevoked(authSessionId)) {
-    res.status(401).json({
-      error: 'This session was signed out by an administrator',
-      details: { code: 'session_revoked' },
-    });
-    return;
-  }
-
-  req.user = {
-    uid: data.user.id,
-    email: data.user.email ?? '',
-    role: meta.role,
-    branchId: meta.branchId ?? null,
-    branchName: meta.branchName ?? null,
-    authSessionId,
-    authMethods,
-    googleEmail: googleEmailOf(data.user),
   };
   next();
 }

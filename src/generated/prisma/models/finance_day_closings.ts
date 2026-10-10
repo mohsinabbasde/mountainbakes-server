@@ -14,7 +14,7 @@ import type * as Prisma from "../internal/prismaNamespace"
 
 /**
  * Model finance_day_closings
- * This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+ * 
  */
 export type finance_day_closingsModel = runtime.Types.Result.DefaultSelection<Prisma.$finance_day_closingsPayload>
 

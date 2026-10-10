@@ -75,8 +75,8 @@ function parseItems(s: string, select: string): SelectItem[] {
 }
 
 export function parseSelect(select: string): SelectItem[] {
-  // supabase-js strips whitespace before sending, so a select laid out over
-  // several lines in the source is the same select.
+  // Whitespace means nothing in a select, so one laid out over several lines
+  // in the source is the same select.
   const compact = select.replace(/\s+/g, '');
   return parseItems(compact === '' ? '*' : compact, select);
 }

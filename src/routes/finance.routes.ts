@@ -47,7 +47,7 @@ import { auditSnapshot, listFinanceAudit, logFinanceAudit, type FinanceAuditQuer
  * /api/finance — the ledger, its chart of accounts, the daily closing, settings
  * and the audit trail.
  *
- * Every route below is gated twice: `authenticate` resolves the Supabase JWT and
+ * Every route below is gated twice: `authenticate` verifies the access token and
  * fails closed on an unrecognised role, then `requireFinance(permission)` decides
  * whether THAT role may do THIS. Branch and production users never get past the
  * second gate, on any endpoint, including the read-only ones.

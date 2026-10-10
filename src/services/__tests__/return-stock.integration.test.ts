@@ -60,7 +60,7 @@ const STUBS = `
     reviewed_by uuid, reviewed_by_name text, reviewed_at timestamptz);
 `;
 
-const MIGRATIONS = join(__dirname, '../../../supabase/migrations');
+const MIGRATIONS = join(__dirname, '../../../db/history/migrations');
 const TODAY = '2026-10-03';
 
 let db: PGlite;

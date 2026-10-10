@@ -43,24 +43,28 @@ function makeDeps(over: Partial<BackupDeps> & { s3?: FakeS3; repo?: FakeReposito
 }
 
 describe('runBackup', () => {
-  it('happy path: dumps, uploads both archives, verifies, writes the manifest, marks verified, cleans temp', async () => {
+  it('happy path: dumps, uploads the archive, verifies, writes the manifest, marks verified, cleans temp', async () => {
     const { deps, s3, repo, logs } = makeDeps();
     const res = await runBackup('daily', { trigger: 'scheduler' }, deps);
     assert.equal(res.outcome, 'success');
     const row = repo.rows.get('backup-daily-2026-09-21')!;
     assert.equal(row.status, 'verified');
     assert.equal(row.s3Key, 'database-backups-test/daily/2026/09/mountainbakes-daily-2026-09-21.dump');
-    assert.equal(row.authS3Key, 'database-backups-test/daily/2026/09/mountainbakes-daily-2026-09-21-auth.dump');
+    // One archive: accounts and their password hashes are in it, in `public`.
+    assert.equal(row.authS3Key, null);
+    assert.equal(row.authFileSize, null);
+    assert.equal(row.authChecksumSha256, null);
     assert.equal(row.fileSize, 4096);
     assert.match(row.checksumSha256!, /^[0-9a-f]{64}$/);
     assert.equal(row.retentionUntil, '2026-09-27T22:00:00.000Z');
     assert.equal(row.pgDumpVersion, '17.6');
     assert.equal(row.databaseVersion, '17.6');
     assert.ok(s3.objects.has(row.s3Key!));
-    assert.ok(s3.objects.has(row.authS3Key!));
     const manifest = JSON.parse(s3.objects.get(row.manifestS3Key!)!.body.toString());
     assert.equal(manifest.backupId, 'backup-daily-2026-09-21');
-    assert.equal(manifest.files.length, 2);
+    assert.equal(manifest.files.length, 1);
+    assert.equal(manifest.files[0].role, 'main');
+    assert.deepEqual(manifest.scope.schemas, ['public', 'app']);
     assert.equal(manifest.files[0].checksumSha256, row.checksumSha256);
     assert.ok(!JSON.stringify(manifest).includes('s3cretPassw0rd'));
     assert.equal(s3.objects.get(row.s3Key!)!.sse, 'AES256');
@@ -99,7 +103,7 @@ describe('runBackup', () => {
     const third = await runBackup('daily', { trigger: 'scheduler' }, deps);
     assert.equal(third.outcome, 'already_completed');
     assert.equal(s3.calls.filter((c) => c === 'Upload').length, uploadsBefore);
-    assert.equal(spawn.dumps, 3, 'only the first run dumped (probe + main + auth)');
+    assert.equal(spawn.dumps, 2, 'only the first run dumped (probe + main)');
     assert.equal(repo.rows.get('backup-daily-2026-09-21')!.status, 'verified');
   });
 
@@ -134,7 +138,7 @@ describe('runBackup', () => {
     const res = await runBackup('daily', { trigger: 'scheduler' }, deps);
     assert.equal(res.outcome, 'success');
     assert.equal(repo.rows.get('backup-daily-2026-09-21')!.status, 'verified');
-    assert.equal(spawn.dumps, 4); // probe + failed main + retried main + auth
+    assert.equal(spawn.dumps, 3); // probe + failed main + retried main
   });
 
   it('S3 upload failure after three attempts → FAILED S3_UPLOAD_FAILED, alert, no false success', async () => {
@@ -194,8 +198,8 @@ describe('runBackup', () => {
     const [ra, rb] = await Promise.all([runBackup('daily', { trigger: 'scheduler' }, a.deps), runBackup('daily', { trigger: 'manual' }, b.deps)]);
     const outcomes = [ra.outcome, rb.outcome].sort();
     assert.deepEqual(outcomes, ['in_progress', 'success']);
-    assert.equal(a.spawn.dumps + b.spawn.dumps, 3); // probe + main + auth, once
-    assert.equal(s3.objects.size, 3);
+    assert.equal(a.spawn.dumps + b.spawn.dumps, 2); // probe + main, once
+    assert.equal(s3.objects.size, 2);
   });
 });
 
@@ -206,15 +210,48 @@ describe('verifyBackup', () => {
     const job = repo.rows.get('backup-daily-2026-09-21')!;
     const ok = await verifyBackup(job, deps);
     assert.equal(ok.ok, true);
-    assert.ok(ok.checks.length >= 8);
+    assert.ok(ok.checks.length >= 4);
+    assert.ok(!ok.checks.some((c) => c.name.startsWith('auth:')), 'nothing is expected of an archive the backup never had');
 
-    s3.objects.get(job.authS3Key!)!.metadata.sha256 = 'f'.repeat(64);
+    s3.objects.get(job.s3Key!)!.metadata.sha256 = 'f'.repeat(64);
     const bad = await verifyBackup(job, deps);
     assert.equal(bad.ok, false);
-    assert.ok(bad.checks.some((c) => c.name === 'auth: checksum matches' && !c.ok));
+    assert.ok(bad.checks.some((c) => c.name === 'main: checksum matches' && !c.ok));
 
     s3.objects.delete(job.s3Key!);
     const missing = await verifyBackup(job, deps);
     assert.ok(missing.checks.some((c) => c.name === 'main: object exists' && !c.ok));
+  });
+
+  it('a backup from before accounts moved into public still verifies, auth archive and all', async () => {
+    const { deps, s3, repo } = makeDeps();
+    await runBackup('daily', { trigger: 'scheduler' }, deps);
+    const job = repo.rows.get('backup-daily-2026-09-21')!;
+
+    // Make it the older shape: a second archive in S3, in the manifest and on the job row.
+    const authKey = job.s3Key!.replace('.dump', '-auth.dump');
+    const authSha = 'a'.repeat(64);
+    s3.objects.set(authKey, { body: Buffer.alloc(512), metadata: { sha256: authSha }, etag: '"auth"' });
+    const manifestObject = s3.objects.get(job.manifestS3Key!)!;
+    const manifest = JSON.parse(manifestObject.body.toString());
+    manifest.files.push({ role: 'auth', fileName: authKey.split('/').pop(), s3Key: authKey, fileSize: 512, checksumSha256: authSha, etag: '"auth"' });
+    manifestObject.body = Buffer.from(JSON.stringify(manifest));
+    Object.assign(job, { authS3Key: authKey, authFileSize: 512, authChecksumSha256: authSha });
+
+    const ok = await verifyBackup(job, deps);
+    assert.equal(ok.ok, true, JSON.stringify(ok.checks.filter((c) => !c.ok)));
+    assert.ok(ok.checks.some((c) => c.name === 'auth: checksum matches' && c.ok));
+
+    s3.objects.get(authKey)!.metadata.sha256 = 'f'.repeat(64);
+    const bad = await verifyBackup(job, deps);
+    assert.equal(bad.ok, false);
+    assert.ok(bad.checks.some((c) => c.name === 'auth: checksum matches' && !c.ok));
+
+    // With no manifest to go by, the job row alone still names both archives.
+    s3.objects.get(authKey)!.metadata.sha256 = authSha;
+    s3.objects.delete(job.manifestS3Key!);
+    const noManifest = await verifyBackup(job, deps);
+    assert.ok(noManifest.checks.some((c) => c.name === 'auth: checksum matches' && c.ok));
+    assert.ok(noManifest.checks.some((c) => c.name === 'main: checksum matches' && c.ok));
   });
 });

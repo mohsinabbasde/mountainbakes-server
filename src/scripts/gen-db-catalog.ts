@@ -53,8 +53,8 @@ function sorted(value: unknown, keepOrder = false): unknown {
 }
 
 async function main() {
-  const url = (process.env.DATABASE_URL || '').trim();
-  if (!url) throw new Error('DATABASE_URL is required — a session-mode connection to the database to describe');
+  const url = (process.env.DIRECT_DATABASE_URL || '').trim();
+  if (!url) throw new Error('DIRECT_DATABASE_URL is required — a session-mode connection to the database to describe');
   const env = pgConnectionEnv(url);
   if (!new URL(url).searchParams.get('sslmode')) env.PGSSLMODE = 'prefer';
 

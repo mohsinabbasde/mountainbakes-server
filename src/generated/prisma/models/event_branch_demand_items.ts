@@ -15,7 +15,6 @@ import type * as Prisma from "../internal/prismaNamespace"
 /**
  * Model event_branch_demand_items
  * This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
- * This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
  */
 export type event_branch_demand_itemsModel = runtime.Types.Result.DefaultSelection<Prisma.$event_branch_demand_itemsPayload>
 

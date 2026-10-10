@@ -1,7 +1,7 @@
 import type { BackupManifest, BackupManifestFile } from '../../shared';
 import { BackupManifestSchema } from '../../shared';
 import type { BackupPlan } from './backupNaming';
-import { AUTH_TABLES, EXCLUDED_SCOPE, MAIN_SCHEMAS } from './postgresBackup';
+import { EXCLUDED_SCOPE, MAIN_SCHEMAS } from './postgresBackup';
 
 export interface ManifestInput {
   plan: BackupPlan;
@@ -38,7 +38,7 @@ export function buildManifest(input: ManifestInput): BackupManifest {
     retentionDays: input.plan.retentionDays,
     scope: {
       schemas: [...MAIN_SCHEMAS],
-      tables: [...AUTH_TABLES],
+      tables: [],
       excluded: [...EXCLUDED_SCOPE],
     },
     status: 'completed',

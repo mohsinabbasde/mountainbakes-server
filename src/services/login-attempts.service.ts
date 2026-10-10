@@ -23,10 +23,10 @@ const db = dbFor('login-attempts');
  * "sometimes authenticated" code path that ends up trusting a body it should
  * not. Two modules, two postures.
  *
- * THE RECORD IS CLIENT-REPORTED AND THEREFORE FORGEABLE. The app is a static
- * export that authenticates against Supabase directly, so the API never observes
- * the failure; the browser posts it, from an endpoint that by definition cannot
- * require a token. Anybody who can reach the API can write rows here describing
+ * THE RECORD IS CLIENT-REPORTED AND THEREFORE FORGEABLE. `/api/auth/login`
+ * refuses a bad sign-in and writes nothing down; the browser that saw the
+ * refusal posts it, to an endpoint that by definition cannot require a token.
+ * Anybody who can reach the API can write rows here describing
  * attempts that never happened. That is a real limitation, and it is why nothing
  * in this app acts on these rows: they are evidence a person reads. A forgeable
  * table wired to a lockout would be a denial-of-service tool with an admin
@@ -78,7 +78,7 @@ export async function recordAttempt(params: {
 }): Promise<void> {
   // Lower-cased so the same address typed two ways groups into one, and capped
   // at the column's documented width. Addresses are case-insensitive in every
-  // practical sense and Supabase treats them so.
+  // practical sense and sign-in treats them so.
   const email = params.email.trim().toLowerCase().slice(0, 255);
 
   const geo = await lookupIp(params.ipAddress);
@@ -154,7 +154,7 @@ export async function listAttempts(opts: {
 
   if (filters.search) {
     // Same treatment the session search gets: `%` and `_` are `ilike`
-    // wildcards, and the rest are PostgREST filter-language punctuation. A term
+    // wildcards, and the rest are punctuation in the query filter language. A term
     // containing any of them would quietly change which rows matched rather than
     // failing, which is the worst way for a filter to be wrong.
     const term = filters.search.replace(/[,()%_\\*"']/g, ' ').trim();

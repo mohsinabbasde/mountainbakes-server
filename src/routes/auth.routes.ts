@@ -2,7 +2,7 @@ import { Router, type Request } from 'express';
 import rateLimit from 'express-rate-limit';
 import { z } from 'zod';
 import { dbFor } from '../db';
-import { authenticate, signedInHere, type AuthRequest } from '../middleware/auth';
+import { authenticate, type AuthRequest } from '../middleware/auth';
 import {
   canAccessFinance,
   FinanceLoginLookupSchema,
@@ -19,7 +19,6 @@ import {
   resetPasswordWithToken,
   signIn,
 } from '../services/auth/auth.service';
-import { ownAuthConfigured } from '../services/auth/tokens';
 import { sendPasswordResetEmail } from '../services/mailer';
 
 const db = dbFor('auth');
@@ -46,13 +45,7 @@ function callerAddress(req: Request): string {
 // The API's own sign-in. A client posts an email (or a username) and a
 // password and gets back two tokens: a short-lived access token to send as
 // `Authorization: Bearer …`, and a refresh token to exchange for the next pair.
-// Role and branch come back alongside, in `user` — the same four claims the
-// apps used to read off the Supabase session.
-//
-// None of this exists until JWT_SECRET is set: without a key to sign with,
-// these endpoints answer 503 and every app keeps signing in through Supabase.
-const notConfigured = (res: { status: (code: number) => { json: (body: unknown) => void } }) =>
-  res.status(503).json({ error: 'Sign-in is not available on this server yet.', details: { code: 'auth_not_configured' } });
+// Role and branch come back alongside, in `user`.
 
 // Counted per address AND per account, failures only: ten wrong passwords for
 // one account from one place in fifteen minutes. A shop's worth of tills behind
@@ -86,7 +79,6 @@ const SignInSchema = z
 
 router.post('/login', signInLimiter, async (req, res, next) => {
   try {
-    if (!ownAuthConfigured()) { notConfigured(res); return; }
     const parsed = SignInSchema.safeParse(req.body);
     if (!parsed.success) {
       res.status(400).json({ error: 'Enter your email and password.' });
@@ -105,7 +97,6 @@ router.post('/login', signInLimiter, async (req, res, next) => {
 
 router.post('/refresh', async (req, res, next) => {
   try {
-    if (!ownAuthConfigured()) { notConfigured(res); return; }
     const parsed = z.object({ refreshToken: z.string().min(1).max(512) }).safeParse(req.body);
     if (!parsed.success) {
       res.status(400).json({ error: 'A refresh token is required.' });
@@ -117,11 +108,10 @@ router.post('/refresh', async (req, res, next) => {
   }
 });
 
-// Ends THIS device's session. A caller still holding a Supabase token has no
-// session here to end; it signs out of Supabase itself, as it always did.
+// Ends THIS device's session; the account's other devices stay signed in.
 router.post('/logout', authenticate, async (req: AuthRequest, res, next) => {
   try {
-    if (signedInHere(req) && req.user!.authSessionId) await endSession(req.user!.authSessionId);
+    if (req.user!.authSessionId) await endSession(req.user!.authSessionId);
     res.json({ success: true });
   } catch (err) {
     next(err);
@@ -131,11 +121,9 @@ router.post('/logout', authenticate, async (req: AuthRequest, res, next) => {
 // ─── Finance User ID → email (PUBLIC — the user is signing in) ────────────────
 //
 // The Finance login asks for a "Finance User ID", which the brief is explicit
-// about: accounts staff are issued an ID, not an email address. Supabase Auth
-// only understands email/password, so the ID has to be resolved before the
-// browser can sign in — and resolving it needs the `users` table, which no
-// browser may read. Hence a public endpoint on this API rather than a client
-// lookup.
+// about: accounts staff are issued an ID, not an email address. The Finance
+// login screen resolves the ID to the account's email here and then signs in
+// with that email.
 //
 // It is an account-enumeration surface, and it is treated as one:
 //   * the SAME message and the same 404 for an unknown ID, a non-finance
@@ -194,11 +182,9 @@ router.post('/finance-lookup', financeLookupLimiter, async (req, res, next) => {
 // Admin accounts only; non-admin / unknown emails get a 403 with a fixed message
 // (we never confirm whether a non-admin email exists).
 //
-// Two callers, told apart by `deliver`:
-//   * an app that has not been updated asks only whether it MAY, gets
-//     { allowed: true }, and has Supabase send its own reset email;
-//   * an updated app sends { email, deliver: true } and the API mails the link
-//     itself — the answer is the same { allowed: true }.
+// The apps send { email, deliver: true } and the API mails the reset link.
+// Without `deliver` the answer is the same { allowed: true } and nothing is
+// sent: the question "may this address reset?" on its own.
 // Counted per caller address (see callerAddress, as for sign-in). Left
 // to the library's default it would be counted per PROXY address, which is one
 // bucket for everybody — and anyone could then use up the administrators'
@@ -251,7 +237,6 @@ router.post('/forgot-password', forgotPasswordLimiter, async (req, res, next) =>
     }
 
     if (req.body?.deliver === true && account?.status === 'active') {
-      if (!ownAuthConfigured()) { notConfigured(res); return; }
       const token = await createPasswordResetToken(account.id);
       await sendPasswordResetEmail(account.email, token, RESET_TOKEN_TTL_MINUTES);
     }
@@ -265,7 +250,6 @@ router.post('/forgot-password', forgotPasswordLimiter, async (req, res, next) =>
 // ─── Choose a new password with the link from a reset email (PUBLIC) ──────────
 router.post('/password-reset/confirm', resetConfirmLimiter, async (req, res, next) => {
   try {
-    if (!ownAuthConfigured()) { notConfigured(res); return; }
     const parsed = z.object({ token: z.string().min(1).max(512), newPassword: StrongPasswordSchema }).safeParse(req.body);
     if (!parsed.success) {
       const badPassword = parsed.error.errors.some((e) => e.path[0] === 'newPassword');
@@ -305,10 +289,8 @@ router.post('/change-password', authenticate, async (req: AuthRequest, res, next
     }
 
     const uid = req.user!.uid;
-    // The session to keep is this one — when it is one of ours. A caller on a
-    // Supabase token has no session here, so there is nothing to spare.
-    const ownSession = signedInHere(req) ? req.user!.authSessionId : null;
-    await changeOwnPassword(uid, parsed.data.newPassword, ownSession);
+    // Every other device is signed out; this one keeps its session.
+    await changeOwnPassword(uid, parsed.data.newPassword, req.user!.authSessionId);
 
     await logAudit({
       action: 'password_changed',

@@ -5,8 +5,12 @@ import { join } from 'node:path';
 import type { AddressInfo } from 'node:net';
 import type { Server } from 'node:http';
 import { PGlite } from '@electric-sql/pglite';
+import { PrismaPGlite } from 'pglite-prisma-adapter';
 import { dbFor } from '../../db';
+import { setPrisma } from '../../db/prisma';
 import { usePglite } from '../../db/testing';
+import { PrismaClient } from '../../generated/prisma/client';
+import { signAccessToken } from '../auth/tokens';
 import { CreateProductionOrderSchema, CreateSpecialOrderSchema, VerifySpecialOrderSchema } from '../../shared';
 
 /**
@@ -25,7 +29,7 @@ import { CreateProductionOrderSchema, CreateSpecialOrderSchema, VerifySpecialOrd
  * Idempotency-Key however often it is re-sent — is tested here.
  */
 
-const MIGRATIONS = join(__dirname, '../../../supabase/migrations');
+const MIGRATIONS = join(__dirname, '../../../db/history/migrations');
 const read = (file: string) => readFileSync(join(MIGRATIONS, file), 'utf8');
 
 const STUBS = `
@@ -48,7 +52,14 @@ const STUBS = `
   create table login_sessions (id uuid primary key default gen_random_uuid(), auth_session_id uuid, revoked_at timestamptz);
   create table business_day_closures (business_date date primary key, status text not null);
   create table branches (id uuid primary key default gen_random_uuid(), name text);
-  create table users (id uuid primary key default gen_random_uuid());
+  -- As much of an account as signing a request in reads (migration 149 adds
+  -- the session tables on top).
+  create type user_role as enum ('super_admin', 'branch_manager', 'production_user', 'finance_admin', 'finance_manager', 'accountant', 'finance_auditor');
+  create type user_status as enum ('active', 'inactive', 'suspended');
+  create table users (
+    id uuid primary key default gen_random_uuid(), email text, display_name text, username text,
+    role user_role, branch_id uuid, branch_name text,
+    status user_status not null default 'active', must_change_password boolean default false);
   create table products (
     id uuid primary key default gen_random_uuid(), name text not null,
     price numeric not null default 0, is_active boolean not null default true,
@@ -124,6 +135,8 @@ const ACTORS: Record<string, Actor> = {
   admin: { id: '10000000-0000-4000-8000-000000000004', email: 'admin@mb.test', role: 'super_admin', branchId: null, branchName: null },
   finance: { id: '10000000-0000-4000-8000-000000000005', email: 'fin@mb.test', role: 'finance_manager', branchId: null, branchName: null },
 };
+/** The access token each actor sends, filled in once their session exists. */
+const TOKENS: Record<string, string> = {};
 
 /** A database function called directly, the way a route calls it. */
 const rpc = (fn: string, args: Record<string, unknown> = {}) => dbFor('special-orders').rpc(fn, args);
@@ -132,7 +145,7 @@ const rpc = (fn: string, args: Record<string, unknown> = {}) => dbFor('special-o
 async function call(as: string, method: string, path: string, body?: unknown, headers: Record<string, string> = {}) {
   const res = await fetch(`${base}${path}`, {
     method,
-    headers: { Authorization: `Bearer ${as}`, 'Content-Type': 'application/json', ...headers },
+    headers: { Authorization: `Bearer ${TOKENS[as] ?? as}`, 'Content-Type': 'application/json', ...headers },
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
   });
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -204,8 +217,9 @@ const demandRows = () =>
   num(`select (select count(*) from production_orders) + (select count(*) from production_order_items) as n`);
 
 before(async () => {
-  process.env['SUPABASE_URL'] ??= 'http://127.0.0.1:1';
-  process.env['SUPABASE_SERVICE_ROLE_KEY'] ??= 'test-service-role-key';
+  process.env['JWT_SECRET'] = 'special-orders-test-secret-that-is-long-enough';
+  process.env['FILES_S3_BUCKET'] = 'test-bucket';
+  process.env['PUBLIC_API_URL'] = 'https://api.test';
 
   db = new PGlite();
   await db.exec(STUBS);
@@ -218,29 +232,34 @@ before(async () => {
   await db.exec(`begin;${read('20261005000143_special_orders.sql')}commit;`);
   await db.exec(`begin;${read('20261005000144_special_order_delivers_to_branch.sql')}commit;`);
   await db.exec(`begin;${read('20261005000145_special_order_prepared_and_verified.sql')}commit;`);
+  await db.exec(`begin;${read('20261009000149_custom_auth.sql')}commit;`);
 
   await db.query(`insert into branches (id, name) values ($1, 'DHA Branch'), ($2, 'Gulshan Branch')`, [BRANCH_A, BRANCH_B]);
-  for (const a of Object.values(ACTORS)) await db.query(`insert into users (id) values ($1)`, [a.id]);
-
   await usePglite(db);
-  const { supabaseAdmin } = await import('../../config/supabase');
-  (supabaseAdmin.auth as unknown as Record<string, unknown>)['getUser'] = async (token: string) => {
-    const a = ACTORS[token];
-    if (!a) return { data: { user: null }, error: new Error('bad token') };
-    return {
-      data: { user: { id: a.id, email: a.email, identities: [], app_metadata: { role: a.role, branchId: a.branchId, branchName: a.branchName } } },
-      error: null,
-    };
-  };
-  Object.defineProperty(supabaseAdmin, 'storage', {
-    value: {
-      from: () => ({
-        createSignedUrls: async (paths: string[]) => ({
-          data: paths.map((path) => ({ path, signedUrl: `https://signed.test/${path}`, error: null })),
-          error: null,
-        }),
-      }),
-    },
+  const prisma = new PrismaClient({ adapter: new PrismaPGlite(db) });
+  setPrisma(prisma);
+
+  // Each actor is a real account with a real session, and the token they send
+  // is one the API signed — requests go through `authenticate` as they do live.
+  for (const [name, a] of Object.entries(ACTORS)) {
+    await db.query(
+      `insert into users (id, email, role, branch_id, branch_name) values ($1, $2, $3, $4, $5)`,
+      [a.id, a.email, a.role, a.branchId, a.branchName],
+    );
+    const session = await prisma.auth_sessions.create({
+      data: { user_id: a.id, client: 'web', expires_at: new Date(Date.now() + 3_600_000) },
+      select: { id: true },
+    });
+    TOKENS[name] = signAccessToken(a.id, session.id).token;
+  }
+
+  // Photo URLs are signed without a network: the store is handed in.
+  const { setFileStore } = await import('../file-store');
+  setFileStore({
+    upload: async () => undefined,
+    remove: async () => undefined,
+    signUrls: async (_bucket, paths) => new Map(paths.map((path) => [path, `https://signed.test/${path}`])),
+    publicUrl: (_bucket, path) => `https://api.test/api/public/branding/${path}`,
   });
 
   const express = (await import('express')).default;

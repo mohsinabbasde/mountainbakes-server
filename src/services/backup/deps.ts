@@ -1,6 +1,6 @@
 import { dbFor } from '../../db';
 import { getBackupSystemConfig, getS3Client, type BackupSystemConfig, type ConfigOptions } from './backupConfig';
-import { SupabaseBackupRepository } from './backupRepository';
+import { DbBackupRepository } from './backupRepository';
 import { BackupStorage } from './s3BackupStorage';
 import { alertBackupFailure } from './backupAlerts';
 import type { BackupDeps, DatabaseInfo } from './backupService';
@@ -35,7 +35,7 @@ export function createBackupDeps(opts: ConfigOptions & { signal?: AbortSignal; c
   return {
     config,
     storage: new BackupStorage({ s3: getS3Client(config.region), bucket: config.bucket, log }),
-    repo: new SupabaseBackupRepository(),
+    repo: new DbBackupRepository(),
     pg: { pgBinDir: config.pgBinDir, secrets: config.secrets, log },
     now: () => new Date(),
     log,

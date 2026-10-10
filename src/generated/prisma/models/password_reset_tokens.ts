@@ -15,7 +15,6 @@ import type * as Prisma from "../internal/prismaNamespace"
 /**
  * Model password_reset_tokens
  * This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
- * This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
  */
 export type password_reset_tokensModel = runtime.Types.Result.DefaultSelection<Prisma.$password_reset_tokensPayload>
 
@@ -284,16 +283,6 @@ export type password_reset_tokensUncheckedUpdateManyInput = {
   used_at?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
 }
 
-export type Password_reset_tokensListRelationFilter = {
-  every?: Prisma.password_reset_tokensWhereInput
-  some?: Prisma.password_reset_tokensWhereInput
-  none?: Prisma.password_reset_tokensWhereInput
-}
-
-export type password_reset_tokensOrderByRelationAggregateInput = {
-  _count?: Prisma.SortOrder
-}
-
 export type password_reset_tokensCountOrderByAggregateInput = {
   token_hash?: Prisma.SortOrder
   user_id?: Prisma.SortOrder
@@ -316,6 +305,16 @@ export type password_reset_tokensMinOrderByAggregateInput = {
   created_at?: Prisma.SortOrder
   expires_at?: Prisma.SortOrder
   used_at?: Prisma.SortOrder
+}
+
+export type Password_reset_tokensListRelationFilter = {
+  every?: Prisma.password_reset_tokensWhereInput
+  some?: Prisma.password_reset_tokensWhereInput
+  none?: Prisma.password_reset_tokensWhereInput
+}
+
+export type password_reset_tokensOrderByRelationAggregateInput = {
+  _count?: Prisma.SortOrder
 }
 
 export type password_reset_tokensCreateNestedManyWithoutUsersInput = {

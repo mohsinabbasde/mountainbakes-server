@@ -41,7 +41,7 @@ export interface BackupSystemConfig {
   productionBucket: string;
   /** Present only when requireDatabase was true. Never log this. */
   dbUrl: string | null;
-  /** Supabase project ref parsed from the pooler user (postgres.<ref>) or host; safe to display. */
+  /** The server the backup is taken from, as `host:port` — no credentials; safe to display. */
   databaseRef: string | null;
   databaseName: string;
   timezone: string;
@@ -58,7 +58,7 @@ export interface BackupSystemConfig {
 }
 
 export interface ConfigOptions {
-  /** Require SUPABASE_DB_URL (anything that dumps or restores). Default true. */
+  /** Require the database URL (anything that dumps or restores). Default true. */
   requireDatabase?: boolean;
   /** Require BACKUP_ENABLED=true (anything that writes to S3). Default true. */
   requireEnabled?: boolean;
@@ -81,15 +81,11 @@ function boolEnv(env: NodeJS.ProcessEnv, name: string): boolean {
   return /^(1|true|yes)$/i.test((env[name] ?? '').trim());
 }
 
-/** Parse the project ref out of a Supabase connection string without keeping the credentials. */
+/** Which server a connection string names, without keeping the credentials. */
 export function databaseRefFromUrl(dbUrl: string): string | null {
   try {
     const u = new URL(dbUrl);
-    const user = decodeURIComponent(u.username);
-    const m = /^postgres\.([a-z0-9]{15,})$/i.exec(user);
-    if (m) return m[1];
-    const h = /^db\.([a-z0-9]{15,})\.supabase\.co$/i.exec(u.hostname);
-    return h ? h[1] : null;
+    return u.hostname ? `${u.hostname}:${u.port || '5432'}` : null;
   } catch {
     return null;
   }
@@ -172,20 +168,19 @@ export function getBackupSystemConfig(opts: ConfigOptions = {}): BackupSystemCon
     errors.push(`BACKUP_TIMEZONE must be "${SUPPORTED_TIMEZONE}" — the business-day helpers in shared/utils/timezone.ts are fixed to it`);
   }
 
-  const dbUrl = (env.SUPABASE_DB_URL || '').trim() || null;
+  // Deliberately its own variable, not DATABASE_URL: the API logs in as a role
+  // that owns nothing and is cut off after 8 seconds, and a dump needs the
+  // administrator's login and as long as it takes.
+  const dbUrl = (env.BACKUP_DB_URL || '').trim() || null;
   if (requireDatabase && !dbUrl) {
-    errors.push('SUPABASE_DB_URL is required (session pooler, port 5432 — see .env.example)');
+    errors.push('BACKUP_DB_URL is required (the administrator connection pg_dump uses; see .env.example)');
   }
   if (dbUrl) {
     try {
       const u = new URL(dbUrl);
-      if (!/^postgres(ql)?:$/.test(u.protocol)) errors.push('SUPABASE_DB_URL must start with postgresql://');
-      if (u.port === '6543') errors.push('SUPABASE_DB_URL uses port 6543 (transaction pooler) — pg_dump needs the session pooler on 5432');
-      if (/^db\.[a-z0-9]+\.supabase\.co$/i.test(u.hostname)) {
-        errors.push('SUPABASE_DB_URL uses the direct host db.<ref>.supabase.co, which is IPv6-only — use the session pooler (aws-0-<region>.pooler.supabase.com:5432)');
-      }
+      if (!/^postgres(ql)?:$/.test(u.protocol)) errors.push('BACKUP_DB_URL must start with postgresql://');
     } catch {
-      errors.push('SUPABASE_DB_URL is not a valid URL');
+      errors.push('BACKUP_DB_URL is not a valid URL');
     }
   }
 
@@ -217,7 +212,6 @@ export function getBackupSystemConfig(opts: ConfigOptions = {}): BackupSystemCon
 
   const secrets: string[] = [];
   if (env.AWS_SECRET_ACCESS_KEY) secrets.push(env.AWS_SECRET_ACCESS_KEY);
-  if (env.SUPABASE_SERVICE_ROLE_KEY) secrets.push(env.SUPABASE_SERVICE_ROLE_KEY);
   if (dbUrl) {
     secrets.push(dbUrl);
     try {

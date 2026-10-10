@@ -5,11 +5,12 @@ import path from 'node:path';
 import { pgConnectionEnv } from '../../src/services/backup/postgresBackup';
 
 /**
- * Copy the whole database — users included — from Supabase to Railway.
+ * Copy the application's database from Supabase to Railway.
  *
  *   pnpm railway:migrate --create-database create the target database, then copy
  *   pnpm railway:migrate                   first copy into an EMPTY target
  *   pnpm railway:migrate --reset-target    wipe the target's copy and copy again
+ *   pnpm railway:migrate --from-dump <file> copy from a backup archive instead of from Supabase
  *   pnpm railway:migrate --mark-live       the target is now production; refuse to wipe it
  *   pnpm railway:migrate --unmark-live     undo --mark-live (a rollback)
  *
@@ -17,20 +18,26 @@ import { pgConnectionEnv } from '../../src/services/backup/postgresBackup';
  * only thing run against it is pg_dump.
  *
  * WHAT IS COPIED
- *   public, app, supabase_migrations   everything: structure and every row
- *   auth                               the full structure, plus the rows that
- *                                      ARE the accounts — users (with their
- *                                      password hashes), identities, MFA
- *                                      factors and GoTrue's migration history
+ *   public, app     everything the application owns: every table and every
+ *                   row, the functions, the triggers, the types, the indexes
  *
  * WHAT IS NOT, and why
- *   auth sessions / refresh tokens     every user signs in again on the new
- *                                      system anyway (the Auth URL changes, and
- *                                      with it the browser's storage key)
- *   auth audit log, one-time tokens    history and half-finished flows
- *   storage, vault, realtime, graphql  Supabase platform schemas. Files are
- *                                      moved by `pnpm files:copy`; the rest is
- *                                      not used.
+ *   auth            Supabase Auth's schema. Accounts now live in `public`
+ *                   (users, user_credentials — the password hashes were copied
+ *                   there by migration 149), and the API signs people in
+ *                   itself.
+ *   row-level security, and its policies
+ *                   written for browsers that reached the database through
+ *                   Supabase's REST endpoint. Nothing reaches this one but the
+ *                   API. See post-restore.sql.
+ *   users.id → auth.users
+ *                   the one foreign key out of `public` into `auth`.
+ *   supabase_migrations
+ *                   the Supabase CLI's record of which migrations ran. From
+ *                   here on that record is Prisma's (`pnpm db:baseline`).
+ *   storage, vault, realtime, graphql
+ *                   Supabase platform schemas. Files are moved by
+ *                   `pnpm files:copy`; the rest is not used.
  *
  * THE TARGET IS WIPED FIRST on a repeat run, so a copy is always a clean copy
  * of the source as it is now — never a merge. That is what makes the rehearsal
@@ -47,22 +54,33 @@ import { pgConnectionEnv } from '../../src/services/backup/postgresBackup';
  * settings as the source, and a copy into a database that sorts differently is
  * refused unless `--accept-collation` says the difference is understood.
  *
+ * `--from-dump <file>` restores a main archive written by the backup system
+ * (`pnpm backup:manual`, downloaded from S3) through exactly the same steps, in
+ * place of a fresh dump. Supabase is then not read for the data at all, so the
+ * target ends up as the database was WHEN THAT BACKUP WAS TAKEN — anything
+ * written since is not in it. The archive is left where it is.
+ *
  * Passwords travel in the libpq environment, never in argv, so they do not show
  * in `ps` — the same care services/backup/postgresBackup.ts takes.
  */
 
 const LIVE_MARK = 'mountainbakes:live';
 
-/** auth tables whose ROWS are left behind. Their structure is still copied. */
-const AUTH_VOLATILE = [
-  'sessions',
-  'refresh_tokens',
-  'audit_log_entries',
-  'flow_state',
-  'one_time_tokens',
-  'mfa_challenges',
-  'mfa_amr_claims',
-  'saml_relay_states',
+/**
+ * Entries of the archive's table of contents that are not restored. Matched
+ * against `pg_restore --list` lines, which read
+ * `<id>; <catalog oid> <object oid> <TYPE> <schema> <name…> <owner>`.
+ */
+const NOT_RESTORED: RegExp[] = [
+  // bootstrap.sql already made these two (pg_trgm has to be in public before
+  // the trigram indexes are built).
+  /^\d+; \d+ \d+ SCHEMA - (public|app) /,
+  /^\d+; \d+ \d+ POLICY /,
+  /^\d+; \d+ \d+ ROW SECURITY /,
+  /^\d+; \d+ \d+ FK CONSTRAINT public users users_id_fkey /,
+  // Only in a backup archive (--from-dump): the Supabase CLI's migration record.
+  /^\d+; \d+ \d+ SCHEMA - supabase_migrations /,
+  /^\d+; \d+ \d+ [A-Z ]+ supabase_migrations /,
 ];
 
 interface RunResult { stdout: string; stderr: string }
@@ -90,6 +108,11 @@ function fmtBytes(n: number): string {
 
 async function main() {
   const args = new Set(process.argv.slice(2));
+  const fromDumpAt = process.argv.indexOf('--from-dump');
+  const fromDump = fromDumpAt >= 0 ? path.resolve(process.argv[fromDumpAt + 1] ?? '') : null;
+  if (fromDump && !(await stat(fromDump).catch(() => null))?.isFile()) {
+    throw new Error(`--from-dump: ${fromDump} is not a file`);
+  }
   const source = (process.env.SUPABASE_DB_URL || '').trim();
   // RAILWAY_DB_URL only, never DATABASE_URL: that one is the database the API is
   // serving from, and this script wipes its target.
@@ -143,7 +166,11 @@ async function main() {
     return;
   }
 
-  if (!source) throw new Error('SUPABASE_DB_URL is required — the Supabase session-pooler connection string');
+  if (!source) {
+    // Still read with --from-dump, though not for the data: it is what the
+    // target's collation is compared with.
+    throw new Error('SUPABASE_DB_URL is required — the Supabase session-pooler connection string');
+  }
   const sourceEnv = pgConnectionEnv(source);
   secrets.push(sourceEnv.PGPASSWORD);
   if (sourceEnv.PGHOST === targetEnv.PGHOST && sourceEnv.PGPORT === targetEnv.PGPORT) {
@@ -177,30 +204,66 @@ async function main() {
     throw new Error(`The target already holds ${existing} table(s). Pass --reset-target to wipe that copy and copy again.`);
   }
 
-  console.log(`[migrate] source  ${sourceEnv.PGHOST}/${sourceEnv.PGDATABASE}  (read only)`);
+  // After this copy, the only passwords there are, are the ones in
+  // public.user_credentials. A source where that table is missing or behind is
+  // a target nobody can sign in to — found out now, not on the morning after.
+  // (With --from-dump the same question is put to the archive, below.)
+  const sourceValue = async (sql: string) =>
+    (await run('psql', ['-X', '-A', '-t', '-q', '-v', 'ON_ERROR_STOP=1', '-c', sql], sourceEnv, 'psql (source)', secrets)).stdout.trim();
+  if (!fromDump && (await sourceValue(`select to_regclass('public.user_credentials') is not null`)) !== 't') {
+    throw new Error('The source has no public.user_credentials table — migration 149 (custom auth) has not been applied to it.');
+  }
+  // Compared with Supabase Auth's copy while the source still has one.
+  const hasAuth = !fromDump && (await sourceValue(`select to_regclass('auth.users') is not null`)) === 't';
+  const stale = fromDump ? 0 : Number(await sourceValue(
+    hasAuth
+      ? `select count(*) from public.users u
+           left join public.user_credentials c on c.user_id = u.id
+           left join auth.users a on a.id = u.id
+          where c.user_id is null or c.password_hash is distinct from a.encrypted_password`
+      : `select count(*) from public.users u
+          where not exists (select 1 from public.user_credentials c where c.user_id = u.id)`,
+  ));
+  if (stale > 0 && !args.has('--accept-stale-passwords')) {
+    throw new Error(
+      `${stale} account(s) have no password in public.user_credentials, or one that differs from Supabase Auth's. ` +
+        `They could not sign in after the move with the password they use today. Re-run the import at the end of ` +
+        `migration 149 (the "Carry the existing passwords over" block) and try again, or pass --accept-stale-passwords ` +
+        `if the API's own sign-in is already the one in use and Supabase Auth's copy is the stale one.`,
+    );
+  }
+
+  console.log(fromDump
+    ? `[migrate] source  ${fromDump}  (a backup archive)`
+    : `[migrate] source  ${sourceEnv.PGHOST}/${sourceEnv.PGDATABASE}  (read only)`);
   console.log(`[migrate] target  ${targetEnv.PGHOST}:${targetEnv.PGPORT}/${targetEnv.PGDATABASE}${existing > 0 ? `  (${existing} tables — will be wiped)` : '  (empty)'}`);
 
   const work = await mkdtemp(path.join(os.tmpdir(), 'mb-migrate-'));
-  const authDump = path.join(work, 'auth.dump');
-  const mainDump = path.join(work, 'main.dump');
+  const mainDump = fromDump ?? path.join(work, 'main.dump');
   const started = Date.now();
 
   try {
     // ── 1. dump ────────────────────────────────────────────────────────────
     // Dumped BEFORE the target is touched: if Supabase cannot be read, the
     // existing copy on Railway is still there.
-    const common = ['--format=custom', '--compress=6', '--no-sync', '--no-publications', '--no-subscriptions'];
-    console.log('[migrate] dumping auth …');
-    await run('pg_dump', [
-      ...common, '--schema=auth',
-      ...AUTH_VOLATILE.map((t) => `--exclude-table-data=auth.${t}`),
-      '--file', authDump,
-    ], sourceEnv, 'pg_dump auth', secrets);
-    console.log('[migrate] dumping public, app, supabase_migrations …');
-    await run('pg_dump', [
-      ...common, '--schema=public', '--schema=app', '--schema=supabase_migrations', '--file', mainDump,
-    ], sourceEnv, 'pg_dump main', secrets);
-    console.log(`[migrate] dumped: auth ${fmtBytes((await stat(authDump)).size)}, main ${fmtBytes((await stat(mainDump)).size)}`);
+    if (!fromDump) {
+      console.log('[migrate] dumping public, app …');
+      await run('pg_dump', [
+        '--format=custom', '--compress=6', '--no-sync', '--no-publications', '--no-subscriptions',
+        '--schema=public', '--schema=app', '--file', mainDump,
+      ], sourceEnv, 'pg_dump', secrets);
+      console.log(`[migrate] dumped: ${fmtBytes((await stat(mainDump)).size)}`);
+    }
+
+    // What the archive holds, read BEFORE the target is touched for the same
+    // reason: an archive that cannot be read, or that predates the API's own
+    // sign-in, must not cost the copy that is already there.
+    const toc = path.join(work, 'main.toc');
+    await run('pg_restore', ['--list', '--file', toc, mainDump], {}, 'pg_restore --list', secrets);
+    const lines = (await readFile(toc, 'utf8')).split('\n');
+    if (!lines.some((l) => /^\d+; \d+ \d+ TABLE DATA public user_credentials /.test(l))) {
+      throw new Error('The archive has no public.user_credentials — it was taken before migration 149 (custom auth). Nobody could sign in to a copy made from it.');
+    }
 
     // ── 2. empty the target ────────────────────────────────────────────────
     if (existing > 0) {
@@ -213,38 +276,33 @@ async function main() {
     await psqlTarget(['-f', path.join(here, 'bootstrap.sql')], 'bootstrap.sql');
 
     // ── 4. restore ─────────────────────────────────────────────────────────
-    // auth first, so public.users → auth.users resolves. Each restore is one
-    // transaction that stops at the first error: a restore that half-worked
-    // must not be mistaken for one that worked.
-    const strict = ['--no-owner', '--no-privileges', '--single-transaction', '--exit-on-error', '--dbname', targetEnv.PGDATABASE];
-    console.log('[migrate] restoring auth …');
-    await run('pg_restore', [...strict, authDump], targetEnv, 'pg_restore auth', secrets);
+    // One transaction that stops at the first error: a restore that
+    // half-worked must not be mistaken for one that worked.
+    const kept = lines.filter((l) => !NOT_RESTORED.some((re) => re.test(l)));
+    await writeFile(toc, kept.join('\n'));
+    console.log(`[migrate] restoring public, app (${lines.length - kept.length} Supabase-only entries left out) …`);
+    await run('pg_restore', [
+      '--no-owner', '--no-privileges', '--single-transaction', '--exit-on-error',
+      '--dbname', targetEnv.PGDATABASE, '--use-list', toc, mainDump,
+    ], targetEnv, 'pg_restore', secrets);
 
-    // bootstrap.sql already made `public` and `app` (pg_trgm has to be in
-    // public before the trigram indexes are built), so the archive's own
-    // CREATE SCHEMA for those two is filtered out of the table of contents.
-    const toc = path.join(work, 'main.toc');
-    await run('pg_restore', ['--list', '--file', toc, mainDump], {}, 'pg_restore --list', secrets);
-    const lines = (await readFile(toc, 'utf8')).split('\n');
-    await writeFile(toc, lines.filter((l) => !/^\d+; \d+ \d+ SCHEMA - (public|app) /.test(l)).join('\n'));
-    console.log('[migrate] restoring public, app, supabase_migrations …');
-    await run('pg_restore', [...strict, '--use-list', toc, mainDump], targetEnv, 'pg_restore main', secrets);
-
-    // ── 5. ownership and access ────────────────────────────────────────────
-    console.log('[migrate] ownership and grants …');
+    // ── 5. access ──────────────────────────────────────────────────────────
+    console.log('[migrate] access …');
     await psqlTarget(['-f', path.join(here, 'post-restore.sql')], 'post-restore.sql');
     await targetValue('analyze');
 
     const summary = await targetValue(
       `select 'public tables ' || (select count(*) from pg_tables where schemaname = 'public')
            || ', functions ' || (select count(*) from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname in ('public', 'app') and p.prokind in ('f', 'p'))
-           || ', users ' || (select count(*) from auth.users)
-           || ', migrations ' || (select count(*) from supabase_migrations.schema_migrations)`,
+           || ', users ' || (select count(*) from public.users)
+           || ', with a password ' || (select count(*) from public.user_credentials)`,
     );
     console.log(`[migrate] done in ${((Date.now() - started) / 1000).toFixed(0)}s — ${summary}`);
-    console.log('[migrate] next: pnpm railway:verify');
+    console.log('[migrate] next: pnpm railway:verify, then pnpm railway:role');
   } finally {
-    // The dumps hold every password hash in the company. They do not outlive the run.
+    // The dump holds every password hash in the company. It does not outlive
+    // the run. (An archive handed in with --from-dump is not in `work`, and is
+    // the caller's to keep or delete.)
     await rm(work, { recursive: true, force: true });
   }
 }

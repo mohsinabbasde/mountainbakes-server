@@ -14,7 +14,7 @@ import type * as Prisma from "../internal/prismaNamespace"
 
 /**
  * Model stock_audit_log
- * This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+ * 
  */
 export type stock_audit_logModel = runtime.Types.Result.DefaultSelection<Prisma.$stock_audit_logPayload>
 

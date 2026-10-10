@@ -5,7 +5,7 @@
 // the migration files and run in pglite over minimal stub tables shaped like
 // production (ledger_entries with its immutability trigger, cash_transfers).
 //
-//   cd backend && node --test supabase/tests/cash-deposit-delete.test.mjs
+//   cd backend && node --test db/history/tests/cash-deposit-delete.test.mjs
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { PGlite } from '@electric-sql/pglite';

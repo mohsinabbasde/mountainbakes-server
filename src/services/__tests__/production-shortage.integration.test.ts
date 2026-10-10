@@ -93,7 +93,7 @@ const less = (r: Reviewed) => {
 before(async () => {
   db = new PGlite();
   await db.exec(STUBS);
-  const migration = readFileSync(join(__dirname, '../../../supabase/migrations/20260826000090_production_available_stock.sql'), 'utf8');
+  const migration = readFileSync(join(__dirname, '../../../db/history/migrations/20260826000090_production_available_stock.sql'), 'utf8');
   await db.exec(`begin;${migration}commit;`);
   for (const name of ['Cream Puff', 'Chocolate Balls', 'Lotus Pastry']) {
     const { rows } = await db.query<{ id: string }>(`insert into products (name) values ($1) returning id`, [name]);

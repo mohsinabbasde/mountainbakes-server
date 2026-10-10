@@ -479,9 +479,8 @@ export const FinanceReportQuerySchema = z.object({
 
 /**
  * The Finance login asks for a "Finance User ID", not an email — accounts staff
- * are issued an ID, and the brief calls for it explicitly. Supabase Auth only
- * knows email/password, so this endpoint resolves `users.username` → email
- * BEFORE the browser signs in. An email is accepted too, so an admin who knows
+ * are issued an ID, and the brief calls for it explicitly. This endpoint
+ * resolves `users.username` → email BEFORE the browser signs in with it. An email is accepted too, so an admin who knows
  * the address is not locked out of their own module.
  */
 export const FinanceLoginLookupSchema = z.object({

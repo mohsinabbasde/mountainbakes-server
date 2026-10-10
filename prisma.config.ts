@@ -15,9 +15,9 @@ import { defineConfig, env } from 'prisma/config';
  * they are in Postgres (snake_case, no @map), so a row read through Prisma has
  * the same keys the API already returns.
  *
- * DATABASE_URL, not DATABASE_URL: the CLI needs a session it can hold
- * (advisory locks, multi-statement introspection), and DATABASE_URL is a
- * transaction pooler while the database is still on Supabase.
+ * DIRECT_DATABASE_URL, not DATABASE_URL: the CLI introspects and migrates,
+ * which is an administrator's work, and DATABASE_URL is the API's own
+ * restricted login.
  */
 export default defineConfig({
   schema: 'prisma/schema.prisma',
@@ -25,6 +25,6 @@ export default defineConfig({
     path: 'prisma/migrations',
   },
   datasource: {
-    url: env('DATABASE_URL'),
+    url: env('DIRECT_DATABASE_URL'),
   },
 });

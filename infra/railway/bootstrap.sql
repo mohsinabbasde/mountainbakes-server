@@ -1,26 +1,30 @@
 -- Railway Postgres: what must exist BEFORE the Supabase dump is restored.
 --
--- A Supabase database arrives with a set of roles, schemas and extensions that
--- the platform creates and the migrations merely assume. Plain Postgres has none
--- of them. This file creates exactly the ones this application's schema names.
+-- A Supabase database arrives with roles, schemas and extensions that the
+-- platform creates and the migrations merely assume. Plain Postgres has none of
+-- them. This file creates exactly the ones this application's schema names.
 -- Idempotent: safe to run again.
 
 -- ---------------------------------------------------------------------------
 -- Roles
 --
---   anon, authenticated, service_role
---       The three roles PostgREST switches into, chosen by the `role` claim of
---       the request's JWT. ~225 GRANT/REVOKE statements and ~56 policies in
---       supabase/migrations name them, so they must exist even though — see
---       post-restore.sql — only service_role is given any access here.
---   authenticator
---       The role PostgREST logs in as. It owns nothing and can do nothing but
---       become one of the three above.
---   supabase_auth_admin
---       The role the Auth server (GoTrue) logs in as. Owns the `auth` schema.
+--   mb_api
+--       The role the Express API logs in as, and the only thing that connects
+--       to this database apart from an administrator. It owns nothing; it can
+--       read and write the tables and call the functions, and no more. NOLOGIN
+--       until `pnpm railway:role` gives it a password, so no credential lives
+--       in this file.
 --
--- All are created NOLOGIN with no password. `set-service-passwords` gives the
--- two that services connect as a password, so no credential lives in this file.
+--   service_role
+--       What holds the grants. ~225 GRANT/REVOKE statements across the
+--       migrations already name it, and every future one will, so the grants
+--       stay on it and mb_api is simply a member. Nothing logs in as it.
+--
+--   anon, authenticated
+--       The roles a browser reached Supabase's REST endpoint as. Nothing can
+--       become either of them here — there is no such endpoint — and
+--       post-restore.sql takes the schemas away from both. They exist only so
+--       that a migration which mentions them still applies.
 -- ---------------------------------------------------------------------------
 do $$
 begin
@@ -31,30 +35,26 @@ begin
     create role authenticated nologin noinherit;
   end if;
   if not exists (select 1 from pg_roles where rolname = 'service_role') then
-    create role service_role nologin noinherit bypassrls;
+    create role service_role nologin noinherit;
   end if;
-  if not exists (select 1 from pg_roles where rolname = 'authenticator') then
-    create role authenticator nologin noinherit;
-  end if;
-  if not exists (select 1 from pg_roles where rolname = 'supabase_auth_admin') then
-    create role supabase_auth_admin nologin noinherit;
+  if not exists (select 1 from pg_roles where rolname = 'mb_api') then
+    create role mb_api nologin inherit;
   end if;
 end $$;
 
-grant anon, authenticated, service_role to authenticator;
+grant service_role to mb_api;
 
--- GoTrue addresses its tables unqualified.
-alter role supabase_auth_admin set search_path = auth;
+-- The limits PostgREST's connections ran under on Supabase, carried over to the
+-- role that replaces them. Every query the API makes is cut off at 8 seconds
+-- today, and a report that has always been stopped at that point should not
+-- start running for minutes against the production database just because the
+-- hosting changed. Set on the ROLE, not the database: a backup or a migration,
+-- run as an administrator, is supposed to take as long as it takes.
+alter role mb_api set statement_timeout = '8s';
+alter role mb_api set lock_timeout = '8s';
 
--- The limits Supabase puts on these roles, carried over as they are. The one
--- that matters is authenticator's: PostgREST's connections belong to it, so
--- every query the API makes is cut off at 8 seconds today, and a report that
--- has always been stopped at that point should not start running for minutes
--- against the production database just because the hosting changed.
-alter role authenticator set statement_timeout = '8s';
-alter role authenticator set lock_timeout = '8s';
-alter role authenticated set statement_timeout = '8s';
-alter role anon set statement_timeout = '3s';
+-- Unqualified names in the SQL functions resolve as they did behind PostgREST.
+alter role mb_api set search_path = public, extensions;
 
 -- ---------------------------------------------------------------------------
 -- Time zone
@@ -78,7 +78,7 @@ set timezone to 'UTC';
 -- name public.gin_trgm_ops. Anywhere else and those indexes fail to restore.
 --
 -- pgcrypto and uuid-ossp sit in `extensions` as they do on Supabase. Nothing in
--- supabase/migrations calls them today; they are here so a function that does
+-- the migrations calls them today; they are here so a function that does
 -- resolves the same way it would have.
 -- ---------------------------------------------------------------------------
 create schema if not exists app;

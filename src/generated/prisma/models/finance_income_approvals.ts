@@ -14,7 +14,7 @@ import type * as Prisma from "../internal/prismaNamespace"
 
 /**
  * Model finance_income_approvals
- * This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+ * 
  */
 export type finance_income_approvalsModel = runtime.Types.Result.DefaultSelection<Prisma.$finance_income_approvalsPayload>
 

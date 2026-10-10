@@ -10,7 +10,6 @@ datasource db {
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
-/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model attachments {
   id                 String               @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   entity             attachment_entity
@@ -31,7 +30,6 @@ model attachments {
   @@index([created_at], map: "attachments_orphan_idx", where: raw("(entity_id IS NULL)"))
 }
 
-/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model audit_logs {
   id                                     String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   legacy_id                              String?    @unique
@@ -50,9 +48,35 @@ model audit_logs {
   @@index([target_user_id], map: "audit_logs_target_idx", where: raw("(target_user_id IS NOT NULL)"))
 }
 
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model auth_refresh_tokens {
+  token_hash    String        @id
+  session_id    String        @db.Uuid
+  created_at    DateTime      @default(now()) @db.Timestamptz(6)
+  used_at       DateTime?     @db.Timestamptz(6)
+  auth_sessions auth_sessions @relation(fields: [session_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([session_id], map: "auth_refresh_tokens_session_idx")
+}
+
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model auth_sessions {
+  id                  String                @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id             String                @db.Uuid
+  client              String                @default("web")
+  created_at          DateTime              @default(now()) @db.Timestamptz(6)
+  last_used_at        DateTime              @default(now()) @db.Timestamptz(6)
+  expires_at          DateTime              @db.Timestamptz(6)
+  revoked_at          DateTime?             @db.Timestamptz(6)
+  auth_refresh_tokens auth_refresh_tokens[]
+  users               users                 @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([expires_at])
+  @@index([user_id], map: "auth_sessions_user_live_idx", where: raw("(revoked_at IS NULL)"))
+}
+
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 /// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
-/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model backup_jobs {
   id                   String                 @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   backup_id            String                 @unique
@@ -93,7 +117,6 @@ model backup_jobs {
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 /// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
-/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model backup_restore_tests {
   id                   String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   backup_job_id        String?      @db.Uuid
@@ -116,7 +139,6 @@ model backup_restore_tests {
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 /// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
-/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model branch_discounts {
   id                                        String                 @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   branch_id                                 String                 @db.Uuid
@@ -146,7 +168,6 @@ model branch_discounts {
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
-/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model branch_locations {
   id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   branch_id       String   @unique(map: "branch_locations_branch_unique") @db.Uuid
@@ -167,7 +188,6 @@ model branch_locations {
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
-/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model branch_share_payments {
   id                                                                         String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   payment_no                                                                 String             @unique @default(dbgenerated("app.next_finance_number('finance_branch_share'::text, 'BSP'::text)"))
@@ -210,7 +230,6 @@ model branch_share_payments {
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 /// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
-/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model branches {
   id                               String                     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   legacy_id                        String?                    @unique
@@ -271,7 +290,6 @@ model branches {
   @@index([name], map: "branches_active_idx", where: raw("is_active"))
 }
 
-/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model business_day_closures {
   business_date              DateTime        @id @db.Date
   status                     closure_status
@@ -294,7 +312,6 @@ model business_day_closures {
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 /// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
-/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model cash_transfers {
   id                                      String               @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   transfer_no                             String               @unique @default(dbgenerated("app.next_finance_number('cash_transfer'::text, 'CT'::text)"))
@@ -342,7 +359,6 @@ model cash_transfers {
   @@index([branch_id, created_at], map: "cash_transfers_window_idx", where: raw("(status = 'approved'::cash_transfer_status)"))
 }
 
-/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model categories {
   id          String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   legacy_id   String?       @unique
@@ -358,13 +374,11 @@ model categories {
   @@index([sort_order, name], map: "categories_active_idx", where: raw("is_active"))
 }
 
-/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model counters {
   id    String @id
   count BigInt
 }
 
-/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model customers {
   id           String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   legacy_id    String?   @unique
@@ -386,7 +400,6 @@ model customers {
   @@index([phone], where: raw("(phone IS NOT NULL)"))
 }
 
-/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 /// This model contains an expression index which requires additional setup for migrations. Visit https://pris.ly/d/expression-indexes for more info.
 model daily_closing_reports {
   id                String               @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
@@ -404,7 +417,6 @@ model daily_closing_reports {
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 /// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
-/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model daily_sale_record_audits {
   id                 String                  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   record_id          String?                 @db.Uuid
@@ -429,7 +441,6 @@ model daily_sale_record_audits {
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 /// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
-/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model daily_sale_records {
   id                                          String                     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   branch_id                                   String                     @db.Uuid
@@ -485,7 +496,6 @@ model daily_sale_records {
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
-/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model employee_advances {
   id                                         String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   advance_no                                 String             @unique @default(dbgenerated("app.next_finance_number('finance_advance'::text, 'ADV'::text)"))
@@ -534,7 +544,6 @@ model employee_advances {
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
-/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model event_branch_demand_items {
   id                   String               @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   demand_id            String               @db.Uuid
@@ -553,7 +562,6 @@ model event_branch_demand_items {
   @@index([product_id], map: "event_branch_demand_items_product_idx", where: raw("(product_id IS NOT NULL)"))
 }
 
-/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model event_branch_demands {
   id                                             String                      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   event_id                                       String                      @db.Uuid
@@ -582,7 +590,6 @@ model event_branch_demands {
   @@index([event_id, status], map: "event_branch_demands_event_idx")
 }
 
-/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model event_branches {
   event_id       String         @db.Uuid
   branch_id      String         @db.Uuid
@@ -593,7 +600,6 @@ model event_branches {
   @@index([branch_id], map: "event_branches_branch_idx")
 }
 
-/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 /// This model contains an expression index which requires additional setup for migrations. Visit https://pris.ly/d/expression-indexes for more info.
 model event_notifications {
   id                     String                      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
@@ -623,7 +629,6 @@ model event_notifications {
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
-/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model event_production_status {
   id                    String                 @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   event_id              String                 @db.Uuid
@@ -643,7 +648,6 @@ model event_production_status {
   @@index([event_id], map: "event_production_status_event_idx")
 }
 
-/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model expenses {
   id              String                 @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   legacy_id       String?                @unique
@@ -669,7 +673,6 @@ model expenses {
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
-/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model finance_amendments {
   id              String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   ticket_id       String          @db.Uuid
@@ -695,7 +698,6 @@ model finance_amendments {
   @@index([ticket_id, created_at(sort: Desc)], map: "finance_amendments_ticket_idx")
 }
 
-/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model finance_audit_logs {
   id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   entity          String
@@ -717,7 +719,6 @@ model finance_audit_logs {
   @@index([entity, entity_id, created_at(sort: Desc)], map: "finance_audit_entity_idx")
 }
 
-/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model finance_day_closings {
   business_date   DateTime @id @db.Date
   opening_balance Decimal  @db.Decimal(14, 2)
@@ -737,7 +738,6 @@ model finance_day_closings {
   users           users?   @relation(fields: [closed_by], references: [id], onUpdate: NoAction)
 }
 
-/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model finance_employees {
   id                String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   employee_code     String              @unique @default(dbgenerated("app.next_finance_number('finance_employee'::text, 'EMP'::text)"))
@@ -760,7 +760,6 @@ model finance_employees {
   @@index([department, name], map: "finance_employees_active_idx", where: raw("is_active"))
 }
 
-/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model finance_income_approvals {
   id                                                String                @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   reference_no                                      String                @unique @default(dbgenerated("app.next_finance_number('finance_income'::text, 'INC'::text)"))
@@ -810,7 +809,6 @@ model finance_income_approvals {
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
-/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model finance_partners {
   id               String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   name             String             @unique
@@ -855,20 +853,17 @@ model finance_queries {
   @@index([type])
 }
 
-/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model finance_query_counters {
   day   DateTime @id @db.Date
   count Int      @default(0)
 }
 
-/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model finance_query_year_counters {
   year  Int @id
   count Int @default(0)
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
-/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model finance_settings {
   id                         Boolean   @id @default(true)
   company_share_pct          Decimal   @default(75) @db.Decimal(5, 2)
@@ -885,7 +880,6 @@ model finance_settings {
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
-/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model finance_ticket_messages {
   id              String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   ticket_id       String          @db.Uuid
@@ -902,7 +896,6 @@ model finance_ticket_messages {
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
-/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model finance_ticket_versions {
   id              String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   ticket_id       String          @db.Uuid
@@ -924,7 +917,6 @@ model finance_ticket_versions {
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
-/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model finance_tickets {
   id                                                                       String                    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   ticket_no                                                                String                    @unique @default(dbgenerated("app.next_finance_number('finance_ticket'::text, 'FQ'::text)"))
@@ -1024,7 +1016,6 @@ model finance_tickets {
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
-/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model finance_transactions {
   id                                            String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   txn_no                                        String             @unique @default(dbgenerated("app.next_finance_number('finance_txn'::text, 'FTX'::text)"))
@@ -1071,7 +1062,6 @@ model finance_transactions {
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
-/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model geofence_logs {
   id          String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   branch_id   String?    @db.Uuid
@@ -1101,7 +1091,6 @@ model geofence_logs {
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 /// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
-/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model idempotency_keys {
   user_id         String    @db.Uuid
   key             String
@@ -1118,7 +1107,6 @@ model idempotency_keys {
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
-/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model ledger_entries {
   id                                                                                String                  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   voucher_no                                                                        String                  @unique
@@ -1181,7 +1169,6 @@ model ledger_entries {
   @@index([source_type, source_id], map: "ledger_entries_source_idx")
 }
 
-/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model ledger_heads {
   id                   String                 @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   code                 String                 @unique
@@ -1205,7 +1192,6 @@ model ledger_heads {
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 /// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
-/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model login_attempts {
   id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   email           String
@@ -1234,7 +1220,6 @@ model login_attempts {
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 /// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
-/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model login_sessions {
   id                                     String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   user_id                                String?    @db.Uuid
@@ -1297,7 +1282,6 @@ model login_sessions {
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 /// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
-/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model notification_logs {
   id                      String                       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   report_id               String?                      @db.Uuid
@@ -1326,7 +1310,6 @@ model notification_logs {
   @@index([status, created_at(sort: Desc)], map: "notification_logs_status_idx")
 }
 
-/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model notification_reads {
   notification_id String        @db.Uuid
   user_id         String        @db.Uuid
@@ -1339,7 +1322,6 @@ model notification_reads {
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
-/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model notification_recipients {
   id                String               @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   branch_id         String?              @db.Uuid
@@ -1358,7 +1340,6 @@ model notification_recipients {
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
-/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model notifications {
   id                  String                @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   legacy_id           String?               @unique
@@ -1382,7 +1363,6 @@ model notifications {
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
-/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model order_items {
   id            String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   order_id      String      @db.Uuid
@@ -1403,7 +1383,6 @@ model order_items {
   @@index([product_id], map: "order_items_product_idx", where: raw("(product_id IS NOT NULL)"))
 }
 
-/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model orders {
   id                String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   legacy_id         String?             @unique
@@ -1451,7 +1430,6 @@ model orders {
   @@index([status, created_at], map: "orders_status_created_idx")
 }
 
-/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model packing_materials {
   id                             String                           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   material_code                  String                           @unique
@@ -1469,7 +1447,6 @@ model packing_materials {
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
-/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model partner_expenses {
   id                                         String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   expense_no                                 String             @unique @default(dbgenerated("app.next_finance_number('finance_partner'::text, 'PEX'::text)"))
@@ -1513,7 +1490,18 @@ model partner_expenses {
 }
 
 /// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
-/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model password_reset_tokens {
+  token_hash String    @id
+  user_id    String    @db.Uuid
+  created_at DateTime  @default(now()) @db.Timestamptz(6)
+  expires_at DateTime  @db.Timestamptz(6)
+  used_at    DateTime? @db.Timestamptz(6)
+  users      users     @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([user_id], map: "password_reset_tokens_user_idx")
+}
+
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
 model payment_method_settings {
   id              String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   branch_id       String         @db.Uuid
@@ -1531,7 +1519,6 @@ model payment_method_settings {
   @@index([branch_id], map: "payment_method_settings_branch_idx")
 }
 
-/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model price_activation_locks {
   business_date DateTime        @id @db.Date
   status        closure_status
@@ -1545,7 +1532,6 @@ model price_activation_locks {
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
-/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model product_price_history {
   id              String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   legacy_id       String?             @unique
@@ -1578,7 +1564,6 @@ model product_price_history {
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 /// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
-/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model production_balances {
   id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   branch_id    String   @db.Uuid
@@ -1596,7 +1581,6 @@ model production_balances {
 }
 
 /// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
-/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model production_order_items {
   id                    String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   production_order_id   String            @db.Uuid
@@ -1619,7 +1603,6 @@ model production_order_items {
   @@index([product_id], map: "production_order_items_product_idx", where: raw("(product_id IS NOT NULL)"))
 }
 
-/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model production_order_packing_items {
   id                  String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   production_order_id String             @db.Uuid
@@ -1637,7 +1620,6 @@ model production_order_packing_items {
 }
 
 /// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
-/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model production_orders {
   id                                          String                           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   legacy_id                                   String?                          @unique
@@ -1684,7 +1666,6 @@ model production_orders {
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 /// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
-/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model production_returns {
   id                                          String                        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   legacy_id                                   String?                       @unique
@@ -1720,7 +1701,6 @@ model production_returns {
   @@index([status], where: raw("(status = 'pending'::production_return_status)"))
 }
 
-/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model production_stock {
   product_id   String   @id @db.Uuid
   product_name String?
@@ -1730,7 +1710,6 @@ model production_stock {
 }
 
 /// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
-/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model production_stock_history {
   id                  String                         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   legacy_id           String?                        @unique
@@ -1773,7 +1752,6 @@ model production_stock_history {
 }
 
 /// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
-/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 /// This model contains an expression index which requires additional setup for migrations. Visit https://pris.ly/d/expression-indexes for more info.
 model products {
   id                        String                      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
@@ -1811,7 +1789,6 @@ model products {
   @@index([category_id], map: "products_category_active_idx", where: raw("is_active"))
 }
 
-/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model push_subscriptions {
   id           String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   user_id      String    @db.Uuid
@@ -1829,7 +1806,6 @@ model push_subscriptions {
 }
 
 /// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
-/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model restriction_events {
   id            String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   event_no      String    @unique @default(dbgenerated("app.next_finance_number('restriction_event'::text, 'RE'::text)"))
@@ -1854,7 +1830,6 @@ model restriction_events {
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 /// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
-/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model restriction_requests {
   id                                             String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   request_no                                     String    @unique @default(dbgenerated("app.next_finance_number('restriction_request'::text, 'REQ'::text)"))
@@ -1890,7 +1865,6 @@ model restriction_requests {
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 /// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
-/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model restriction_rules {
   group_key       String   @id
   config          Json     @default("{}")
@@ -1901,7 +1875,6 @@ model restriction_rules {
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
-/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model return_stock {
   product_id   String   @id @db.Uuid
   product_name String?
@@ -1910,7 +1883,6 @@ model return_stock {
   products     products @relation(fields: [product_id], references: [id], onUpdate: NoAction)
 }
 
-/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model return_stock_history {
   id                   String                     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   product_id           String                     @db.Uuid
@@ -1939,7 +1911,6 @@ model return_stock_history {
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
-/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model salary_payments {
   id                                       String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   salary_no                                String              @unique @default(dbgenerated("app.next_finance_number('finance_salary'::text, 'SAL'::text)"))
@@ -1986,7 +1957,6 @@ model salary_payments {
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
-/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model salary_revisions {
   id                String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   employee_id       String            @db.Uuid
@@ -2005,7 +1975,6 @@ model salary_revisions {
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
-/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model settings {
   id                             Boolean   @id @default(true)
   company_name                   String?
@@ -2038,7 +2007,6 @@ model settings {
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
-/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model special_events {
   id                      String                    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   event_number            String                    @unique @default(dbgenerated("next_event_number()"))
@@ -2093,7 +2061,6 @@ model special_events {
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 /// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
-/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model special_order_items {
   id                       String                    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   special_order_id         String                    @db.Uuid
@@ -2114,7 +2081,6 @@ model special_order_items {
   @@unique([special_order_id, line_no], map: "special_order_items_line_key")
 }
 
-/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model special_orders {
   id                                      String                         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   order_number                            String                         @unique @default(dbgenerated("next_special_order_number()"))
@@ -2149,7 +2115,6 @@ model special_orders {
   @@index([status, business_date(sort: Desc)], map: "special_orders_status_idx")
 }
 
-/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model stock {
   id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   branch_id    String   @db.Uuid
@@ -2164,7 +2129,6 @@ model stock {
   @@index([branch_id], map: "stock_branch_idx")
 }
 
-/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model stock_audit_log {
   id            String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   legacy_id     String?   @unique
@@ -2187,7 +2151,6 @@ model stock_audit_log {
 }
 
 /// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
-/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model stock_history {
   id            String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   legacy_id     String?             @unique
@@ -2212,7 +2175,6 @@ model stock_history {
 }
 
 /// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
-/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model support_tickets {
   id                                       String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   ticket_number                            String    @unique @default(dbgenerated("next_ticket_number()"))
@@ -2245,11 +2207,18 @@ model support_tickets {
   @@index([status, created_at(sort: Desc)], map: "support_tickets_status_idx")
 }
 
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model user_credentials {
+  user_id             String   @id @db.Uuid
+  password_hash       String
+  password_changed_at DateTime @default(now()) @db.Timestamptz(6)
+  users               users    @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+}
+
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 /// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
-/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model users {
-  id                                                                   String                     @id @db.Uuid
+  id                                                                   String                     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   email                                                                String                     @unique
   display_name                                                         String?
   phone                                                                String?
@@ -2367,57 +2336,6 @@ model users {
   @@index([branch_id], map: "users_branch_idx", where: raw("(branch_id IS NOT NULL)"))
   @@index([created_at(sort: Desc)], map: "users_created_idx")
   @@index([role, status, created_at(sort: Desc)], map: "users_role_status_idx")
-}
-
-/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
-/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
-model auth_refresh_tokens {
-  token_hash    String        @id
-  session_id    String        @db.Uuid
-  created_at    DateTime      @default(now()) @db.Timestamptz(6)
-  used_at       DateTime?     @db.Timestamptz(6)
-  auth_sessions auth_sessions @relation(fields: [session_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
-
-  @@index([session_id], map: "auth_refresh_tokens_session_idx")
-}
-
-/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
-/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
-model auth_sessions {
-  id                  String                @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  user_id             String                @db.Uuid
-  client              String                @default("web")
-  created_at          DateTime              @default(now()) @db.Timestamptz(6)
-  last_used_at        DateTime              @default(now()) @db.Timestamptz(6)
-  expires_at          DateTime              @db.Timestamptz(6)
-  revoked_at          DateTime?             @db.Timestamptz(6)
-  auth_refresh_tokens auth_refresh_tokens[]
-  users               users                 @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
-
-  @@index([expires_at])
-  @@index([user_id], map: "auth_sessions_user_live_idx", where: raw("(revoked_at IS NULL)"))
-}
-
-/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
-/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
-model password_reset_tokens {
-  token_hash String    @id
-  user_id    String    @db.Uuid
-  created_at DateTime  @default(now()) @db.Timestamptz(6)
-  expires_at DateTime  @db.Timestamptz(6)
-  used_at    DateTime? @db.Timestamptz(6)
-  users      users     @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
-
-  @@index([user_id], map: "password_reset_tokens_user_idx")
-}
-
-/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
-/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
-model user_credentials {
-  user_id             String   @id @db.Uuid
-  password_hash       String
-  password_changed_at DateTime @default(now()) @db.Timestamptz(6)
-  users               users    @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
 }
 
 enum app_theme {

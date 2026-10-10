@@ -33,8 +33,8 @@ const db = dbFor('finance-ledger');
  * The one rule that shapes every function here: NOTHING writes `ledger_entries`
  * directly. Every posting goes through the `post_finance_ledger_entry` RPC,
  * because allocating a gapless voucher number, reading the last balance and
- * inserting the row have to be one atomic act — and PostgREST gives each call
- * its own transaction, so that cannot be assembled from the app layer. Same
+ * inserting the row have to be one atomic act — and each `db` call is its own
+ * transaction, so that cannot be assembled from separate calls here. Same
  * reasoning as the POS sale and the stock corrections (migrations 12 and 33).
  */
 
@@ -375,7 +375,7 @@ export async function queryLedger(q: LedgerQuery): Promise<LedgerPage> {
   if (totals.error) throw totals.error;
 
   const entries = await withSourcePhotos(rowToApi<LedgerEntry[]>(rows.data ?? []).map(normaliseEntry));
-  // The RPC returns a one-row table, which supabase-js hands back as an array.
+  // The RPC returns a one-row table, which `db.rpc` hands back as an array.
   const agg = (Array.isArray(totals.data) ? totals.data[0] : totals.data) as Record<string, unknown> | null;
 
   const first = entries[0];
@@ -481,9 +481,10 @@ function applyLedgerFilters(query: any, q: LedgerQuery): any {
     query = query.or(`debit.lte.${q.maxAmount},credit.lte.${q.maxAmount}`);
   }
   if (q.search) {
-    // PostgREST `or` takes a comma-separated filter list; commas and parentheses
-    // inside the term would be read as syntax, so they are stripped rather than
-    // escaped (there is no escape for them in this grammar).
+    // `or` takes a comma-separated filter list (PostgREST's grammar, which the
+    // query layer keeps); commas and parentheses inside the term would be read
+    // as syntax, so they are stripped rather than escaped (there is no escape
+    // for them in this grammar).
     const term = q.search.replace(/[,()*]/g, ' ').trim();
     if (term) {
       query = query.or(
@@ -496,7 +497,7 @@ function applyLedgerFilters(query: any, q: LedgerQuery): any {
 }
 /* eslint-enable @typescript-eslint/no-explicit-any */
 
-/** numeric(14,2) arrives as a string over PostgREST — coerce every money field. */
+/** Coerce every money field, so a numeric(14,2) never leaves here as a string. */
 function normaliseEntry(e: LedgerEntry): LedgerEntry {
   return { ...e, debit: num(e.debit), credit: num(e.credit), balance: num(e.balance), seq: num(e.seq) };
 }
@@ -970,7 +971,7 @@ function businessDateSeries(from: string, to: string): string[] {
  * Turn a raised Postgres exception into something the user can act on.
  *
  * The guards in migration 52 (day closed, head inactive, already reversed,
- * entry immutable) are all `raise exception`, which reaches supabase-js as
+ * entry immutable) are all `raise exception`, which comes back from `db` as
  * P0001 with the message intact. Left alone they surface as a 500 and an
  * "unexpected error" toast — which is exactly wrong for a rule the user has
  * merely bumped into.

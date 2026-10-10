@@ -19,7 +19,7 @@ export const router = Router();
  *
  * Multipart rather than base64-in-JSON: an image inflates ~33% under base64 and
  * would sit in every finance payload's request log. Memory storage because the
- * buffer goes straight to Supabase Storage — nothing is ever written to the
+ * buffer goes straight to S3 — nothing is ever written to the
  * dyno's disk, which is ephemeral anyway.
  *
  * The 5 MB limit is a backstop, not the working size. The client downscales

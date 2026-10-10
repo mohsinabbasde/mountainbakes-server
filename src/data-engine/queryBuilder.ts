@@ -1,5 +1,5 @@
 /**
- * Data Engine — build and run the Supabase query for a resolved list query.
+ * Data Engine — build and run the database query for a resolved list query.
  *
  * Order of application is the security argument:
  *
@@ -41,8 +41,8 @@ export function buildFilteredQuery<Q extends FilterableQuery, Row>(
   query = applyCondition(query, buildCondition(config, resolved, scopeRules));
 
   // `sort: false` is the count-only shape (HEAD, `select id`): no ordering at
-  // all, including embedded relations — PostgREST refuses an order on an
-  // embed the select does not include.
+  // all, including embedded relations — a count needs none, and an embed
+  // order has nothing to apply to when the select does not include the embed.
   if (opts.sort === false) return query;
 
   if (resolved.sort) {
@@ -110,8 +110,9 @@ export async function runListQuery<Row>(
 
 /**
  * Every row of the filtered set, for exports. Walks the result in 1 000-row
- * windows (PostgREST's default max) up to `maxRows`, so a 9 000-row export is
- * nine requests rather than one that the API's row limit silently truncates.
+ * windows (the query layer's default cap on one read) up to `maxRows`, so a
+ * 9 000-row export is nine queries rather than one that the cap silently
+ * truncates.
  */
 export async function runFullQuery<Row>(
   config: ResourceConfig<Row>,

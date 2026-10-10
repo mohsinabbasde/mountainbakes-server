@@ -1,10 +1,9 @@
 /**
  * The shapes the query layer shares with its callers.
  *
- * They are deliberately the shapes supabase-js already returns — `{ data,
- * error, count }`, an error with `code` / `message` / `details` / `hint` — so
- * that a call site moved from `supabaseAdmin.from(...)` to `db.from(...)` reads
- * its result exactly as it did before.
+ * A query never throws for a database error. It resolves to `{ data, error,
+ * count }`, and the error carries `code` / `message` / `details` / `hint` —
+ * the shape every call site in the API is written against.
  */
 
 /**
@@ -19,8 +18,8 @@
  * than Postgres — more than one row for `.single()`, a page past the last row —
  * and are reproduced because call sites branch on them.
  *
- * Named `PostgrestError` because that is what supabase-js names its own, and
- * the name is part of what a caller could have observed.
+ * Named `PostgrestError` because that is the name these errors have always had
+ * in logs and in anything that checks `error.name`.
  */
 export class DbError extends Error {
   code: string;
@@ -37,8 +36,9 @@ export class DbError extends Error {
 }
 
 /* eslint-disable @typescript-eslint/no-explicit-any --
-   `data` is `any` because it always has been: the supabase-js client was never
-   given a schema type, so every call site already treats rows as untyped. */
+   `data` is `any` because it always has been: this chain was never given a
+   schema type, so every call site treats rows as untyped. Typed access is what
+   Prisma Client is for. */
 export interface DbResult<T = any> {
   data: T | null;
   error: DbError | null;
@@ -68,14 +68,13 @@ export interface OrderOptions {
 }
 
 /**
- * The part of supabase-js's query builder this codebase uses — nothing more.
- * Awaiting it runs the query. Every method mutates the builder and returns it,
- * as supabase-js's does, so `query = query.eq(...)` and helpers that take a
- * builder and hand one back keep working.
+ * The query builder: a PostgREST-style call chain, and only the part of one
+ * this codebase uses. Awaiting it runs the query. Every method mutates the
+ * builder and returns it, so `query = query.eq(...)` and helpers that take a
+ * builder and hand one back work.
  *
  * `R` is what `data` is when the query succeeds: a list of rows, until
- * `.single()` or `.maybeSingle()` makes it one row. Rows themselves are `any`,
- * as they were with supabase-js.
+ * `.single()` or `.maybeSingle()` makes it one row. Rows themselves are `any`.
  */
 export interface QueryBuilder<R = any[]> extends PromiseLike<DbResult<R>> {
   select(columns?: string, options?: SelectOptions): QueryBuilder<any[]>;
@@ -105,7 +104,7 @@ export interface QueryBuilder<R = any[]> extends PromiseLike<DbResult<R>> {
   maybeSingle(): QueryBuilder<any>;
 }
 
-/** What a caller holds: the two verbs supabase-js gave it. */
+/** What a caller holds: a table to query, or a function to call. */
 export interface Db {
   from(table: string): QueryBuilder;
   rpc<T = any>(fn: string, args?: Record<string, unknown>): PromiseLike<DbResult<T>>;

@@ -28,10 +28,9 @@ const db = dbFor('login-history');
  * Login History & Active Sessions — opening, keeping, reading and ending
  * sessions.
  *
- * The client drives the first three because it has to: the app is a static
- * export that signs in to Supabase from the browser, so the API is never in the
- * request path of a login and cannot observe one. Everything identifying still
- * comes off the verified JWT here, never off the body.
+ * The client drives the first three: each app opens its row once it has signed
+ * in, pings to keep it, and closes it on the way out. Everything identifying
+ * still comes off the verified token here, never off the body.
  *
  * The fourth — ending somebody else's session — is the half added by migration
  * 98, and it is the only part of this module that CHANGES anything outside its
@@ -167,8 +166,8 @@ function derive(row: Record<string, unknown>): {
   // button says so rather than pretending, by not being offered.
   const canRevoke = (state === 'active' || state === 'idle') && Boolean(row['authSessionId']);
 
-  // A constant, and honestly so: a row only ever reaches this table after
-  // Supabase issued a session, so every one of them is a successful sign-in.
+  // A constant, and honestly so: a row only ever reaches this table after a
+  // session was issued, so every one of them is a successful sign-in.
   // Refused attempts live in `login_attempts`. It is still sent as a field so
   // the history table can show "Login status" and "Session status" as the two
   // separate facts they are — see `LoginStatus` in the shared types.
@@ -1084,19 +1083,14 @@ interface Admin {
  *
  * TWO MECHANISMS, AND BOTH ARE NECESSARY.
  *
- *   1. `revoke_auth_session` deletes the GoTrue session, which cascades away its
- *      refresh token. The browser is out for good — but not immediately: a
- *      Supabase ACCESS token is stateless and stays valid until it expires, so
- *      there is a window of up to one token lifetime in which the revoked
- *      browser can still call the API.
- *   2. Marking the row revoked closes that window from the other side. The ping
- *      every open tab already sends answers 403 on a revoked row and the client
- *      signs itself out, so the practical lag is the two-minute ping tick.
- *
- * Neither is sufficient alone. The ping can be ignored by a tampered client that
- * simply stops pinging; the GoTrue delete is invisible until a refresh falls
- * due. Together they cover each other, which is the whole reason this function
- * does two things instead of one.
+ *   1. `revoke_auth_session` ends the session itself (its `auth_sessions`
+ *      row). The middleware reads that row on every request, so the device's
+ *      next call is refused and its refresh token is worth nothing.
+ *   2. Marking the Login History row revoked is what the screens show, and it
+ *      is checked by the middleware as well — so a session whose row was
+ *      marked is treated as ended even if step 1 failed. The ping every open
+ *      tab already sends answers 403 on a revoked row and the client signs
+ *      itself out without waiting to be refused.
  *
  * ORDER IS DELIBERATE: GoTrue first, our row second. If the process dies between
  * them, the session is genuinely dead and our record merely says it is still

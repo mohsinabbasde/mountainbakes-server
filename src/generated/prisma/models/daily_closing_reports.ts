@@ -14,7 +14,6 @@ import type * as Prisma from "../internal/prismaNamespace"
 
 /**
  * Model daily_closing_reports
- * This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
  * This model contains an expression index which requires additional setup for migrations. Visit https://pris.ly/d/expression-indexes for more info.
  */
 export type daily_closing_reportsModel = runtime.Types.Result.DefaultSelection<Prisma.$daily_closing_reportsPayload>

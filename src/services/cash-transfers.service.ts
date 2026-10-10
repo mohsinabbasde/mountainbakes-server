@@ -35,8 +35,8 @@ const db = dbFor('cash-transfers');
  * JWT or chosen from the query string, and this file trusts what it is handed.
  * Every write that changes a transfer's state is a Postgres function
  * (approve_cash_transfer / reject_cash_transfer): the approval has to post the
- * RV- receipt and flip the status in one transaction, and PostgREST gives each
- * call its own transaction, so that cannot be done from here in two steps.
+ * RV- receipt and flip the status in one transaction, and each `db` call is its
+ * own transaction, so that cannot be done from here in two steps.
  *
  * WHAT IT NEVER DOES. Nothing here touches production_orders, branch_discounts,
  * orders, expenses or stock. The transfer is one transaction; the production
@@ -51,7 +51,7 @@ const db = dbFor('cash-transfers');
 /**
  * One DB row → the API's CashTransfer shape. Two fixes the discount router
  * also has to make: `business_date` → `date`, and every money column through
- * Number() because PostgREST can hand a `numeric` back as a string.
+ * Number(), so a `numeric` that arrived as a string never leaves as one.
  */
 function toApi(row: Record<string, unknown>): CashTransfer {
   const { businessDate, amount, cashAmount, easypaisaAmount, bankAmount, fuelCharges, ...rest } =
@@ -114,7 +114,7 @@ function asClientError(error: { code?: string; message: string }): Error & { sta
     return Object.assign(
       new Error(
         'Cash transfers are unavailable: database migration 118 (cash_transfers) ' +
-          'has not been applied. Run `npx supabase db push --linked`.',
+          'has not been applied. Apply the pending database migrations.',
       ),
       { status: 503 },
     );
@@ -284,8 +284,8 @@ export async function createCashTransfer(input: {
   const transfer = { ...toApi(created as Record<string, unknown>), attachments };
 
   // Finance is two roles, and a role broadcast reaches one role — so one row
-  // each. branchId null: a finance user holds no branch claim and the
-  // notifications RLS drops a broadcast whose branch does not match. Best
+  // each. branchId null: a finance user has no branch, and the notification
+  // feed leaves out a role broadcast whose branch is not the reader's. Best
   // effort: the transfer is saved, and a failed notice must not turn a 201
   // into a 500 that the client would retry.
   const summary = depositSummary(transfer);

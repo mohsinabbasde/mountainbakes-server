@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { Router } from 'express';
 import { dbFor } from '../db';
-import { authenticate, signedInHere, type AuthRequest } from '../middleware/auth';
+import { authenticate, type AuthRequest } from '../middleware/auth';
 import { requireRole } from '../middleware/requireRole';
 import { validate } from '../middleware/validate';
 import { CreateUserSchema, UpdateUserSchema, AdminResetPasswordSchema, type User } from '../shared';
@@ -14,13 +14,6 @@ import {
   setPassword,
   signOutEverywhere,
 } from '../services/auth/auth.service';
-import {
-  mirrorActive,
-  mirrorClaims,
-  mirrorCreateUser,
-  mirrorDeleteUser,
-  mirrorDisplayName,
-} from '../services/auth/gotrue-mirror';
 import { MailNotConfiguredError, sendPasswordResetEmail } from '../services/mailer';
 import { notify } from '../services/push.service';
 import { rowToApi } from '../utils/case';
@@ -103,13 +96,7 @@ router.post('/', validate(CreateUserSchema), async (req: AuthRequest, res, next)
       branchName = branch.name as string;
     }
 
-    // While Supabase Auth is still in use the account is created there first,
-    // with role/branch in app_metadata, and ITS id is the user's id:
-    // public.users.id is a foreign key to auth.users.id, so the row must follow
-    // the auth user. Once it is gone the id is simply a new one.
-    const uid =
-      (await mirrorCreateUser({ email, password, displayName, claims: { role, branchId: branchId ?? null, branchName } })) ??
-      randomUUID();
+    const uid = randomUUID();
 
     // created_at / updated_at come from column defaults and the users_touch
     // trigger — do not set them here.
@@ -126,12 +113,6 @@ router.post('/', validate(CreateUserSchema), async (req: AuthRequest, res, next)
     });
 
     if (rowErr) {
-      // Roll the auth user back. Without this an orphaned auth account keeps the
-      // email (auth.users.email is unique), so the admin could never retry the
-      // same address — and the account would exist with no profile row.
-      await mirrorDeleteUser(uid).catch((e) =>
-        console.error(`[users] orphaned auth user ${uid} — profile insert failed and cleanup did too`, e),
-      );
       if (rowErr.code === '23505') {
         res.status(409).json({ error: 'That email or username is already taken' });
         return;
@@ -139,9 +120,16 @@ router.post('/', validate(CreateUserSchema), async (req: AuthRequest, res, next)
       throw rowErr;
     }
 
-    // The password, for the API's own sign-in. Stored after the row because it
-    // references it; no-op until that sign-in is switched on.
-    await createCredentials(uid, password);
+    // The password is stored after the row because it references it. If that
+    // fails the row is taken back out: an account nobody can sign in to would
+    // otherwise hold the email, and the admin could not retry the same address.
+    try {
+      await createCredentials(uid, password);
+    } catch (err) {
+      const { error: undoErr } = await db.from('users').delete().eq('id', uid);
+      if (undoErr) console.error(`[users] ${uid} was created without a password and could not be removed`, undoErr.message);
+      throw err;
+    }
 
     await logAudit({
       action: 'user_created',
@@ -176,32 +164,21 @@ router.put('/:id', validate(UpdateUserSchema), async (req: AuthRequest, res, nex
     if (updates['role'] !== undefined) patch['role'] = updates['role'];
     if (updates['status'] !== undefined) patch['status'] = updates['status'];
 
-    // If role or branchId changed, the JWT claims must move with them — the RLS
-    // policies and middleware/auth.ts both read role/branch from app_metadata.
-    if (updates['role'] !== undefined || updates['branchId'] !== undefined) {
-      let branchName = current.branchName ?? null;
-
-      if (updates['branchId'] !== undefined) {
-        branchName = null;
-        if (updates['branchId']) {
-          const { data: branch, error: branchErr } = await db
-            .from('branches')
-            .select('name')
-            .eq('id', updates['branchId'] as string)
-            .maybeSingle();
-          if (branchErr) throw branchErr;
-          if (!branch) { res.status(400).json({ error: 'Branch not found' }); return; }
-          branchName = branch.name as string;
-        }
-        patch['branch_id'] = updates['branchId'] || null;
-        patch['branch_name'] = branchName;
+    // branch_name is a denormalised cache of branches.name and moves with it.
+    if (updates['branchId'] !== undefined) {
+      let branchName: string | null = null;
+      if (updates['branchId']) {
+        const { data: branch, error: branchErr } = await db
+          .from('branches')
+          .select('name')
+          .eq('id', updates['branchId'] as string)
+          .maybeSingle();
+        if (branchErr) throw branchErr;
+        if (!branch) { res.status(400).json({ error: 'Branch not found' }); return; }
+        branchName = branch.name as string;
       }
-
-      await mirrorClaims(id, {
-        role: (updates['role'] as string | undefined) ?? current.role,
-        branchId: updates['branchId'] !== undefined ? (updates['branchId'] as string) || null : current.branchId,
-        branchName,
-      });
+      patch['branch_id'] = updates['branchId'] || null;
+      patch['branch_name'] = branchName;
     }
 
     if (Object.keys(patch).length > 0) {
@@ -215,9 +192,6 @@ router.put('/:id', validate(UpdateUserSchema), async (req: AuthRequest, res, nex
         throw error;
       }
     }
-
-    // Keep the auth user's display name in step with the profile row.
-    if (updates['displayName']) await mirrorDisplayName(id, updates['displayName'] as string);
 
     // A status change made here rather than through DELETE /:id: an account
     // that is no longer active is signed out everywhere it is signed in.
@@ -239,10 +213,10 @@ router.put('/:id', validate(UpdateUserSchema), async (req: AuthRequest, res, nex
   }
 });
 
-// DELETE /api/users/:id/permanent — remove the account for good (auth user +
-// profile row). Business records keep their *_name columns and lose only the
-// user link (ON DELETE SET NULL); see migration 124. DELETE /:id below stays a
-// deactivate because the mobile app calls it for that.
+// DELETE /api/users/:id/permanent — remove the account for good (the row, its
+// password and its sessions). Business records keep their *_name columns and
+// lose only the user link (ON DELETE SET NULL); see migration 124. DELETE /:id
+// below stays a deactivate because the mobile app calls it for that.
 router.delete('/:id/permanent', async (req: AuthRequest, res, next) => {
   try {
     const id = req.params['id']!;
@@ -286,11 +260,8 @@ router.delete('/:id', async (req: AuthRequest, res, next) => {
     const { error: rowErr } = await db.from('users').update({ status: 'inactive' }).eq('id', id);
     if (rowErr) throw rowErr;
 
-    // Supabase Auth: ban the auth user (~100 years) to block sign-in. The API's
-    // own sign-in reads `status` on every request, so there the row update
-    // above is already enough; ending the sessions makes it immediate for
-    // refresh as well.
-    await mirrorActive(id, false);
+    // `status` is read on every request, so the update above already keeps the
+    // account out; ending its sessions means it cannot renew one either.
     await signOutEverywhere(id);
 
     await logAudit({
@@ -317,8 +288,6 @@ router.post('/:id/activate', async (req: AuthRequest, res, next) => {
 
     const { error: rowErr } = await db.from('users').update({ status: 'active' }).eq('id', id);
     if (rowErr) throw rowErr;
-
-    await mirrorActive(id, true);
 
     await logAudit({
       action: 'user_activated',
@@ -352,20 +321,16 @@ router.post('/:id/reset-password', validate(AdminResetPasswordSchema), async (re
     if (generateTemp) {
       tempPassword = generateTempPassword();
       await setPassword(id, tempPassword, { mustChange });
-    } else if (forceChange) {
-      await mirrorClaims(id, { mustChangePassword: true });
     }
 
-    // The reset link. An app that has been updated (it is signed in to this
-    // API) has the API send it; one that has not sends Supabase's own reset
-    // email itself, from the address returned below, as it always did.
+    // The reset link, mailed by the API.
     //
     // A link that could not be sent is REPORTED, not thrown: any temporary
     // password above has already been set, and failing the request here would
     // leave the administrator with a changed password they were never shown.
     let emailSent = false;
     let emailError: string | null = null;
-    if (sendEmail && signedInHere(req)) {
+    if (sendEmail) {
       try {
         const token = await createPasswordResetToken(id);
         await sendPasswordResetEmail(target.email, token, RESET_TOKEN_TTL_MINUTES);

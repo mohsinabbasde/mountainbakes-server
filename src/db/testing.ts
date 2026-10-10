@@ -38,8 +38,4 @@ export async function usePglite(db: PgliteLike): Promise<void> {
   }
   setCatalog(shapeCatalog(raw as Parameters<typeof shapeCatalog>[0]) as unknown as Catalog);
   setExecutor(pgliteExecutor(db));
-  // Whatever the environment says, the code under test goes through the SQL
-  // layer: there is no PostgREST in a unit test.
-  process.env.DB_BACKEND = 'sql';
-  delete process.env.DB_SHADOW_MODULES;
 }

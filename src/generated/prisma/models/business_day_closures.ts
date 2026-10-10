@@ -14,7 +14,7 @@ import type * as Prisma from "../internal/prismaNamespace"
 
 /**
  * Model business_day_closures
- * This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+ * 
  */
 export type business_day_closuresModel = runtime.Types.Result.DefaultSelection<Prisma.$business_day_closuresPayload>
 

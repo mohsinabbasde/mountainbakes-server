@@ -1,22 +1,20 @@
 import { test, describe, before, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
+import { PGlite } from '@electric-sql/pglite';
+import { usePglite } from '../../db/testing';
 
 /**
- * The file store: which driver is chosen, how a (bucket, path) becomes an S3
- * key, and what the notification feed asks the database for.
+ * The file store — how it is configured and how a (bucket, path) becomes an S3
+ * key — and who the notification feed shows what.
  *
- * No network and no database. S3 is an in-memory double; the Supabase client
- * is replaced on the object, the way the integration tests in this folder do.
+ * No network and no server. S3 is an in-memory double; the feed runs in pglite
+ * through the real query layer.
  */
-
-process.env['SUPABASE_URL'] ??= 'http://localhost:54321';
-process.env['SUPABASE_SERVICE_ROLE_KEY'] ??= 'test-service-role-key';
 
 type Store = typeof import('../file-store');
 let fs: Store;
 let feed: typeof import('../notification-feed.service');
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-let admin: any;
+let pg: PGlite;
 
 /** In-memory S3 covering the four commands the file store sends. */
 class FakeS3 {
@@ -55,19 +53,21 @@ const sign = async (key: string, ttl: number) => `https://signed.example/${key}?
 before(async () => {
   fs = await import('../file-store');
   feed = await import('../notification-feed.service');
-  admin = (await import('../../config/supabase')).supabaseAdmin;
+
+  pg = new PGlite();
+  await pg.exec(`
+    create table notifications (
+      id uuid primary key default gen_random_uuid(), type text, title text, message text,
+      is_read boolean not null default false, target_user_id uuid, target_role text, branch_id uuid,
+      related_id uuid, created_at timestamptz not null default now());
+    create table notification_reads (
+      notification_id uuid not null references notifications (id), user_id uuid not null,
+      read_at timestamptz not null default now(), primary key (notification_id, user_id));
+  `);
+  await usePglite(pg);
 });
 
-describe('file store — driver selection', () => {
-  test('defaults to Supabase, so deploying the code moves nothing', () => {
-    assert.equal(fs.fileStorageDriver({}), 'supabase');
-  });
-
-  test('accepts s3 and rejects anything else', () => {
-    assert.equal(fs.fileStorageDriver({ FILE_STORAGE_DRIVER: ' S3 ' }), 's3');
-    assert.throws(() => fs.fileStorageDriver({ FILE_STORAGE_DRIVER: 'gcs' }), /must be "supabase" or "s3"/);
-  });
-
+describe('file store — configuration', () => {
   test('s3 config names every missing setting at once', () => {
     assert.throws(() => fs.s3FileConfig({}), (err: Error) =>
       /FILES_S3_BUCKET is required/.test(err.message) && /PUBLIC_API_URL must be/.test(err.message));
@@ -181,72 +181,67 @@ describe('file store — public logo path', () => {
       assert.ok(!fs.LOGO_PATH_PATTERN.test(bad), bad);
     }
   });
-
-  test('the public route serves nothing while files are on Supabase', async () => {
-    delete process.env['FILE_STORAGE_DRIVER'];
-    assert.equal(await fs.openPublicBrandingFile('settings/logo-1.png'), null);
-  });
 });
 
-describe('file store — Supabase driver', () => {
-  test('signed URLs are matched by returned path, not by position', async () => {
-    delete process.env['FILE_STORAGE_DRIVER'];
-    Object.defineProperty(admin, 'storage', {
-      configurable: true,
-      value: {
-        from: () => ({
-          // Answers in REVERSE order, with one failure.
-          createSignedUrls: async (paths: string[]) => ({
-            data: [...paths].reverse().map((path) =>
-              path === 'gone.jpg' ? { path, signedUrl: null, error: 'Object not found' } : { path, signedUrl: `signed:${path}`, error: null }),
-            error: null,
-          }),
-        }),
-      },
-    });
-    const urls = await fs.fileStore().signUrls('attachments', ['a.jpg', 'gone.jpg', 'b.jpg'], 60);
-    assert.equal(urls.get('a.jpg'), 'signed:a.jpg');
-    assert.equal(urls.get('b.jpg'), 'signed:b.jpg');
-    assert.ok(!urls.has('gone.jpg'));
+describe('file store — the store in use', () => {
+  test('a store handed in is the one used, until it is taken back out', () => {
+    const fake = fs.createS3FileStore(cfg, new FakeS3(), sign);
+    fs.setFileStore(fake);
+    assert.equal(fs.fileStore(), fake);
+    fs.setFileStore();
+    // Back to the environment, which in a test names no bucket.
+    const saved = { bucket: process.env['FILES_S3_BUCKET'], api: process.env['PUBLIC_API_URL'] };
+    delete process.env['FILES_S3_BUCKET'];
+    delete process.env['PUBLIC_API_URL'];
+    try {
+      assert.throws(() => fs.fileStore(), /FILES_S3_BUCKET is required/);
+    } finally {
+      if (saved.bucket !== undefined) process.env['FILES_S3_BUCKET'] = saved.bucket;
+      if (saved.api !== undefined) process.env['PUBLIC_API_URL'] = saved.api;
+    }
   });
 });
 
 describe('notification feed — who may see what', () => {
   const UID = '11111111-1111-4111-8111-111111111111';
+  const OTHER = '11111111-1111-4111-8111-222222222222';
   const BRANCH = '22222222-2222-4222-8222-222222222222';
-  let orFilters: string[];
+  const ELSEWHERE = '22222222-2222-4222-8222-333333333333';
+  const ids: Record<string, string> = {};
 
-  /** Records the visibility filter; answers with an empty feed. */
-  function stubFrom() {
-    orFilters = [];
-    admin.from = () => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const q: any = {
-        select: () => q, in: () => q, eq: () => q, order: () => q, limit: () => q,
-        or: (f: string) => { orFilters.push(f); return q; },
-        then: (resolve: (v: unknown) => void) => resolve({ data: [], error: null }),
-      };
-      return q;
+  before(async () => {
+    const add = async (title: string, target: { user?: string; role?: string; branch?: string }) => {
+      const r = await pg.query<{ id: string }>(
+        `insert into notifications (type, title, message, target_user_id, target_role, branch_id)
+         values ('info', $1, '', $2, $3, $4) returning id`,
+        [title, target.user ?? null, target.role ?? null, target.branch ?? null],
+      );
+      ids[title] = r.rows[0]!.id;
     };
-  }
+    await add('mine', { user: UID });
+    await add('someone else\'s', { user: OTHER });
+    await add('managers everywhere', { role: 'branch_manager' });
+    await add('managers here', { role: 'branch_manager', branch: BRANCH });
+    await add('managers elsewhere', { role: 'branch_manager', branch: ELSEWHERE });
+    await add('admins everywhere', { role: 'super_admin' });
+    await add('admins at a branch', { role: 'super_admin', branch: BRANCH });
+  });
+
+  const titles = async (reader: Parameters<typeof feed.getNotificationFeed>[0]) =>
+    (await feed.getNotificationFeed(reader)).notifications.map((n) => n.title).sort();
 
   test('a branch user sees their own, plus role broadcasts for their branch or for no branch', async () => {
-    stubFrom();
-    await feed.getNotificationFeed({ uid: UID, role: 'branch_manager', branchId: BRANCH });
-    assert.equal(
-      orFilters[0],
-      `target_user_id.eq.${UID},and(target_role.eq.branch_manager,or(branch_id.is.null,branch_id.eq.${BRANCH}))`,
+    assert.deepEqual(
+      await titles({ uid: UID, role: 'branch_manager', branchId: BRANCH }),
+      ['managers everywhere', 'managers here', 'mine'],
     );
   });
 
   test('a user with no branch never matches a branch-scoped broadcast', async () => {
-    stubFrom();
-    await feed.getNotificationFeed({ uid: UID, role: 'super_admin', branchId: null });
-    assert.equal(orFilters[0], `target_user_id.eq.${UID},and(target_role.eq.super_admin,branch_id.is.null)`);
+    assert.deepEqual(await titles({ uid: UID, role: 'super_admin', branchId: null }), ['admins everywhere', 'mine']);
   });
 
-  test('ids that are not UUIDs are refused before any filter is built', async () => {
-    stubFrom();
+  test('ids that are not UUIDs are refused rather than built into a filter', async () => {
     await assert.rejects(
       feed.getNotificationFeed({ uid: `${UID},target_role.eq.super_admin`, role: 'branch_manager', branchId: null }),
       /not a UUID/,
@@ -255,17 +250,16 @@ describe('notification feed — who may see what', () => {
       feed.getNotificationFeed({ uid: UID, role: 'branch_manager', branchId: 'x),or(id.not.is.null' }),
       /not a UUID/,
     );
-    assert.equal(orFilters.length, 0);
   });
 
-  test('marking read applies the same visibility filter and writes nothing for invisible ids', async () => {
-    stubFrom();
-    const written = await feed.markNotificationsRead(
-      { uid: UID, role: 'branch_manager', branchId: BRANCH },
-      ['33333333-3333-4333-8333-333333333333'],
-    );
-    assert.deepEqual(written, []);
-    assert.equal(orFilters.length, 1);
-    assert.match(orFilters[0]!, new RegExp(`^target_user_id\\.eq\\.${UID},and\\(`));
+  test('marking read writes only for what the reader can see, and once', async () => {
+    const reader = { uid: UID, role: 'branch_manager' as const, branchId: BRANCH };
+    const written = await feed.markNotificationsRead(reader, [ids['mine']!, ids['someone else\'s']!, ids['managers elsewhere']!]);
+    assert.deepEqual(written, [ids['mine']]);
+    assert.deepEqual(await feed.markNotificationsRead(reader, [ids['mine']!]), [ids['mine']]);
+
+    const rows = await pg.query<{ notification_id: string; user_id: string }>(`select notification_id, user_id from notification_reads`);
+    assert.deepEqual(rows.rows, [{ notification_id: ids['mine'], user_id: UID }]);
+    assert.deepEqual((await feed.getNotificationFeed(reader)).readIds, [ids['mine']]);
   });
 });

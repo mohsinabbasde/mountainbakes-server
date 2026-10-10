@@ -35,20 +35,20 @@ const db = dbFor('daily-sale');
  * module validates the window, decides WHOSE data the caller is asking about, and
  * names the fields. It never adds up a sale.
  *
- * That split is not stylistic. PostgREST gives every call its own transaction, so
+ * That split is not stylistic. Every `db` call is its own transaction, so
  * "check the lock, then write the figure" cannot be made atomic from here — see
  * the repo CLAUDE.md. It is also what makes §24 true rather than aspirational:
  * there is no shape in which a client can send a total.
  *
  * ─── This service depends on migration 101 being applied ─────────────────────
- * Same contract migration 100 has with sales-analytics.service.ts: `db push`
- * before the deploy. `asClientError` turns the specific "function does not exist"
- * failure into a sentence that says so, rather than a masked 500 that reads like
- * the API is down.
+ * Same contract migration 100 has with sales-analytics.service.ts: the migration
+ * is applied before the deploy. `asClientError` turns the specific "function does
+ * not exist" failure into a sentence that says so, rather than a masked 500 that
+ * reads like the API is down.
  */
 
 const num = (v: unknown): number => {
-  // PostgREST can hand a `numeric` column back as a STRING. Every figure below is
+  // A `numeric` column must not get through as a STRING. Every figure below is
   // typed `number` on the API contract, and a string would flow all the way to
   // formatCurrency — whose toLocaleString options a string silently ignores — so
   // the branch would read a raw unformatted figure with no error anywhere.
@@ -107,7 +107,7 @@ function asClientError(error: { code?: string; message: string }): Error & { sta
     return Object.assign(
       new Error(
         'Daily Sale Records are unavailable: database migration 101 ' +
-          '(daily_sale_records) has not been applied. Run `npx supabase db push --linked`.',
+          '(daily_sale_records) has not been applied. Apply the pending database migrations.',
       ),
       { status: 503 },
     );

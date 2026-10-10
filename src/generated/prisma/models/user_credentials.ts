@@ -15,7 +15,6 @@ import type * as Prisma from "../internal/prismaNamespace"
 /**
  * Model user_credentials
  * This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
- * This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
  */
 export type user_credentialsModel = runtime.Types.Result.DefaultSelection<Prisma.$user_credentialsPayload>
 
@@ -246,11 +245,6 @@ export type user_credentialsUncheckedUpdateManyInput = {
   password_changed_at?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
 }
 
-export type User_credentialsNullableScalarRelationFilter = {
-  is?: Prisma.user_credentialsWhereInput | null
-  isNot?: Prisma.user_credentialsWhereInput | null
-}
-
 export type user_credentialsCountOrderByAggregateInput = {
   user_id?: Prisma.SortOrder
   password_hash?: Prisma.SortOrder
@@ -267,6 +261,11 @@ export type user_credentialsMinOrderByAggregateInput = {
   user_id?: Prisma.SortOrder
   password_hash?: Prisma.SortOrder
   password_changed_at?: Prisma.SortOrder
+}
+
+export type User_credentialsNullableScalarRelationFilter = {
+  is?: Prisma.user_credentialsWhereInput | null
+  isNot?: Prisma.user_credentialsWhereInput | null
 }
 
 export type user_credentialsCreateNestedOneWithoutUsersInput = {

@@ -10,21 +10,13 @@ import { getS3Client } from './backup/backupConfig';
 import type { S3Like } from './backup/s3BackupStorage';
 
 /**
- * Where uploaded files live — photo attachments and the branding logo.
+ * Where uploaded files live — photo attachments and the branding logo: the
+ * company's S3 bucket, under FILES_S3_PREFIX.
  *
- * Two drivers behind one interface, chosen by FILE_STORAGE_DRIVER:
- *
- *   supabase (default)  Supabase Storage, exactly as before this module existed.
- *   s3                  The company's S3 bucket, under FILES_S3_PREFIX.
- *
- * The default is deliberate: deploying this code moves nothing. The switch is
- * an operator's decision, made after `pnpm files:copy` has copied what is
- * already stored — see src/scripts/copy-storage-to-s3.ts for the order.
- *
- * Both drivers address a file by the same (bucket, path) pair, and on S3 the
- * object key is `<prefix>/<bucket>/<path>`. So `attachments.storage_path` and
- * `settings.logo_path` mean the same thing under either driver and no row has
- * to be rewritten to change over.
+ * A file is addressed by a (bucket, path) pair and its object key is
+ * `<prefix>/<bucket>/<path>`. `attachments.storage_path` and
+ * `settings.logo_path` hold the path; nothing in the database knows the bucket
+ * or the prefix, so either can change without a row being rewritten.
  */
 
 export type FileBucket = 'attachments' | 'branding';
@@ -41,60 +33,6 @@ export interface FileStore {
   /** A permanent, unauthenticated URL. Only meaningful for `branding`. */
   publicUrl(bucket: FileBucket, path: string): string;
 }
-
-// ── Supabase Storage ───────────────────────────────────────────────────────
-
-// `supabaseAdmin.storage` is read at call time, never captured: the integration
-// tests replace it on the client object after this module has loaded. And the
-// client itself is loaded at call time, never imported: config/supabase.ts
-// refuses to load without its env vars, and a server on the s3 driver has none.
-const supabaseAdmin = {
-  get storage() {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    return (require('../config/supabase') as typeof import('../config/supabase')).supabaseAdmin.storage;
-  },
-};
-
-const supabaseStore: FileStore = {
-  async upload(bucket, path, body, contentType) {
-    const { error } = await supabaseAdmin.storage.from(bucket).upload(path, body, { contentType });
-    if (error) throw error;
-  },
-
-  async remove(bucket, paths) {
-    if (paths.length === 0) return;
-    const { error } = await supabaseAdmin.storage.from(bucket).remove(paths);
-    if (error) throw error;
-  },
-
-  async signUrls(bucket, paths, ttlSeconds) {
-    const urlByPath = new Map<string, string>();
-    if (paths.length === 0) return urlByPath;
-
-    const { data, error } = await supabaseAdmin.storage.from(bucket).createSignedUrls(paths, ttlSeconds);
-    if (error) throw error;
-
-    // Each result carries its own `path` and its own `error`. Keyed by the
-    // returned path rather than by array index: the index only lines up if the
-    // response preserves request order, and a silent reordering would attach one
-    // document's receipt to another — the one failure mode this feature must not
-    // have. `path` is only absent on a malformed response, hence the fallback.
-    (data ?? []).forEach((d, i) => {
-      const path = d.path ?? paths[i];
-      if (!path) return;
-      if (d.error || !d.signedUrl) {
-        console.warn(`[files] could not sign ${bucket}/${path}:`, d.error ?? 'no URL returned');
-        return;
-      }
-      urlByPath.set(path, d.signedUrl);
-    });
-    return urlByPath;
-  },
-
-  publicUrl(bucket, path) {
-    return supabaseAdmin.storage.from(bucket).getPublicUrl(path).data.publicUrl;
-  },
-};
 
 // ── S3 ─────────────────────────────────────────────────────────────────────
 
@@ -120,7 +58,7 @@ export const PUBLIC_BRANDING_PATH = '/api/public/branding';
 export function s3FileConfig(env: NodeJS.ProcessEnv = process.env): S3FileConfig {
   const errors: string[] = [];
   const bucket = (env.FILES_S3_BUCKET || '').trim();
-  if (!bucket) errors.push('FILES_S3_BUCKET is required when FILE_STORAGE_DRIVER=s3');
+  if (!bucket) errors.push('FILES_S3_BUCKET is required');
 
   const prefix = (env.FILES_S3_PREFIX || 'files').trim().replace(/^\/+|\/+$/g, '');
   if (!/^[A-Za-z0-9._-]+(\/[A-Za-z0-9._-]+)*$/.test(prefix)) {
@@ -180,8 +118,8 @@ export function createS3FileStore(
     /**
      * Signing is local arithmetic over the credentials — no request is made, so
      * a page of 100 photos costs nothing on the network. The other side of that:
-     * S3 is never asked whether the object exists, so unlike the Supabase driver
-     * a missing file is NOT dropped here; its URL is minted and 404s when opened.
+     * S3 is never asked whether the object exists, so a missing file is NOT
+     * dropped here; its URL is minted and 404s when opened.
      */
     async signUrls(bucket, paths, ttlSeconds) {
       const urlByPath = new Map<string, string>();
@@ -204,33 +142,22 @@ export function createS3FileStore(
   };
 }
 
-// ── Driver selection ───────────────────────────────────────────────────────
+// ── The store ──────────────────────────────────────────────────────────────
 
-export type FileStorageDriver = 'supabase' | 's3';
+let store: FileStore | undefined;
 
-export function fileStorageDriver(env: NodeJS.ProcessEnv = process.env): FileStorageDriver {
-  const raw = (env.FILE_STORAGE_DRIVER || 'supabase').trim().toLowerCase();
-  if (raw !== 'supabase' && raw !== 's3') {
-    throw new Error(`FILE_STORAGE_DRIVER must be "supabase" or "s3" (got "${raw}")`);
-  }
-  return raw;
-}
-
-let s3Store: FileStore | undefined;
-
-/** The configured store. Resolved per call so a test can change the env. */
+/** The file store, built from the environment the first time it is needed. */
 export function fileStore(): FileStore {
-  if (fileStorageDriver() === 'supabase') return supabaseStore;
-  if (!s3Store) s3Store = createS3FileStore(s3FileConfig(), getS3Client(process.env.AWS_REGION));
-  return s3Store;
+  if (!store) store = createS3FileStore(s3FileConfig(), getS3Client(process.env.AWS_REGION));
+  return store;
 }
 
-/** Test seam. */
-export function resetFileStore(): void {
-  s3Store = undefined;
+/** Test seam: hand in a store, or nothing to go back to the configured one. */
+export function setFileStore(next?: FileStore): void {
+  store = next;
 }
 
-// ── Public branding (S3 driver only) ───────────────────────────────────────
+// ── Public branding ────────────────────────────────────────────────────────
 
 /**
  * The only shape a logo path ever has (settings.routes.ts writes it). The
@@ -247,7 +174,7 @@ export interface PublicFile {
 
 /** Open a branding file for streaming, or null if there is no such file. */
 export async function openPublicBrandingFile(path: string): Promise<PublicFile | null> {
-  if (fileStorageDriver() !== 's3' || !LOGO_PATH_PATTERN.test(path)) return null;
+  if (!LOGO_PATH_PATTERN.test(path)) return null;
   const cfg = s3FileConfig();
   try {
     const out = await getS3Client(process.env.AWS_REGION).send(
@@ -266,7 +193,7 @@ export async function openPublicBrandingFile(path: string): Promise<PublicFile |
   }
 }
 
-/** Size of an object under the S3 driver's key scheme, or null if absent. Used by the copy script. */
+/** Size of an object under the store's key scheme, or null if absent. Used by the copy script. */
 export async function s3ObjectSize(cfg: S3FileConfig, client: S3Like, bucket: FileBucket, path: string): Promise<number | null> {
   try {
     const out = await client.send(new HeadObjectCommand({ Bucket: cfg.bucket, Key: s3Key(cfg, bucket, path) }));

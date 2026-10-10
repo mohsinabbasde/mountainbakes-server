@@ -15,7 +15,6 @@ import type * as Prisma from "../internal/prismaNamespace"
 /**
  * Model auth_sessions
  * This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
- * This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
  */
 export type auth_sessionsModel = runtime.Types.Result.DefaultSelection<Prisma.$auth_sessionsPayload>
 
@@ -329,16 +328,6 @@ export type auth_sessionsUncheckedUpdateManyInput = {
   revoked_at?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
 }
 
-export type Auth_sessionsListRelationFilter = {
-  every?: Prisma.auth_sessionsWhereInput
-  some?: Prisma.auth_sessionsWhereInput
-  none?: Prisma.auth_sessionsWhereInput
-}
-
-export type auth_sessionsOrderByRelationAggregateInput = {
-  _count?: Prisma.SortOrder
-}
-
 export type Auth_sessionsScalarRelationFilter = {
   is?: Prisma.auth_sessionsWhereInput
   isNot?: Prisma.auth_sessionsWhereInput
@@ -372,6 +361,30 @@ export type auth_sessionsMinOrderByAggregateInput = {
   last_used_at?: Prisma.SortOrder
   expires_at?: Prisma.SortOrder
   revoked_at?: Prisma.SortOrder
+}
+
+export type Auth_sessionsListRelationFilter = {
+  every?: Prisma.auth_sessionsWhereInput
+  some?: Prisma.auth_sessionsWhereInput
+  none?: Prisma.auth_sessionsWhereInput
+}
+
+export type auth_sessionsOrderByRelationAggregateInput = {
+  _count?: Prisma.SortOrder
+}
+
+export type auth_sessionsCreateNestedOneWithoutAuth_refresh_tokensInput = {
+  create?: Prisma.XOR<Prisma.auth_sessionsCreateWithoutAuth_refresh_tokensInput, Prisma.auth_sessionsUncheckedCreateWithoutAuth_refresh_tokensInput>
+  connectOrCreate?: Prisma.auth_sessionsCreateOrConnectWithoutAuth_refresh_tokensInput
+  connect?: Prisma.auth_sessionsWhereUniqueInput
+}
+
+export type auth_sessionsUpdateOneRequiredWithoutAuth_refresh_tokensNestedInput = {
+  create?: Prisma.XOR<Prisma.auth_sessionsCreateWithoutAuth_refresh_tokensInput, Prisma.auth_sessionsUncheckedCreateWithoutAuth_refresh_tokensInput>
+  connectOrCreate?: Prisma.auth_sessionsCreateOrConnectWithoutAuth_refresh_tokensInput
+  upsert?: Prisma.auth_sessionsUpsertWithoutAuth_refresh_tokensInput
+  connect?: Prisma.auth_sessionsWhereUniqueInput
+  update?: Prisma.XOR<Prisma.XOR<Prisma.auth_sessionsUpdateToOneWithWhereWithoutAuth_refresh_tokensInput, Prisma.auth_sessionsUpdateWithoutAuth_refresh_tokensInput>, Prisma.auth_sessionsUncheckedUpdateWithoutAuth_refresh_tokensInput>
 }
 
 export type auth_sessionsCreateNestedManyWithoutUsersInput = {
@@ -416,18 +429,60 @@ export type auth_sessionsUncheckedUpdateManyWithoutUsersNestedInput = {
   deleteMany?: Prisma.auth_sessionsScalarWhereInput | Prisma.auth_sessionsScalarWhereInput[]
 }
 
-export type auth_sessionsCreateNestedOneWithoutAuth_refresh_tokensInput = {
-  create?: Prisma.XOR<Prisma.auth_sessionsCreateWithoutAuth_refresh_tokensInput, Prisma.auth_sessionsUncheckedCreateWithoutAuth_refresh_tokensInput>
-  connectOrCreate?: Prisma.auth_sessionsCreateOrConnectWithoutAuth_refresh_tokensInput
-  connect?: Prisma.auth_sessionsWhereUniqueInput
+export type auth_sessionsCreateWithoutAuth_refresh_tokensInput = {
+  id?: string
+  client?: string
+  created_at?: Date | string
+  last_used_at?: Date | string
+  expires_at: Date | string
+  revoked_at?: Date | string | null
+  users: Prisma.usersCreateNestedOneWithoutAuth_sessionsInput
 }
 
-export type auth_sessionsUpdateOneRequiredWithoutAuth_refresh_tokensNestedInput = {
-  create?: Prisma.XOR<Prisma.auth_sessionsCreateWithoutAuth_refresh_tokensInput, Prisma.auth_sessionsUncheckedCreateWithoutAuth_refresh_tokensInput>
-  connectOrCreate?: Prisma.auth_sessionsCreateOrConnectWithoutAuth_refresh_tokensInput
-  upsert?: Prisma.auth_sessionsUpsertWithoutAuth_refresh_tokensInput
-  connect?: Prisma.auth_sessionsWhereUniqueInput
-  update?: Prisma.XOR<Prisma.XOR<Prisma.auth_sessionsUpdateToOneWithWhereWithoutAuth_refresh_tokensInput, Prisma.auth_sessionsUpdateWithoutAuth_refresh_tokensInput>, Prisma.auth_sessionsUncheckedUpdateWithoutAuth_refresh_tokensInput>
+export type auth_sessionsUncheckedCreateWithoutAuth_refresh_tokensInput = {
+  id?: string
+  user_id: string
+  client?: string
+  created_at?: Date | string
+  last_used_at?: Date | string
+  expires_at: Date | string
+  revoked_at?: Date | string | null
+}
+
+export type auth_sessionsCreateOrConnectWithoutAuth_refresh_tokensInput = {
+  where: Prisma.auth_sessionsWhereUniqueInput
+  create: Prisma.XOR<Prisma.auth_sessionsCreateWithoutAuth_refresh_tokensInput, Prisma.auth_sessionsUncheckedCreateWithoutAuth_refresh_tokensInput>
+}
+
+export type auth_sessionsUpsertWithoutAuth_refresh_tokensInput = {
+  update: Prisma.XOR<Prisma.auth_sessionsUpdateWithoutAuth_refresh_tokensInput, Prisma.auth_sessionsUncheckedUpdateWithoutAuth_refresh_tokensInput>
+  create: Prisma.XOR<Prisma.auth_sessionsCreateWithoutAuth_refresh_tokensInput, Prisma.auth_sessionsUncheckedCreateWithoutAuth_refresh_tokensInput>
+  where?: Prisma.auth_sessionsWhereInput
+}
+
+export type auth_sessionsUpdateToOneWithWhereWithoutAuth_refresh_tokensInput = {
+  where?: Prisma.auth_sessionsWhereInput
+  data: Prisma.XOR<Prisma.auth_sessionsUpdateWithoutAuth_refresh_tokensInput, Prisma.auth_sessionsUncheckedUpdateWithoutAuth_refresh_tokensInput>
+}
+
+export type auth_sessionsUpdateWithoutAuth_refresh_tokensInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  client?: Prisma.StringFieldUpdateOperationsInput | string
+  created_at?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  last_used_at?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  expires_at?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  revoked_at?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  users?: Prisma.usersUpdateOneRequiredWithoutAuth_sessionsNestedInput
+}
+
+export type auth_sessionsUncheckedUpdateWithoutAuth_refresh_tokensInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  user_id?: Prisma.StringFieldUpdateOperationsInput | string
+  client?: Prisma.StringFieldUpdateOperationsInput | string
+  created_at?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  last_used_at?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  expires_at?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  revoked_at?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
 }
 
 export type auth_sessionsCreateWithoutUsersInput = {
@@ -487,62 +542,6 @@ export type auth_sessionsScalarWhereInput = {
   last_used_at?: Prisma.DateTimeFilter<"auth_sessions"> | Date | string
   expires_at?: Prisma.DateTimeFilter<"auth_sessions"> | Date | string
   revoked_at?: Prisma.DateTimeNullableFilter<"auth_sessions"> | Date | string | null
-}
-
-export type auth_sessionsCreateWithoutAuth_refresh_tokensInput = {
-  id?: string
-  client?: string
-  created_at?: Date | string
-  last_used_at?: Date | string
-  expires_at: Date | string
-  revoked_at?: Date | string | null
-  users: Prisma.usersCreateNestedOneWithoutAuth_sessionsInput
-}
-
-export type auth_sessionsUncheckedCreateWithoutAuth_refresh_tokensInput = {
-  id?: string
-  user_id: string
-  client?: string
-  created_at?: Date | string
-  last_used_at?: Date | string
-  expires_at: Date | string
-  revoked_at?: Date | string | null
-}
-
-export type auth_sessionsCreateOrConnectWithoutAuth_refresh_tokensInput = {
-  where: Prisma.auth_sessionsWhereUniqueInput
-  create: Prisma.XOR<Prisma.auth_sessionsCreateWithoutAuth_refresh_tokensInput, Prisma.auth_sessionsUncheckedCreateWithoutAuth_refresh_tokensInput>
-}
-
-export type auth_sessionsUpsertWithoutAuth_refresh_tokensInput = {
-  update: Prisma.XOR<Prisma.auth_sessionsUpdateWithoutAuth_refresh_tokensInput, Prisma.auth_sessionsUncheckedUpdateWithoutAuth_refresh_tokensInput>
-  create: Prisma.XOR<Prisma.auth_sessionsCreateWithoutAuth_refresh_tokensInput, Prisma.auth_sessionsUncheckedCreateWithoutAuth_refresh_tokensInput>
-  where?: Prisma.auth_sessionsWhereInput
-}
-
-export type auth_sessionsUpdateToOneWithWhereWithoutAuth_refresh_tokensInput = {
-  where?: Prisma.auth_sessionsWhereInput
-  data: Prisma.XOR<Prisma.auth_sessionsUpdateWithoutAuth_refresh_tokensInput, Prisma.auth_sessionsUncheckedUpdateWithoutAuth_refresh_tokensInput>
-}
-
-export type auth_sessionsUpdateWithoutAuth_refresh_tokensInput = {
-  id?: Prisma.StringFieldUpdateOperationsInput | string
-  client?: Prisma.StringFieldUpdateOperationsInput | string
-  created_at?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
-  last_used_at?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
-  expires_at?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
-  revoked_at?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
-  users?: Prisma.usersUpdateOneRequiredWithoutAuth_sessionsNestedInput
-}
-
-export type auth_sessionsUncheckedUpdateWithoutAuth_refresh_tokensInput = {
-  id?: Prisma.StringFieldUpdateOperationsInput | string
-  user_id?: Prisma.StringFieldUpdateOperationsInput | string
-  client?: Prisma.StringFieldUpdateOperationsInput | string
-  created_at?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
-  last_used_at?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
-  expires_at?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
-  revoked_at?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
 }
 
 export type auth_sessionsCreateManyUsersInput = {

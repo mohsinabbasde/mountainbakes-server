@@ -14,7 +14,7 @@ import type * as Prisma from "../internal/prismaNamespace"
 
 /**
  * Model finance_audit_logs
- * This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+ * 
  */
 export type finance_audit_logsModel = runtime.Types.Result.DefaultSelection<Prisma.$finance_audit_logsPayload>
 

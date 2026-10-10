@@ -16,7 +16,6 @@ import type * as Prisma from "../internal/prismaNamespace"
  * Model login_sessions
  * This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
  * This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
- * This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
  */
 export type login_sessionsModel = runtime.Types.Result.DefaultSelection<Prisma.$login_sessionsPayload>
 

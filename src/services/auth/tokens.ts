@@ -17,7 +17,7 @@ import jwt from 'jsonwebtoken';
  * present.
  */
 
-/** Marks a token as one of ours; Supabase's say `https://<project>.supabase.co/auth/v1`. */
+/** Marks a token as one this API issued. */
 const ISSUER = 'mb-api';
 
 export const ACCESS_TOKEN_TTL_SECONDS = 15 * 60;
@@ -41,11 +41,6 @@ function secret(): string {
   return value;
 }
 
-/** Whether the API can issue and check its own tokens at all. */
-export function ownAuthConfigured(): boolean {
-  return (process.env.JWT_SECRET || '').length >= 32;
-}
-
 export function signAccessToken(userId: string, sessionId: string): { token: string; expiresAt: number } {
   const expiresAt = Math.floor(Date.now() / 1000) + ACCESS_TOKEN_TTL_SECONDS;
   const token = jwt.sign({ sid: sessionId, exp: expiresAt }, secret(), {
@@ -66,21 +61,6 @@ export function verifyAccessToken(token: string): { userId: string; sessionId: s
     return { userId: claims.sub, sessionId: claims['sid'] };
   } catch {
     return null;
-  }
-}
-
-/**
- * Whether a token CLAIMS to be ours. Read without verifying, and used for one
- * thing only: deciding which of the two verifiers to hand it to while Supabase
- * tokens are still accepted. Nothing is trusted on the strength of it.
- */
-export function looksLikeOwnToken(token: string): boolean {
-  try {
-    const payload = token.split('.')[1];
-    if (!payload) return false;
-    return (JSON.parse(Buffer.from(payload, 'base64url').toString('utf8')) as { iss?: unknown }).iss === ISSUER;
-  } catch {
-    return false;
   }
 }
 

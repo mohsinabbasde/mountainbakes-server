@@ -45,8 +45,8 @@ class LogicParser {
   constructor(private readonly s: string) {}
 
   /**
-   * The contents of `or=( … )`. supabase-js wraps the string in parentheses and
-   * PostgREST reads up to the one that closes them — so an unquoted `)` in a
+   * The contents of `or=( … )`. In PostgREST's grammar the string sits inside
+   * parentheses and is read up to the one that closes them — so an unquoted `)` in a
    * search term ends the filter there, and whatever followed it is silently
    * dropped rather than rejected. Reproduced, because it decides which rows a
    * search for `a)` returns today.
@@ -172,10 +172,10 @@ export function parseLogic(input: string): Cond[] {
 const RESERVED = /[,()]/;
 
 /**
- * `.in(column, values)`, by way of the text supabase-js would have sent for it.
+ * `.in(column, values)`, by way of PostgREST's text form of the list.
  *
- * Going through the wire format rather than straight to a list keeps two
- * behaviours callers have today: `in(col, [''])` is the EMPTY list (it is sent
+ * Going through that form rather than straight to a list keeps two behaviours
+ * callers rely on: `in(col, [''])` is the EMPTY list (it is sent
  * as `in.()`), and a value is only quoted when it contains `,`, `(` or `)`.
  */
 export function inFilter(column: string, values: readonly unknown[]): Cond {
@@ -185,8 +185,8 @@ export function inFilter(column: string, values: readonly unknown[]): Cond {
 
 /**
  * `.not(column, operator, value)`. The value is in PostgREST's own syntax —
- * `null` for `is`, `(a,b,"c d")` for `in` — because that is what supabase-js
- * puts on the wire unchanged.
+ * `null` for `is`, `(a,b,"c d")` for `in` — which is how every call site
+ * already writes it.
  */
 export function notFilter(column: string, operator: string, value: unknown): Cond {
   const fail = (): never => {

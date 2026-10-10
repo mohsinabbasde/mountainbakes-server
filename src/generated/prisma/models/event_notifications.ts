@@ -14,7 +14,6 @@ import type * as Prisma from "../internal/prismaNamespace"
 
 /**
  * Model event_notifications
- * This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
  * This model contains an expression index which requires additional setup for migrations. Visit https://pris.ly/d/expression-indexes for more info.
  */
 export type event_notificationsModel = runtime.Types.Result.DefaultSelection<Prisma.$event_notificationsPayload>

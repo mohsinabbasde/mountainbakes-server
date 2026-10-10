@@ -25,9 +25,9 @@ export interface AuditInput {
 
 /**
  * Append a row to `audit_logs`. Never throws — an audit-write failure must not
- * break the action that triggered it (it is logged instead). supabase-js returns
- * errors rather than throwing, so the result is checked explicitly; the try/catch
- * remains for transport-level failures.
+ * break the action that triggered it (it is logged instead). The query layer
+ * returns errors rather than throwing, so the result is checked explicitly; the
+ * try/catch remains for anything that throws regardless.
  *
  * created_at is left to the column default (now()) instead of being sent from the
  * app clock, so ordering is consistent with every other table.

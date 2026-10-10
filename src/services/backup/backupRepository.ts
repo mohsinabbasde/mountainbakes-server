@@ -120,7 +120,7 @@ function patchToRow(patch: JobPatch): Record<string, unknown> {
   return row;
 }
 
-export class SupabaseBackupRepository implements BackupRepository {
+export class DbBackupRepository implements BackupRepository {
   async claim(input: ClaimInput): Promise<ClaimResult> {
     const { data, error } = await db.rpc('claim_backup_job', {
       p_backup_id: input.backupId,

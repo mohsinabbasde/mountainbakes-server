@@ -14,22 +14,20 @@ import {
 } from './types';
 
 /**
- * The query builder: the supabase-js call chain in, one SQL statement out.
+ * The query builder: a PostgREST-style call chain in, one SQL statement out.
  *
  * WHY IT GENERATES SQL INSTEAD OF CALLING PRISMA CLIENT. The API's responses
- * are, today, whatever PostgREST serialised: money as JSON numbers, dates as
+ * are whatever Postgres serialises: money as JSON numbers, dates as
  * 'YYYY-MM-DD', timestamps with microseconds and `+00:00`. Prisma Client hands
  * back `Decimal`, `Date` and `BigInt` instead, and converting those back by
  * hand at 580 call sites is 580 chances to change a number on a receipt. So the
- * statement built here does what PostgREST's own statement does — Postgres
- * turns the rows into JSON (`json_agg`) and reads the payload out of JSON
- * (`json_populate_recordset`) — and the result is the same bytes by
- * construction. It runs on Prisma's connection; new code uses Prisma Client
- * directly.
+ * statement built here has Postgres turn the rows into JSON (`json_agg`) and
+ * read the payload out of JSON (`json_populate_recordset`), the way PostgREST
+ * builds its own, and the web and mobile apps get the bytes they were written
+ * against. It runs on Prisma's connection; new code uses Prisma Client directly.
  *
- * ONE STATEMENT PER CALL, like PostgREST. A write and the rows it returns are
- * a single statement, so it is atomic without a transaction around it — which
- * matters while the connection is a transaction-mode pooler.
+ * ONE STATEMENT PER CALL. A write and the rows it returns are a single
+ * statement, so it is atomic without a transaction around it.
  */
 
 type Operation = 'select' | 'insert' | 'upsert' | 'update' | 'delete';
@@ -179,8 +177,8 @@ export class SqlQueryBuilder implements QueryBuilder<any> {
   }
 
   /**
-   * Never rejects for a database error: like supabase-js, a failed query is a
-   * resolved `{ data: null, error }`, and the call sites are written for that.
+   * Never rejects for a database error: a failed query is a resolved
+   * `{ data: null, error }`, and the call sites are written for that.
    */
   private async run(): Promise<DbResult> {
     try {
@@ -279,8 +277,8 @@ export class SqlQueryBuilder implements QueryBuilder<any> {
 
       // A list is written with the union of its rows' keys, and a key one row
       // lacks is NULL for that row. A single object is written with the keys
-      // it has, and every other column takes its default. Both are what
-      // supabase-js and PostgREST do between them.
+      // it has, and every other column takes its default — PostgREST's rules
+      // for a bulk and a single insert, which the call sites were written to.
       const keys = many
         ? [...new Set(rows.flatMap((r) => Object.keys(r)))]
         : Object.keys(rows[0]!).filter((k) => rows[0]![k] !== undefined);
@@ -332,10 +330,10 @@ export class SqlQueryBuilder implements QueryBuilder<any> {
       // the wrong row count a cast error — the statement aborts, the write
       // inside it is undone — and the error is turned back into PGRST116 below.
       //
-      // `.maybeSingle()` is NOT guarded, deliberately. supabase-js implements
-      // it in the client: the write goes through as an ordinary one, and only
-      // then is "more than one row" reported. A write that matched several
-      // rows has therefore always been applied, error or not.
+      // `.maybeSingle()` is NOT guarded, deliberately: the write goes through
+      // as an ordinary one, and only then is "more than one row" reported. A
+      // write that matched several rows has always been applied, error or
+      // not, and callers must not start seeing it undone.
       if (this.one === 'single') {
         result = `case when ${written} = 1 then ${result} else ('PGRST116:' || ${written})::int::text::json end`;
       }

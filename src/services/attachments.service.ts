@@ -30,8 +30,8 @@ const db = dbFor('attachments');
  *   3. **Signing is batched.** One call signs a whole list; a ledger page of
  *      100 entries must not become 100 round-trips to Storage.
  *
- * Where the bytes live is `file-store.ts`'s business (Supabase Storage or S3,
- * by FILE_STORAGE_DRIVER). This module only ever names a file by its path.
+ * Where the bytes live is `file-store.ts`'s business (S3). This module only
+ * ever names a file by its path.
  */
 
 const BUCKET = 'attachments' as const;
@@ -288,9 +288,9 @@ export async function listAttachmentsAcross(
   const byKey = new Map<string, Attachment[]>();
   if (refs.length === 0) return byKey;
 
-  // Group by entity so each type is one `in (...)` predicate. PostgREST has no
-  // tuple-IN, and an `or(and(...),and(...))` chain over 100 refs would be a URL
-  // long enough to hit the request-line limit.
+  // Group by entity so each type is one `in (...)` predicate. The query
+  // builder has no tuple-IN, and the alternative is an `or(and(...),and(...))`
+  // filter string with one branch per ref — a hundred of them for one page.
   const idsByEntity = new Map<AttachmentEntity, Set<string>>();
   for (const ref of refs) {
     if (!ref.entityId) continue;

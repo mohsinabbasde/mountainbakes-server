@@ -8,9 +8,9 @@ export const router = Router();
  * GET /api/public/branding/settings/logo-<n>.<ext> — the company logo.
  *
  * UNAUTHENTICATED by design: `settings.logo_url` is rendered on the login page
- * and inlined into printed receipts, neither of which has a session. It is the
- * S3 driver's stand-in for Supabase's public `branding` bucket, and serves
- * nothing but a path shaped like a logo (see LOGO_PATH_PATTERN).
+ * and inlined into printed receipts, neither of which has a session. The S3
+ * bucket itself is private, so this route is the logo's public address, and it
+ * serves nothing but a path shaped like a logo (see LOGO_PATH_PATTERN).
  *
  * Two headers do real work here:
  *

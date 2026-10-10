@@ -1,7 +1,5 @@
 import { dbFor, disconnectPrisma } from '../db';
 import { setPassword, signOutEverywhere } from '../services/auth/auth.service';
-import { mirroring } from '../services/auth/gotrue-mirror';
-import { ownAuthConfigured } from '../services/auth/tokens';
 import { generateTempPassword } from '../utils/password';
 
 /**
@@ -22,9 +20,6 @@ import { generateTempPassword } from '../utils/password';
 async function main() {
   const email = (process.argv[2] || '').trim();
   if (!email || !email.includes('@')) throw new Error('Usage: pnpm auth:set-password <email>');
-  if (!ownAuthConfigured() && !mirroring()) {
-    throw new Error('Neither sign-in is configured here (no JWT_SECRET, and AUTH_GOTRUE_MIRROR=false): there is nowhere to set a password.');
-  }
 
   const { data: user, error } = await dbFor('scripts')
     .from('users')
@@ -42,7 +37,6 @@ async function main() {
   console.log(`Temporary password: ${password}`);
   console.log('It must be changed at the next sign-in. It is not stored anywhere readable and will not be shown again.');
   if (user.status !== 'active') console.log('NOTE: this account is not active and still cannot sign in.');
-  if (!ownAuthConfigured()) console.log('NOTE: JWT_SECRET is not set, so this was set in Supabase Auth only.');
 }
 
 main()

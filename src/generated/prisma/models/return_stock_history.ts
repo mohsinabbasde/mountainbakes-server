@@ -14,7 +14,7 @@ import type * as Prisma from "../internal/prismaNamespace"
 
 /**
  * Model return_stock_history
- * This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+ * 
  */
 export type return_stock_historyModel = runtime.Types.Result.DefaultSelection<Prisma.$return_stock_historyPayload>
 

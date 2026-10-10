@@ -3,8 +3,8 @@ import bcrypt from 'bcryptjs';
 /**
  * Password hashing: bcrypt, cost 10.
  *
- * The format and the cost are the ones Supabase Auth used (`$2a$10$…`), which
- * is what lets every existing hash be carried over and checked here unchanged.
+ * The format and the cost (`$2a$10$…`) are the ones every hash already in
+ * `user_credentials` was made with, so none of them has to be reissued.
  * bcryptjs is the pure-JavaScript implementation: nothing to compile on the
  * server, and its async calls yield to the event loop between rounds so a
  * sign-in does not stall the requests around it.

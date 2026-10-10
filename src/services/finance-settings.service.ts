@@ -20,10 +20,10 @@ const TABLE = 'finance_settings';
  * Finance Ledger configuration — one row, read on nearly every request.
  *
  * Mirrors settings.service.ts deliberately, including the numeric coercion: the
- * share percentages and opening balances are `numeric` columns, and PostgREST
- * serialises every numeric as a STRING. Left uncoerced, `companySharePct` would
- * arrive as "75.00" and `amount * pct / 100` would produce a string-concatenated
- * NaN — a share split that silently posts nothing. See the long note on
+ * share percentages and opening balances are `numeric` columns, and each is put
+ * through Number() before anything reads it. A `companySharePct` that got through
+ * as "75.00" would make `amount * pct / 100` a string-concatenated NaN — a share
+ * split that silently posts nothing. See the long note on
  * `coerceToDefaultType` in settings.service.ts; this is the same trap on money
  * that actually moves.
  */
@@ -78,8 +78,8 @@ export async function getBranchShareSplit(branchId: string): Promise<ShareSplit>
     db.from('branches').select('company_share_pct').eq('id', branchId).maybeSingle(),
   ]);
   if (error) throw error;
-  // PostgREST serialises numeric as a STRING; resolveShareSplit coerces, but a
-  // missing branch must fall back rather than resolve to a 0% company share.
+  // resolveShareSplit coerces the numeric, number or string; but a missing
+  // branch must fall back rather than resolve to a 0% company share.
   return resolveShareSplit(
     data ? (data['company_share_pct'] as number | null) : null,
     settings.companySharePct,
@@ -245,7 +245,7 @@ export async function getLedgerHeadByCode(code: string): Promise<{ id: string; n
   if (!data) {
     throw new Error(
       `Ledger head "${code}" is missing. It is seeded by migration 52 and the finance ` +
-        `postings resolve it by code — apply the pending migrations (supabase db push).`,
+        `postings resolve it by code — apply the pending database migrations.`,
     );
   }
   const head = { id: data.id as string, name: data.name as string };

@@ -42,12 +42,12 @@ type LocationRow = {
 };
 
 /**
- * numeric columns arrive from supabase-js as STRINGS.
+ * numeric columns are made NUMBERS here, whatever they arrived as.
  *
- * Postgres `numeric` has no lossless JavaScript representation, so PostgREST plays
- * safe and serialises it as text. Left alone it reaches the browser as "24.8607"
- * and every distance calculation silently produces NaN — the geofence then reads as
- * "not configured" and quietly stops enforcing. Converted once, here, at the edge.
+ * Postgres `numeric` has no lossless JavaScript representation, and the row type
+ * above allows a string for each of them. One that reached the browser as "24.8607"
+ * would make every distance calculation silently produce NaN — the geofence then reads
+ * as "not configured" and quietly stops enforcing. Converted once, here, at the edge.
  */
 function toApiLocation(row: LocationRow) {
   return {

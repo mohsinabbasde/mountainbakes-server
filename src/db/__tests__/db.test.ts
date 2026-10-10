@@ -4,7 +4,6 @@ import { PGlite } from '@electric-sql/pglite';
 import { dbFor } from '../index';
 import { inFilter, notFilter, parseLogic } from '../logic';
 import { parseSelect } from '../select';
-import { firstDifference, onlyTiesReordered } from '../shadow';
 import { usePglite } from '../testing';
 
 /**
@@ -12,8 +11,7 @@ import { usePglite } from '../testing';
  *
  * What these pin down is the layer's CONTRACT — the result shapes and error
  * codes call sites depend on — so a change to the SQL generator that breaks one
- * fails here, without a server. That the layer agrees with PostgREST itself,
- * table by table, is a different question and a different tool: `pnpm db:diff`.
+ * fails here, without a server.
  */
 
 const SCHEMA = `
@@ -190,7 +188,7 @@ describe('writing', () => {
     assert.equal((await db.from('orders').update({ notes: 'x' }).eq('order_number', 'nope').select().single()).error!.code, 'PGRST116');
   });
 
-  test('maybeSingle() on a write reports several rows but, as supabase-js does, has applied it', async () => {
+  test('maybeSingle() on a write reports several rows but has applied it', async () => {
     const reported = await db.from('orders').update({ notes: 'applied' }).eq('branch_id', ids.gulberg).select().maybeSingle();
     assert.equal(reported.error!.code, 'PGRST116');
     const after = await db.from('orders').select('id', { count: 'exact', head: true }).eq('notes', 'applied');
@@ -278,26 +276,5 @@ describe('parsers', () => {
     assert.deepEqual(parseSelect('total:grand_total'), [{ kind: 'column', name: 'grand_total', alias: 'total' }]);
     assert.throws(() => parseSelect('meta->tills'), { code: 'PGRST100' });
     assert.throws(() => parseSelect('items:order_items!inner(id)'), { code: 'PGRST100' });
-  });
-
-  test('shadow comparison ignores key order, and list order only when none was asked for', () => {
-    const ordered = () => true;
-    const unordered = () => false;
-    assert.equal(firstDifference([{ a: 1, b: 2 }], [{ b: 2, a: 1 }], ordered, 'data'), null);
-    assert.equal(firstDifference([{ a: 1 }, { a: 2 }], [{ a: 2 }, { a: 1 }], unordered, 'data'), null);
-    assert.equal(firstDifference([{ a: 1 }, { a: 2 }], [{ a: 2 }, { a: 1 }], ordered, 'data'), 'data(order)');
-    assert.equal(firstDifference([{ a: 1, items: [{ q: 1 }] }], [{ a: 1, items: [{ q: 2 }] }], ordered, 'data'), 'data[0].items[0].q');
-    assert.equal(firstDifference([{ a: 1 }], [{ a: 1 }, { a: 2 }], ordered, 'data'), 'data.length');
-    assert.equal(firstDifference({ a: '1' }, { a: 1 }, ordered, 'data'), 'data.a');
-  });
-
-  test('rows that tie on the sort may swap; rows that do not may not', () => {
-    const live = [{ d: '2026-10-02', n: 1 }, { d: '2026-10-01', n: 2 }, { d: '2026-10-01', n: 3 }];
-    const tiesSwapped = [live[0], live[2], live[1]];
-    const sortBroken = [live[1], live[0], live[2]];
-    assert.equal(onlyTiesReordered(live, tiesSwapped, ['d']), true);
-    assert.equal(onlyTiesReordered(live, sortBroken, ['d']), false);
-    assert.equal(onlyTiesReordered(live, tiesSwapped, []), false); // no sort was asked for: nothing to tie on
-    assert.equal(onlyTiesReordered(live, tiesSwapped, ['missing']), false); // sort column not in the rows: cannot tell
   });
 });

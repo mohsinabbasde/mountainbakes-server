@@ -38,7 +38,9 @@ select json_build_object(
     ) order by c.relname), '{}'::json)
       from pg_catalog.pg_class c
       join pg_catalog.pg_namespace n on n.oid = c.relnamespace
-     where n.nspname = 'public' and c.relkind in ('r', 'p', 'v', 'm')),
+     where n.nspname = 'public' and c.relkind in ('r', 'p', 'v', 'm')
+       -- Prisma Migrate's own bookkeeping is not the application's to query.
+       and c.relname <> '_prisma_migrations'),
   'foreignKeys', (
     select coalesce(json_agg(json_build_object(
       'name', con.conname,

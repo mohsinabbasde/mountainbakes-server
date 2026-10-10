@@ -22,8 +22,8 @@ const db = dbFor('stock');
  *
  * ─── Where the transactions live ─────────────────────────────────────────────
  * The read-validate-write cores are Postgres functions (migration 12), called via
- * .rpc(). PostgREST gives every call its own transaction, so validate-then-write
- * split across two supabase-js calls could not hold `select ... for update`
+ * .rpc(). Every `db` call is its own transaction, so validate-then-write
+ * split across two of them could not hold `select ... for update`
  * between them — which is exactly the multi-cashier race the SQL-function
  * transaction exists to close.
  *

@@ -53,6 +53,8 @@ export const AnyNull = runtime.AnyNull
 export const ModelName = {
   attachments: 'attachments',
   audit_logs: 'audit_logs',
+  auth_refresh_tokens: 'auth_refresh_tokens',
+  auth_sessions: 'auth_sessions',
   backup_jobs: 'backup_jobs',
   backup_restore_tests: 'backup_restore_tests',
   branch_discounts: 'branch_discounts',
@@ -102,6 +104,7 @@ export const ModelName = {
   orders: 'orders',
   packing_materials: 'packing_materials',
   partner_expenses: 'partner_expenses',
+  password_reset_tokens: 'password_reset_tokens',
   payment_method_settings: 'payment_method_settings',
   price_activation_locks: 'price_activation_locks',
   product_price_history: 'product_price_history',
@@ -129,11 +132,8 @@ export const ModelName = {
   stock_audit_log: 'stock_audit_log',
   stock_history: 'stock_history',
   support_tickets: 'support_tickets',
-  users: 'users',
-  auth_refresh_tokens: 'auth_refresh_tokens',
-  auth_sessions: 'auth_sessions',
-  password_reset_tokens: 'password_reset_tokens',
-  user_credentials: 'user_credentials'
+  user_credentials: 'user_credentials',
+  users: 'users'
 } as const
 
 export type ModelName = (typeof ModelName)[keyof typeof ModelName]
@@ -184,6 +184,29 @@ export const Audit_logsScalarFieldEnum = {
 } as const
 
 export type Audit_logsScalarFieldEnum = (typeof Audit_logsScalarFieldEnum)[keyof typeof Audit_logsScalarFieldEnum]
+
+
+export const Auth_refresh_tokensScalarFieldEnum = {
+  token_hash: 'token_hash',
+  session_id: 'session_id',
+  created_at: 'created_at',
+  used_at: 'used_at'
+} as const
+
+export type Auth_refresh_tokensScalarFieldEnum = (typeof Auth_refresh_tokensScalarFieldEnum)[keyof typeof Auth_refresh_tokensScalarFieldEnum]
+
+
+export const Auth_sessionsScalarFieldEnum = {
+  id: 'id',
+  user_id: 'user_id',
+  client: 'client',
+  created_at: 'created_at',
+  last_used_at: 'last_used_at',
+  expires_at: 'expires_at',
+  revoked_at: 'revoked_at'
+} as const
+
+export type Auth_sessionsScalarFieldEnum = (typeof Auth_sessionsScalarFieldEnum)[keyof typeof Auth_sessionsScalarFieldEnum]
 
 
 export const Backup_jobsScalarFieldEnum = {
@@ -1320,6 +1343,17 @@ export const Partner_expensesScalarFieldEnum = {
 export type Partner_expensesScalarFieldEnum = (typeof Partner_expensesScalarFieldEnum)[keyof typeof Partner_expensesScalarFieldEnum]
 
 
+export const Password_reset_tokensScalarFieldEnum = {
+  token_hash: 'token_hash',
+  user_id: 'user_id',
+  created_at: 'created_at',
+  expires_at: 'expires_at',
+  used_at: 'used_at'
+} as const
+
+export type Password_reset_tokensScalarFieldEnum = (typeof Password_reset_tokensScalarFieldEnum)[keyof typeof Password_reset_tokensScalarFieldEnum]
+
+
 export const Payment_method_settingsScalarFieldEnum = {
   id: 'id',
   branch_id: 'branch_id',
@@ -1889,6 +1923,15 @@ export const Support_ticketsScalarFieldEnum = {
 export type Support_ticketsScalarFieldEnum = (typeof Support_ticketsScalarFieldEnum)[keyof typeof Support_ticketsScalarFieldEnum]
 
 
+export const User_credentialsScalarFieldEnum = {
+  user_id: 'user_id',
+  password_hash: 'password_hash',
+  password_changed_at: 'password_changed_at'
+} as const
+
+export type User_credentialsScalarFieldEnum = (typeof User_credentialsScalarFieldEnum)[keyof typeof User_credentialsScalarFieldEnum]
+
+
 export const UsersScalarFieldEnum = {
   id: 'id',
   email: 'email',
@@ -1910,49 +1953,6 @@ export const UsersScalarFieldEnum = {
 } as const
 
 export type UsersScalarFieldEnum = (typeof UsersScalarFieldEnum)[keyof typeof UsersScalarFieldEnum]
-
-
-export const Auth_refresh_tokensScalarFieldEnum = {
-  token_hash: 'token_hash',
-  session_id: 'session_id',
-  created_at: 'created_at',
-  used_at: 'used_at'
-} as const
-
-export type Auth_refresh_tokensScalarFieldEnum = (typeof Auth_refresh_tokensScalarFieldEnum)[keyof typeof Auth_refresh_tokensScalarFieldEnum]
-
-
-export const Auth_sessionsScalarFieldEnum = {
-  id: 'id',
-  user_id: 'user_id',
-  client: 'client',
-  created_at: 'created_at',
-  last_used_at: 'last_used_at',
-  expires_at: 'expires_at',
-  revoked_at: 'revoked_at'
-} as const
-
-export type Auth_sessionsScalarFieldEnum = (typeof Auth_sessionsScalarFieldEnum)[keyof typeof Auth_sessionsScalarFieldEnum]
-
-
-export const Password_reset_tokensScalarFieldEnum = {
-  token_hash: 'token_hash',
-  user_id: 'user_id',
-  created_at: 'created_at',
-  expires_at: 'expires_at',
-  used_at: 'used_at'
-} as const
-
-export type Password_reset_tokensScalarFieldEnum = (typeof Password_reset_tokensScalarFieldEnum)[keyof typeof Password_reset_tokensScalarFieldEnum]
-
-
-export const User_credentialsScalarFieldEnum = {
-  user_id: 'user_id',
-  password_hash: 'password_hash',
-  password_changed_at: 'password_changed_at'
-} as const
-
-export type User_credentialsScalarFieldEnum = (typeof User_credentialsScalarFieldEnum)[keyof typeof User_credentialsScalarFieldEnum]
 
 
 export const SortOrder = {

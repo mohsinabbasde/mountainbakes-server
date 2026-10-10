@@ -112,8 +112,8 @@ export function setupRoutes(app: Express) {
   // the preflight the branch popups call. Enforcement itself lives inside the
   // write routes it guards, not here.
   app.use('/api/restrictions', restrictionsRouter);
-  // Login History. Opened and pinged by the client, because a static-export app
-  // signs in to Supabase directly and this API never sees the login itself.
+  // Login History. Opened and pinged by the client: signing in (/api/auth) only
+  // issues the tokens, and the history row is written by the client's own call.
   app.use('/api/login-history', loginHistoryRouter);
   // Its own mount rather than a path under login-history, because its POST is
   // the one unauthenticated write in the API and that router applies

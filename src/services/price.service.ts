@@ -28,10 +28,10 @@ const db = dbFor('price');
  *
  * ─── Where the transactions live ─────────────────────────────────────────────
  * The atomic parts — read product + version then write history + product under a
- * row lock — are Postgres functions (migration 11), called via .rpc(). PostgREST
- * gives every HTTP call its own transaction, so a read-then-write split across
- * two supabase-js calls could not hold `select ... for update` between them and
- * would race on version_number. This module keeps the non-transactional work:
+ * row lock — are Postgres functions (migration 11), called via .rpc(). Every
+ * `db` call is its own transaction, so a read-then-write split across two of
+ * them could not hold `select ... for update` between them and would race on
+ * version_number. This module keeps the non-transactional work:
  * business-date arithmetic, spreadsheet parsing, and notifications.
  */
 
@@ -136,8 +136,8 @@ export async function applyPriceChange(input: ApplyPriceChangeInput): Promise<Ap
     historyId: row.history_id ?? undefined,
     versionNumber: row.version_number ?? undefined,
     productName: row.product_name,
-    // numeric(14,2) arrives as a string over PostgREST when it exceeds JS-safe
-    // precision handling; Number() normalises both cases.
+    // numeric(14,2) may be handed over as a number or as a string; Number()
+    // normalises both cases.
     oldPrice: row.old_price === null ? undefined : Number(row.old_price),
     newPrice: Number(row.new_price),
   };

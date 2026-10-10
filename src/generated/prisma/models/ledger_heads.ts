@@ -14,7 +14,7 @@ import type * as Prisma from "../internal/prismaNamespace"
 
 /**
  * Model ledger_heads
- * This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+ * 
  */
 export type ledger_headsModel = runtime.Types.Result.DefaultSelection<Prisma.$ledger_headsPayload>
 

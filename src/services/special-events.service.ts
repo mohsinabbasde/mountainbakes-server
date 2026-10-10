@@ -161,9 +161,8 @@ export function toEventView(row: Record<string, unknown>): SpecialEventView {
 
   return {
     ...event,
-    // Numeric columns come back from PostgREST as strings for numeric(), but
-    // these are smallint/integer and arrive as numbers. Coerced anyway so the
-    // contract holds if a column type ever changes.
+    // These are smallint/integer columns and arrive as numbers. Coerced anyway
+    // so the contract holds if a column type ever changes.
     durationDays: Number(event.durationDays),
     demandLeadDays: Number(event.demandLeadDays),
     reminderLeadDays: Number(event.reminderLeadDays),
@@ -213,8 +212,8 @@ export async function getParticipatingBranchIds(
 /**
  * 403 unless the branch participates in the event.
  *
- * Load-bearing, because the API reaches Postgres with the service-role key and
- * bypasses RLS: this function IS the access check, not a second line of defence.
+ * Load-bearing, because the database has no row-level security and trusts the
+ * API entirely: this function IS the access check, not a second line of defence.
  * The branchId passed in must come from req.user, never from the request.
  */
 export async function assertBranchMayAccessEvent(
@@ -409,9 +408,6 @@ export async function refreshEventEstimates(opts?: { year?: number }): Promise<{
 }> {
   let query = db
     .from(EVENTS)
-    // One string literal, not a concatenation: supabase-js infers the row type
-    // from the select string at the type level, and a runtime-built string
-    // degrades to `string` and hands back GenericStringError[].
     .select('id, event_year, calendar_system, hijri_month, hijri_day, gregorian_month, gregorian_day, nth_weekday, weekday, is_recurring, confirmed_date, estimated_date, demand_lead_days, demand_due_date, preparation_start_date')
     .is('confirmed_date', null)
     .eq('is_active', true);

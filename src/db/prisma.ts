@@ -5,18 +5,19 @@ import type { Executor } from './types';
 /**
  * The one Prisma client, and with it the one connection pool to Postgres.
  *
- * CREATED ON FIRST USE, NOT ON IMPORT. While the code is being moved off
- * supabase-js, most of the API still never touches this file's connection, and
- * a deploy must not fail to boot because DATABASE_URL is not set yet on a
- * server where nothing would have used it.
+ * CREATED ON FIRST USE, NOT ON IMPORT, so that a script or a test which never
+ * queries can load the modules that would.
  *
- * DATABASE_URL is the Supabase transaction pooler for now and the Railway
- * database after the cutover; nothing here cares which.
+ * DATABASE_URL is the API's own login on the Postgres server (the `mb_api` role
+ * — see infra/railway/api-role.ts), not the administrator's.
  */
 
 let client: PrismaClient | null = null;
 
-/** Queries the API makes are cut off at this, as PostgREST's were. */
+/**
+ * Queries the API makes are cut off at this. The `mb_api` role carries the same
+ * limit; this is the one that still holds if the URL names a different role.
+ */
 const STATEMENT_TIMEOUT_MS = 8_000;
 
 function poolConfig() {

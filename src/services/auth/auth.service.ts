@@ -1,7 +1,6 @@
 import { dbFor } from '../../db';
 import { getPrisma } from '../../db/prisma';
 import type { UserRole } from '../../shared';
-import { mirrorAcceptsPassword, mirrorClaims, mirrorPassword } from './gotrue-mirror';
 import { burnPasswordCheck, hashPassword, verifyPassword } from './passwords';
 import {
   ACCESS_TOKEN_TTL_SECONDS,
@@ -9,7 +8,6 @@ import {
   SESSION_IDLE_DAYS,
   hashToken,
   newOpaqueToken,
-  ownAuthConfigured,
   signAccessToken,
 } from './tokens';
 
@@ -19,8 +17,8 @@ const db = dbFor('auth');
  * Sign-in, as the API's own business: checking a password, opening a session,
  * renewing it, ending it.
  *
- * This is new code, written against Prisma Client directly (the calls ported
- * from supabase-js go through src/db instead). Every state change that has to
+ * Written against Prisma Client directly rather than the src/db chain the
+ * older modules use. Every state change that has to
  * be all-or-nothing — spending a refresh token and issuing its successor — is
  * one `$transaction`.
  *
@@ -47,7 +45,7 @@ export class AuthError extends Error {
 const invalidCredentials = () => new AuthError(401, 'invalid_credentials', 'Invalid email or password');
 const sessionExpired = () => new AuthError(401, 'session_expired', 'Your session has expired. Please sign in again.');
 
-/** What the clients keep about the signed-in person — the claims they used to read off the Supabase session. */
+/** What the clients keep about the signed-in person. */
 export interface SessionUser {
   id: string;
   email: string;
@@ -148,14 +146,6 @@ export async function signIn(input: { identifier: string; password: string; clie
   let accepted = false;
   if (credentials) accepted = await verifyPassword(input.password, credentials.password_hash);
   else await burnPasswordCheck(input.password);
-
-  // The API's copy of the hash can be behind Supabase's for one reason: the
-  // password was changed from an app that has not been updated, which tells
-  // Supabase and not us. If Supabase accepts it, it IS the password — keep it.
-  if (user && !accepted && (await mirrorAcceptsPassword(user.email, input.password))) {
-    await storePassword(user.id, input.password);
-    accepted = true;
-  }
 
   if (!user || !accepted) throw invalidCredentials();
   if (user.status !== 'active') {
@@ -268,7 +258,7 @@ export async function resolveIdentity(userId: string, sessionId: string): Promis
 
 // ── passwords ───────────────────────────────────────────────────────────────
 
-/** Store a new password hash. Says nothing to Supabase; callers that should, do. */
+/** Store a new password hash. */
 async function storePassword(userId: string, password: string): Promise<void> {
   const password_hash = await hashPassword(password);
   await getPrisma().user_credentials.upsert({
@@ -279,26 +269,12 @@ async function storePassword(userId: string, password: string): Promise<void> {
 }
 
 /**
- * Set a user's password — in Supabase Auth while it is still in use, and in the
- * API's own table once the API's sign-in is switched on — and set or clear the
- * "must choose a new one at next sign-in" flag with it.
- *
- * Supabase is written first. If it refuses — its own password policy, the
- * network — nothing has changed anywhere and the caller sees the error. The
- * other order could leave the two holding different passwords.
- *
- * BEFORE THE API'S SIGN-IN IS SWITCHED ON (no JWT_SECRET) this does exactly
- * what the routes did before it existed: Supabase, then the flag on the `users`
- * row. It touches neither Prisma nor the new tables, so it works on a server
- * where those are not set up yet. A password set in that window reaches the
- * API's table when the import in migration 149 is run again, or — failing
- * that — the first time its owner signs in (see `signIn`).
+ * Set a user's password, and set or clear the "must choose a new one at next
+ * sign-in" flag with it.
  */
 export async function setPassword(userId: string, password: string, opts: { mustChange: boolean }): Promise<void> {
-  await mirrorPassword(userId, password);
-  await mirrorClaims(userId, { mustChangePassword: opts.mustChange });
-  if (ownAuthConfigured()) await storePassword(userId, password);
-  // Mirror the flag onto the users row. Deliberately best-effort: the password
+  await storePassword(userId, password);
+  // The flag lives on the users row. Deliberately best-effort: the password
   // has already been changed by this point, so a failure here must not fail
   // the request. updated_at is maintained by the users_touch trigger — do not
   // set it here.
@@ -313,17 +289,17 @@ export async function setPassword(userId: string, password: string, opts: { must
  */
 export async function changeOwnPassword(userId: string, password: string, currentSessionId: string | null): Promise<void> {
   await setPassword(userId, password, { mustChange: false });
-  if (ownAuthConfigured()) await endUserSessions(userId, currentSessionId);
+  await endUserSessions(userId, currentSessionId);
 }
 
 /** The first password of a new account, stored beside the `users` row just created. */
 export async function createCredentials(userId: string, password: string): Promise<void> {
-  if (ownAuthConfigured()) await storePassword(userId, password);
+  await storePassword(userId, password);
 }
 
 /** Sign an account out everywhere — when it is deactivated, or its password is replaced for it. */
 export async function signOutEverywhere(userId: string): Promise<void> {
-  if (ownAuthConfigured()) await endUserSessions(userId);
+  await endUserSessions(userId);
 }
 
 // ── forgotten passwords ─────────────────────────────────────────────────────

@@ -1,41 +1,57 @@
-import { supabaseAdmin } from '../config/supabase';
-import { dbFor } from '../db';
-import { getS3Client } from '../services/backup/backupConfig';
+import { dbFor, disconnectPrisma } from '../../src/db';
+import { getS3Client } from '../../src/services/backup/backupConfig';
 import {
   createS3FileStore,
-  fileStorageDriver,
   s3FileConfig,
   s3Key,
   s3ObjectSize,
   type FileBucket,
-} from '../services/file-store';
+} from '../../src/services/file-store';
 
 const db = dbFor('scripts');
 
 /**
- * Copy every stored file from Supabase Storage to S3, so FILE_STORAGE_DRIVER
- * can be switched to `s3` without losing a photo.
+ * Copy every stored file from Supabase Storage to S3, which is where the API
+ * keeps files.
  *
  *   pnpm files:copy                      report what would be copied; writes nothing
  *   pnpm files:copy --confirm            copy
  *   pnpm files:copy --confirm --rewrite-logo-url
- *                                        copy, then point settings.logo_url at S3
+ *                                        copy, then point settings.logo_url at this API
  *
  * WHAT IT COPIES. Every row of `attachments` (the row is what makes a file
  * findable, so a file with no row is not worth moving) and the one logo named
  * by `settings.logo_path`. Paths are kept as they are — the S3 key is
  * `<FILES_S3_PREFIX>/<bucket>/<path>` — so no row changes except the logo URL.
  *
- * RE-RUNNABLE. A file already in S3 at its recorded size is skipped, so a
- * second run copies only what arrived since the first. That is the changeover:
+ * WHICH DATABASE. The rows are read, and `settings.logo_url` is written, in the
+ * database DATABASE_URL names. Run it against the one the API is going to
+ * serve from: after `railway:migrate`, that is the Railway copy.
  *
- *   1. pnpm files:copy --confirm              (the API is still on Supabase)
- *   2. set FILE_STORAGE_DRIVER=s3, restart    (new uploads now go to S3)
- *   3. pnpm files:copy --confirm --rewrite-logo-url
- *                                             (picks up uploads made between 1 and 2)
+ * WHERE THE FILES COME FROM. Supabase Storage, read over its HTTP API with
+ * SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY — the only two Supabase settings
+ * anything in this repository still reads, and only this script and its
+ * neighbours in infra/railway do.
+ *
+ * RE-RUNNABLE. A file already in S3 at its recorded size is skipped, so a
+ * second run copies only what arrived since the first. Run it once ahead of
+ * the cutover, and once more during it, after writes have stopped.
  *
  * It never deletes anything, on either side. Supabase Storage keeps its copy.
  */
+
+/** One stored file, or null if Supabase Storage has no such object. */
+async function download(bucket: FileBucket, path: string): Promise<{ body: Buffer; contentType: string | null } | null> {
+  const base = (process.env.SUPABASE_URL || '').trim().replace(/\/+$/, '');
+  const key = (process.env.SUPABASE_SERVICE_ROLE_KEY || '').trim();
+  if (!base || !key) throw new Error('SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are required to read the files being copied');
+  const res = await fetch(`${base}/storage/v1/object/${bucket}/${path.split('/').map(encodeURIComponent).join('/')}`, {
+    headers: { apikey: key, authorization: `Bearer ${key}` },
+  });
+  if (res.status === 404 || res.status === 400) return null;
+  if (!res.ok) throw new Error(`Supabase Storage answered ${res.status} for ${bucket}/${path}`);
+  return { body: Buffer.from(await res.arrayBuffer()), contentType: res.headers.get('content-type') };
+}
 
 const PAGE = 1000;
 
@@ -61,14 +77,14 @@ async function copyOne(
       return;
     }
 
-    const { data, error } = await supabaseAdmin.storage.from(bucket).download(path);
-    if (error || !data) {
+    const file = await download(bucket, path);
+    if (!file) {
       tally.missing++;
-      console.warn(`  missing at source: ${bucket}/${path}${error ? ` (${error.message})` : ''}`);
+      console.warn(`  missing at source: ${bucket}/${path}`);
       return;
     }
-    const body = Buffer.from(await data.arrayBuffer());
-    await createS3FileStore(cfg, client).upload(bucket, path, body, contentType || data.type || 'application/octet-stream');
+    const { body } = file;
+    await createS3FileStore(cfg, client).upload(bucket, path, body, contentType || file.contentType || 'application/octet-stream');
 
     // Read it back rather than trust the 200: the size S3 reports is what a
     // later run of this script will compare against.
@@ -94,7 +110,8 @@ async function main() {
   const ctx = { cfg, client, confirm, tally };
 
   console.log(`[files:copy] ${confirm ? 'COPYING' : 'DRY RUN (nothing is written; pass --confirm to copy)'}`);
-  console.log(`[files:copy] target s3://${cfg.bucket}/${cfg.prefix}/   API driver is currently "${fileStorageDriver()}"`);
+  const database = new URL((process.env.DATABASE_URL || '').trim());
+  console.log(`[files:copy] target s3://${cfg.bucket}/${cfg.prefix}/   rows from ${database.hostname}${database.pathname}`);
 
   // Keyset over (created_at, id) would be tidier, but rows are append-only and
   // nothing here deletes, so a stable order plus an offset cannot skip a row.
@@ -108,7 +125,7 @@ async function main() {
     if (error) throw error;
     const rows = data ?? [];
     // Eight at a time: quick enough for a few thousand photos, and gentle on
-    // a Storage API that is also serving the live app.
+    // the service being read from.
     for (let i = 0; i < rows.length; i += 8) {
       await Promise.all(rows.slice(i, i + 8).map((r) =>
         copyOne(ctx, 'attachments', r.storage_path as string, Number(r.size_bytes), r.mime_type as string)));
@@ -134,7 +151,7 @@ async function main() {
   if (rewriteLogo && logoPath && tally.failed === 0) {
     const logoUrl = createS3FileStore(cfg, client).publicUrl('branding', logoPath);
     if (settings?.logo_url === logoUrl) {
-      console.log('[files:copy] settings.logo_url already points at S3');
+      console.log('[files:copy] settings.logo_url already points at this API');
     } else {
       const { error } = await db.from('settings').update({ logo_url: logoUrl }).eq('id', true);
       if (error) throw error;
@@ -143,10 +160,12 @@ async function main() {
     }
   }
 
-  if (tally.failed > 0) process.exit(1);
+  if (tally.failed > 0) process.exitCode = 1;
 }
 
-main().catch((err) => {
-  console.error('[files:copy]', err instanceof Error ? err.message : err);
-  process.exit(1);
-});
+main()
+  .catch((err) => {
+    console.error('[files:copy]', err instanceof Error ? err.message : err);
+    process.exitCode = 1;
+  })
+  .finally(() => disconnectPrisma());

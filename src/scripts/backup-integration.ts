@@ -59,7 +59,7 @@ async function main(): Promise<number> {
   check('backup run succeeded', res.outcome === 'success', res.outcome === 'failed' ? `${res.category}: ${res.message}` : res.outcome);
   if (res.outcome !== 'success') return 1;
   const job = res.job!;
-  const keys = [res.plan.mainKey, res.plan.authKey, res.plan.manifestKey];
+  const keys = [res.plan.mainKey, res.plan.manifestKey];
   const tmp = await mkdtemp(path.join(os.tmpdir(), 'mb-integration-'));
   try {
     // 2. objects + ledger
@@ -85,15 +85,8 @@ async function main(): Promise<number> {
     check('archive lists TABLE public.orders', /TABLE public orders /.test(toc) || /TABLE public orders\b/.test(toc));
     check('archive lists FUNCTION claim_business_day_closure', /claim_business_day_closure/.test(toc));
     check('archive lists schema app objects', /\bapp\b/.test(toc));
-    check('archive lists supabase_migrations', /supabase_migrations/.test(toc));
-    const authLocal = path.join(tmp, res.plan.authFileName);
-    await deps.storage.downloadToFile(res.plan.authKey, authLocal);
-    const authToc = await runPgProcess(
-      resolvePgBinary('pg_restore', cfg.pgBinDir),
-      { argv: ['--list', authLocal], env: {}, timeoutMs: 60_000, label: 'pg_restore --list auth' },
-      { pgBinDir: cfg.pgBinDir, secrets: cfg.secrets },
-    );
-    check('auth archive lists auth.users + auth.identities', /TABLE auth users/.test(authToc.stdout) && /TABLE auth identities/.test(authToc.stdout));
+    // The accounts and their password hashes travel in this one archive.
+    check('archive lists TABLE DATA public.users + public.user_credentials', /TABLE DATA public users /.test(toc) && /TABLE DATA public user_credentials /.test(toc));
     void pgConnectionEnv; // (kept for parity with restore test; connection env is built inside runPgDump)
   } finally {
     await rm(tmp, { recursive: true, force: true });
@@ -125,6 +118,6 @@ main()
       console.error(`\n${err.message}`);
       process.exit(2);
     }
-    console.error('\nIntegration test failed:', redactSecrets(err instanceof Error ? err.message : String(err), [process.env.SUPABASE_DB_URL ?? '']));
+    console.error('\nIntegration test failed:', redactSecrets(err instanceof Error ? err.message : String(err), [process.env.BACKUP_DB_URL ?? '']));
     process.exit(1);
   });

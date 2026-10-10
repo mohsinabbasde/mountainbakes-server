@@ -16,14 +16,11 @@ import { PrismaClient } from '../../generated/prisma/client';
  * assertion made over HTTP — so what is tested is what a browser or a phone
  * would see, and what the database is left holding afterwards.
  *
- * Supabase is not involved and not mocked: AUTH_GOTRUE_MIRROR and
- * AUTH_ACCEPT_SUPABASE are off, which is the state the system ends in. Nothing
- * here imports config/supabase.
+ * Nothing is mocked but the mail transport: the database is a real Postgres
+ * in the test process, and Prisma talks to it.
  */
 
 process.env['JWT_SECRET'] = 'test-secret-test-secret-test-secret-0123456789';
-process.env['AUTH_GOTRUE_MIRROR'] = 'false';
-process.env['AUTH_ACCEPT_SUPABASE'] = 'false';
 process.env['NEXT_PUBLIC_WEB_URL'] = 'https://app.test';
 process.env['SMTP_HOST'] = 'smtp.test';
 process.env['SMTP_USER'] = 'no-reply@mb.test';
@@ -53,7 +50,10 @@ const STUBS = `
   create table push_subscriptions (id uuid primary key default gen_random_uuid(), user_id uuid, endpoint text, p256dh text, auth text);
   -- Read by the request middleware; empty means nothing has been revoked.
   create table login_sessions (id uuid primary key default gen_random_uuid(), auth_session_id uuid, revoked_at timestamptz);
+  create table login_attempts (id uuid primary key default gen_random_uuid());
 `;
+
+const SESSIONS_ONLY = readFileSync(join(__dirname, '../../../prisma/migrations/20261010000001_api_sessions_only/migration.sql'), 'utf8');
 
 const ADMIN = '10000000-0000-4000-8000-000000000001';
 const MANAGER = '10000000-0000-4000-8000-000000000002';
@@ -88,10 +88,12 @@ before(async () => {
   pg = new PGlite();
   await pg.exec(`set time zone 'UTC'`);
   await pg.exec(STUBS);
-  // One transaction, as `supabase db push` applies it — and on a database with
-  // no `auth` schema, which is where this migration has to keep working.
-  const migration = readFileSync(join(__dirname, '../../../supabase/migrations/20261009000149_custom_auth.sql'), 'utf8');
+  // One transaction, as it was applied — and on a database with no `auth`
+  // schema, which is the kind the API serves from.
+  const migration = readFileSync(join(__dirname, '../../../db/history/migrations/20261009000149_custom_auth.sql'), 'utf8');
   await pg.exec(`begin;${migration}commit;`);
+  // The session and account functions as they are today: the API's own tables only.
+  await pg.exec(`begin;${SESSIONS_ONLY}commit;`);
 
   await usePglite(pg);
   setPrisma(new PrismaClient({ adapter: new PrismaPGlite(pg) }));
@@ -131,10 +133,31 @@ after(() => {
 
 describe('migration 149', () => {
   test('applies on a database with no auth schema, and again without complaint', async () => {
-    const migration = readFileSync(join(__dirname, '../../../supabase/migrations/20261009000149_custom_auth.sql'), 'utf8');
+    const migration = readFileSync(join(__dirname, '../../../db/history/migrations/20261009000149_custom_auth.sql'), 'utf8');
     await pg.exec(`begin;${migration}commit;`);
     const [{ n }] = await sql<{ n: number }>(`select count(*)::int as n from user_credentials`);
     assert.equal(n, 2); // re-running did not disturb what was there
+  });
+});
+
+describe('the session and account functions', () => {
+  test('look nowhere but the API\'s own tables, and the migration can be applied again', async () => {
+    await pg.exec(`begin;${SESSIONS_ONLY}commit;`);
+    const bodies = await sql<{ proname: string; def: string }>(
+      `select proname, pg_get_functiondef(oid) as def from pg_proc
+        where proname in ('revoke_auth_session', 'revoke_all_auth_sessions', 'delete_user_account')`,
+    );
+    assert.equal(bodies.length, 3);
+    for (const fn of bodies) assert.doesNotMatch(fn.def, /auth\.(users|sessions)|to_regclass/, fn.proname);
+  });
+
+  test('ending a session that is not there, or nobody\'s, is a plain no', async () => {
+    const { dbFor } = await import('../../db');
+    const nobody = '99999999-0000-4000-8000-000000000009';
+    assert.equal((await dbFor('test').rpc('revoke_auth_session', { p_auth_session_id: nobody })).data, false);
+    assert.equal((await dbFor('test').rpc('revoke_auth_session', { p_auth_session_id: null })).data, false);
+    assert.equal((await dbFor('test').rpc('revoke_all_auth_sessions', { p_user_id: nobody })).data, 0);
+    assert.equal((await dbFor('test').rpc('delete_user_account', { p_user_id: nobody })).data, false);
   });
 });
 
@@ -195,7 +218,7 @@ describe('signing in', () => {
       `${header}.${payload}.${'A'.repeat(43)}`, // right claims, wrong signature
       forged(claims, 'none'), // "unsigned" token
       forged({ ...claims, sub: ADMIN }, 'HS256'), // somebody else, no signature
-      forged({ iss: 'https://x.supabase.co/auth/v1', sub: ADMIN }, 'HS256'), // a Supabase-shaped token, with that path switched off
+      forged({ iss: 'https://issuer.example/auth/v1', sub: ADMIN }, 'HS256'), // another issuer's token
     ]) {
       assert.equal((await call('GET', '/api/auth/me', undefined, bad)).status, 401, bad.slice(0, 40));
     }

@@ -79,10 +79,10 @@ const admin = () => ({ uid: ids.admin, name: 'admin@mb.test' });
 before(async () => {
   db = new PGlite();
   await db.exec(STUBS);
-  const migration = readFileSync(join(__dirname, '../../../supabase/migrations/20261003000136_restriction_rules.sql'), 'utf8');
-  // One transaction, as `supabase db push` applies it.
+  const migration = readFileSync(join(__dirname, '../../../db/history/migrations/20261003000136_restriction_rules.sql'), 'utf8');
+  // One transaction, as it was applied.
   await db.exec(`begin;${migration}commit;`);
-  const productionGroup = readFileSync(join(__dirname, '../../../supabase/migrations/20261003000137_restriction_rules_production_group.sql'), 'utf8');
+  const productionGroup = readFileSync(join(__dirname, '../../../db/history/migrations/20261003000137_restriction_rules_production_group.sql'), 'utf8');
   await db.exec(`begin;${productionGroup}commit;`);
 
   const one = async (q: string) => (await sql(q)).rows[0]!['id'] as string;

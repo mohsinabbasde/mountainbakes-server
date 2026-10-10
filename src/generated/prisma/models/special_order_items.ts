@@ -16,7 +16,6 @@ import type * as Prisma from "../internal/prismaNamespace"
  * Model special_order_items
  * This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
  * This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
- * This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
  */
 export type special_order_itemsModel = runtime.Types.Result.DefaultSelection<Prisma.$special_order_itemsPayload>
 
